@@ -128,18 +128,9 @@ function render() {
     cur.append(g);
   }
 
-  renderSite();
-  renderCatalog();
-  renderFrames();
-  renderMoodboard();
-  renderUnreal();
-  renderLibrary();
-  areasRefresh();
-  renderPlan();
-  renderRefs();
-  renderReview();
-
-  renderShell();
+  // each part on its own: one that throws is logged and the rest (the Jobs panel included) still draw
+  for (const f of [renderSite, renderCatalog, renderFrames, renderMoodboard, renderUnreal, renderLibrary, areasRefresh,
+                   renderPlan, renderRefs, renderReview, renderShell]) guarded(f);
   setStop("#explore-stop", activeJobs("style.explore"));
   setStop("#derive-stop", activeJobs("style.derive"));
 }
@@ -174,7 +165,20 @@ $("#restart-app").onclick = async () => {
   alert("Terraformer did not come back within a minute: start it again (see the ui log).");
 };
 
-async function load() {
+// One load at a time: while jobs run, the poll asked for a load every 2 s even when the last one
+// hadn't come back, so on a busy server loads piled up and each rendered the whole page. A load
+// asked for while one runs waits for it and runs once more (callers still get data newer than
+// their own request); any number of such asks share that one follow-up.
+let loadBusy = null, loadNext = null;
+function load() {
+  if (!loadBusy) { loadBusy = loadOnce().finally(() => { loadBusy = null; }); return loadBusy; }
+  if (!loadNext) loadNext = loadBusy.catch(() => {}).then(() => { loadNext = null; return load(); });
+  return loadNext;
+}
+// the job poll and other loads nobody awaits: a failed one is logged and the next one tries again
+const pollLoad = () => load().catch(err => console.error("Terraformer: refresh failed, retrying on the next poll:", err));
+
+async function loadOnce() {
   checkBuild();
   if (!slug) { $("#empty").hidden = false; diskAfterLoad(); renderShell(); return; }
   [data, plans, refs, reviewData, siteData, framesData, catalogData, statusData] = await Promise.all([api(`/api/projects/${slug}`),

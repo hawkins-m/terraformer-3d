@@ -59,9 +59,15 @@ def _entries_and_decisions(store):
     return ents, sw_library.decisions(store)
 
 
-def members(store: ProjectStore, area: str | None = None, district: str | None = None) -> dict[str, float]:
-    """{entry: its largest frame share in the area's shots (0 for district-only members)}."""
+def members(store: ProjectStore, area: str | None = None, district: str | None = None,
+            everywhere: bool = False) -> dict[str, float]:
+    """{entry: its largest frame share in the area's shots (0 for district-only members)}.
+    everywhere: every library entry, whatever area it is in (its largest share in any shot)."""
     from .stages import sw_shots, sw_site
+    if everywhere:
+        ents, _ = _entries_and_decisions(store)
+        return {k: max([float(s.get("share") or 0.0) for s in e.get("sources") or []] + [float(e.get("share") or 0.0)])
+                for k, e in ents.items()}
     if not area and not district:
         raise ValueError("give an area (--area NAME) or a district (--district ID)")
     spec = {"shots": [], "districts": [district]} if district else load(store).get(area)
@@ -134,8 +140,10 @@ def assets_of(store: ProjectStore, entry: str, decision: dict | None) -> list[st
     return [entry]
 
 
-def status(store: ProjectStore, area: str | None = None, district: str | None = None) -> list[dict]:
-    """One row per asset of the area: what it has (sheets, brief, build, review) and its next step."""
+def status(store: ProjectStore, area: str | None = None, district: str | None = None,
+           everywhere: bool = False) -> list[dict]:
+    """One row per asset of the area (everywhere: of the whole library): what it has (sheets, brief,
+    build, review) and its next step."""
     from . import kit_proc, library_review, variants
     from .stages import s2_refs, s5_3d, sw_library
     ents, dec = _entries_and_decisions(store)
@@ -144,7 +152,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
     revs = library_review.reviews(store)
     units = {u.key: u for u in s2_refs.units(store, sw_library.PLAN_NAME)}
     rows = []
-    for eid, share in sorted(members(store, area, district).items(), key=lambda kv: -kv[1]):
+    for eid, share in sorted(members(store, area, district, everywhere).items(), key=lambda kv: -kv[1]):
         e, d = ents[eid], dec.get(eid) or {}
         if e.get("kind") == "vegetation":
             continue                                   # trees: Unreal PCG (vegetation zones, street-tree slots)
@@ -174,7 +182,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
 
 
 def next_step(store: ProjectStore, r: dict, area: str | None, district: str | None) -> str:
-    sel = f"--area {area}" if area else f"--district {district}"
+    sel = f"--area {area}" if area else f"--district {district}" if district else "--area NAME"
     p = store.root.name
     if r["status"] == "approved":
         return "done (approved)"

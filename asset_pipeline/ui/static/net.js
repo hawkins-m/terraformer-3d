@@ -17,6 +17,12 @@ function errorText(x) {
   return String(x);
 }
 
+// Run one part of a redraw; if it throws, log it and go on, so one broken part never stops the
+// rest of the page (the Jobs panel, the poll) from updating.
+function guarded(fn, ...args) {
+  try { return fn(...args); } catch (err) { console.error(`Terraformer: ${fn.name || "a redraw"} failed:`, err); }
+}
+
 // The same for window.alert, whatever a caller passes it.
 if (typeof window !== "undefined" && typeof window.alert === "function" && !window.alert.apAlert) {
   const plain = window.alert.bind(window);
@@ -44,7 +50,7 @@ async function api(path, body, method = "POST", opts = {}) {
   // refresh the app state so the panel lists it and keeps polling until it ends
   if (method === "POST" && j && typeof j.id === "number" && j.kind && j.status) {
     if (typeof openJobDialog === "function") setTimeout(() => openJobDialog(j.id), 0);
-    if (typeof load === "function") setTimeout(() => { load(); }, 0);
+    if (typeof pollLoad === "function") setTimeout(pollLoad, 0);
   }
   return j;
 }

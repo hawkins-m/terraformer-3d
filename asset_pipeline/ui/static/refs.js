@@ -17,6 +17,14 @@ function refsGuidanceSet(ukey, text) {
 }
 // sheets ticked for "Delete selected", by sheet key (kept across re-renders)
 const refsSel = {};
+// Show filter (the Library step strip sets it: 2 Sheets -> missing, 3 Star -> star)
+// Library assets go by the strip's own step (libStepOf), so the counts match it; other plans by their sheets.
+const refsStep = (u, step, plain) => u.plan === "library" && typeof libStepOf === "function" ? (refsStepMap || (refsStepMap = libStepOf()))[u.key] === step : plain(u);
+let refsStepMap = null;               // per render: libStepOf() once, not once per unit
+const REFS_FILTERS = {all: ["All assets", () => true], missing: ["No sheets yet", u => refsStep(u, "sheets", x => !x.sheets.length)],
+  star: ["Sheets, none starred", u => refsStep(u, "star", x => x.sheets.length && !x.sheets.some(k => data.stars[k]))]};
+let refsFilter = "all";
+function refsFilterSet(k) { refsFilter = REFS_FILTERS[k] ? k : "all"; renderRefs(); }
 
 function renderRefs() {
   const list = $("#refs-list");
@@ -36,9 +44,14 @@ function renderRefs() {
     if (refs.length) $("#refs-summary").textContent = sumText; else { $("#refs-summary").innerHTML = sumText; wireGo($("#refs-summary")); }
   }
 
+  refsStepMap = null;
+  const rf = $("#refs-filter"), rfHtml = Object.entries(REFS_FILTERS).map(([k, [label, fn]]) =>
+    `<option value="${k}"${k === refsFilter ? " selected" : ""}>${esc(label)} (${refs.filter(fn).length})</option>`).join("");
+  if (rf.dataset.sig !== rfHtml) { rf.dataset.sig = rfHtml; rf.innerHTML = rfHtml; }
+  const shownR = refs.filter(REFS_FILTERS[refsFilter][1]);
   // keyed: a unit is rebuilt only when its sheets, stars or job changed (keyed.js), so sheets never reload
-  const plansR = [...new Set(refs.map(u => u.plan))];
-  keyedSections(list, plansR.map(p => ({key: p, items: refs.filter(x => x.plan === p)})), {
+  const plansR = [...new Set(shownR.map(u => u.plan))];
+  keyedSections(list, plansR.map(p => ({key: p, items: shownR.filter(x => x.plan === p)})), {
     cls: "refs-plan",
     heading: g => `<h3>${esc(g.key)}</h3>`,
     key: u => `${u.plan}/${u.key}`,
@@ -46,6 +59,7 @@ function renderRefs() {
       activeJobs("refs.generate", {plan: u.plan, unit: u.key}).map(j => j.status)]),
     build: refsUnit,
   });
+  if (refs.length && !shownR.length) list.innerHTML = `<p class="hint">None: ${esc(REFS_FILTERS[refsFilter][0].toLowerCase())}. Pick another Show filter.</p>`;
   if (focused) {                       // keep typing where you were through a re-render
     const inp = [...list.querySelectorAll("input.guidance")].find(x => x.dataset.unit === focused.key);
     if (inp && !inp.disabled) { inp.focus(); inp.setSelectionRange(focused.a, focused.b); }
@@ -150,6 +164,7 @@ async function generateRefs(body) {
 }
 
 $("#refs-missing").onclick = () => generateRefs({});
+$("#refs-filter").onchange = e => refsFilterSet(e.target.value);
 
 // Next step once a sheet of a library asset is starred: procedural assets get Brief & build (the
 // brief from the sheet, then the Blender build and review renders), TRELLIS ones Extract reference views.

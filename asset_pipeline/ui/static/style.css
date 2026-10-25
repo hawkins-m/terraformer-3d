@@ -426,6 +426,10 @@ details summary { cursor: default; }
 .asset-actions button[aria-pressed="true"] { background: var(--select); color: var(--select-text); }
 .asset-card.decided-source, .asset-card.decided-reference { border-color: var(--ready); }
 .asset-card.decided-exclude { opacity: .6; }
+.lib-batch { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0; }   /* like .row; not one, so the toolbar stays the only .row */
+.asset-card { position: relative; }
+.asset-card .asset-tick { position: absolute; top: 2px; left: 2px; background: var(--field); border: 1px solid var(--border); padding: 0 2px; line-height: 1; }
+.asset-card.ticked { outline: 2px solid var(--select); }
 .chip.tier-A { background: #E3F0D8; } .chip.tier-B { background: #DCE7F5; }
 .chip.tier-C { background: #F5E7D6; } .chip.tier-D { background: #ECECEC; }
 .asset-name .chip.route { cursor: pointer; border: 1px solid var(--border); background: var(--field); color: var(--text); font: 11px var(--ui); padding: 0 5px; }
@@ -619,7 +623,7 @@ details summary { cursor: default; }
 .step-head .sh-detail { color: var(--muted); }
 .step-head .sh-reason { color: var(--muted); font-style: italic; }
 .step-head .sh-behind { background: var(--stale); border: 1px solid var(--stale-line); padding: 0 6px; }
-.step-head button.link, .guide button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91;
+.step-head button.link, .guide button.link, .lib-offer button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91;
   text-decoration: underline; font: inherit; cursor: pointer; }
 .st-chip { border: 1px solid var(--border-dark); padding: 0 6px; background: var(--field); white-space: nowrap; font-weight: 700; }
 .st-chip.st-none { color: var(--muted); font-weight: 400; }
@@ -675,6 +679,9 @@ details summary { cursor: default; }
 .lib-steps .ls-step.current { background: var(--stale); border-color: var(--stale-line); }
 .lib-steps .ls-n { display: inline-block; min-width: 14px; padding: 0 3px; background: var(--select); color: var(--select-text, #fff); font-size: 11px; }
 .lib-steps .ls-arrow { color: var(--muted); }
+.lib-offer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; padding: 4px 6px;
+  border: 1px solid var(--stale-line); background: var(--stale); }
+.lib-offer .lo-what { font-weight: 700; }
 
 /* Setup (setup.js): one block per item, input + Test on one line, the answer under it */
 .setup-window { width: min(780px, 96vw); }

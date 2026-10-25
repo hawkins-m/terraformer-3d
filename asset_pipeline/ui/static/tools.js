@@ -6,9 +6,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // The finished job (result or error) once it leaves the queue. api() has already opened its
 // progress dialog; this only waits.
+// A failed check (a busy or restarting server) is logged and tried again; only a run of them gives up.
 async function jobDone(job) {
-  for (let i = 0; i < 20000; i++) {
-    const j = await api(`/api/jobs/${job.id}`, undefined, "GET");
+  for (let i = 0, failed = 0; i < 20000; i++) {
+    let j;
+    try { j = await api(`/api/jobs/${job.id}`, undefined, "GET"); failed = 0; }
+    catch (err) {
+      console.error(`Terraformer: checking job ${job.id} failed, retrying:`, err);
+      if (++failed >= 30) break;
+      await sleep(2000); continue;
+    }
     if (!isActive(j)) return j;
     await sleep(800);
   }

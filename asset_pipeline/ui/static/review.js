@@ -31,6 +31,17 @@ function rowNote(a) {
   return {key: j.id, cls: "", html: lines.join("<br>"), title: r.message || ""};
 }
 
+// Show filter (the Library step strip sets it: 4 Build -> view, 5 Approve -> approve), by the strip's
+// own step per asset (workflow.js libStepOf) so the counts match it. Needs a view: waiting at Build,
+// a TRELLIS asset, no view chosen yet.
+let viewsStepMap = null;              // per render
+const viewsStep = a => a.plan === "library" && (viewsStepMap || (viewsStepMap = libStepOf()))[a.asset.id];
+const VIEWS_FILTERS = {all: ["All assets", () => true],
+  view: ["Needs a view picked", a => viewsStep(a) === "build" && !a.procedural && !a.chosen],
+  approve: ["Built, not approved", a => viewsStep(a) === "approve"]};
+let viewsFilter = "all";
+function viewsFilterSet(k) { viewsFilter = VIEWS_FILTERS[k] ? k : "all"; renderReview(); }
+
 function renderReview() {
   if (!reviewData) return;
   const pending = reviewData.pending_sheets.length;
@@ -48,9 +59,14 @@ function renderReview() {
     if (pre) { $("#review-summary").innerHTML = sumText; wireGo($("#review-summary")); } else $("#review-summary").textContent = sumText;
   }
 
+  viewsStepMap = null;
+  const vf = $("#views-filter"), vfHtml = Object.entries(VIEWS_FILTERS).map(([k, [label, fn]]) =>
+    `<option value="${k}"${k === viewsFilter ? " selected" : ""}>${esc(label)} (${reviewData.assets.filter(fn).length})</option>`).join("");
+  if (vf.dataset.sig !== vfHtml) { vf.dataset.sig = vfHtml; vf.innerHTML = vfHtml; }
+  const shownV = reviewData.assets.filter(VIEWS_FILTERS[viewsFilter][1]);
   // keyed: only rows whose data changed are rebuilt, keeping their loaded images (keyed.js)
-  const plans = [...new Set(reviewData.assets.map(a => a.plan))];
-  keyedSections($("#review-list"), plans.map(p => ({key: p, items: reviewData.assets.filter(x => x.plan === p)})), {
+  const plans = [...new Set(shownV.map(a => a.plan))];
+  keyedSections($("#review-list"), plans.map(p => ({key: p, items: shownV.filter(x => x.plan === p)})), {
     heading: g => `<h3>${esc(g.key)}</h3>`,
     key: a => `${a.plan}/${a.asset.id}`,
     sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name), a.plan === "library" ? verRev(a.asset.id) : 0,
@@ -58,7 +74,10 @@ function renderReview() {
       ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status)), rowNote(a)]),
     build: assetReview,
   });
+  if (reviewData.assets.length && !shownV.length)
+    $("#review-list").innerHTML = `<p class="hint">None: ${esc(VIEWS_FILTERS[viewsFilter][0].toLowerCase())}. Pick another Show filter.</p>`;
 }
+$("#views-filter").onchange = e => viewsFilterSet(e.target.value);
 
 function assetReview(a) {
   const el = document.createElement("div"); el.className = "asset-review"; el.dataset.asset = a.asset.id;
