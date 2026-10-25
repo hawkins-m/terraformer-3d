@@ -102,7 +102,12 @@ def members(store: ProjectStore, area: str | None = None, district: str | None =
             for m in vs.get("members") or {}:
                 if m in ents:
                     out.setdefault(m, out[base])
-    return out
+    dups = {k: e["duplicate_of"] for k, e in ents.items() if e.get("duplicate_of")}
+    while True:                                      # duplicates (and theirs) go where their original goes
+        new = {k: out[o] for k, o in dups.items() if o in out and k not in out}
+        if not new:
+            return out
+        out.update(new)
 
 
 def slots_in(store: ProjectStore, area: str) -> set[str]:
@@ -135,6 +140,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
     from .stages import s2_refs, s5_3d, sw_library
     ents, dec = _entries_and_decisions(store)
     in_set = {m: base for base, vs in variants.sets(store).items() for m in (vs.get("members") or {}) if m != base}
+    in_set |= variants.duplicates_as_variants(store)
     revs = library_review.reviews(store)
     units = {u.key: u for u in s2_refs.units(store, sw_library.PLAN_NAME)}
     rows = []

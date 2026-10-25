@@ -28,7 +28,8 @@ async function loadAssetReviews() {
 }
 
 // the assets with a procedural brief that belong to a library entry (itself, or its kit modules)
-const lrAssetsOf = id => [...lr.briefs].filter(a => a === id || a.startsWith(id + "-"));
+// (not another entry whose id starts the same: canopy-table-02 is not a module of canopy-table)
+const lrAssetsOf = id => [...lr.briefs].filter(a => a === id || a.startsWith(id + "-") && assetEntry(a) === id);
 
 async function openAssetReview(asset) {
   lr.asset = asset; lr.orbit = false; lr.pick = null;

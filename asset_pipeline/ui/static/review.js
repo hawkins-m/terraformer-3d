@@ -54,6 +54,7 @@ function renderReview() {
     heading: g => `<h3>${esc(g.key)}</h3>`,
     key: a => `${a.plan}/${a.asset.id}`,
     sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name), a.plan === "library" ? verRev(a.asset.id) : 0,
+      a.plan === "library" ? [variantOf(a.asset.id), variantOf(a.asset.id) && assetName(variantOf(a.asset.id)), (libraryData && libraryData.splits || {})[a.asset.id] || null] : 0,
       ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status)), rowNote(a)]),
     build: assetReview,
   });
@@ -62,11 +63,18 @@ function renderReview() {
 function assetReview(a) {
   const el = document.createElement("div"); el.className = "asset-review"; el.dataset.asset = a.asset.id;
   const x = a.asset, d = x.dimensions;
+  // the header names the asset (and what it is a variant of); the version number only stands by the
+  // Active badge, so "v2 canopy table copy" no longer reads as a version of canopy table
+  const lib = a.plan === "library", vof = lib ? variantOf(x.id) : null;
+  const places = lib && libraryData && libraryData.splits && libraryData.splits[x.id]
+    ? `<span class="asset-split" title="${esc(splitTip(x.id))}">${esc(splitText(x.id))}</span>`
+    : vof ? `shares ${esc(assetName(vof))}'s places` : `×${x.count}`;
   el.innerHTML = `<div class="head">
-      ${a.current ? `<span class="cur-version" title="${ACTIVE_TIP}">${a.current.thumb ? `<img alt="" src="${fileUrl(a.current.thumb)}">` : ""}<b>v${a.current.n}</b></span>` : ""}
-      <span class="title">${a.plan === "library" ? assetLabelHtml(x.id) : esc(x.name)}</span>
-      ${a.plan === "library" && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, build method, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
-      <span class="hint">×${x.count} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
+      ${a.current && a.current.thumb ? `<span class="cur-thumb" title="${ACTIVE_TIP}"><img alt="" src="${fileUrl(a.current.thumb)}"></span>` : ""}
+      <span class="title">${lib ? `<b>${esc(assetName(x.id))}</b>${vof ? `<span class="variant-of"> · variant of ${esc(assetName(vof))}</span>` : ""}${assetName(x.id) !== x.id ? ` <span class="hint" style="margin:0">${esc(x.id)}</span>` : ""}` : esc(x.name)}</span>
+      ${a.current ? `<span class="cur-version" title="${ACTIVE_TIP}"><span class="mark ver-used">Active</span><b>v${a.current.n}</b></span>` : ""}
+      ${lib && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, build method, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
+      <span class="hint">${places} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
       <span class="actions">${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}

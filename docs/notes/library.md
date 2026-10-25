@@ -179,6 +179,16 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   library asset from `sw_library.asset_names` (served as `names` with /library).
 - Rename carries the id into variant sets and areas/*.md; Unreal assets made under the old id
   (Preview/<id>, LookTest, look-scene builds, pulled actor labels) come back as `not_updated`.
+- Duplicates as cards and variants (2026-10-25): a duplicate has no shot frame (`sw_library.load`
+  clears the `best` older duplicates copied; a frame-crop decision becomes "description + chosen
+  image" with the original's crop) and joins its original's areas. It is a variant of its original
+  by default (`variant` on its custom entry): `variants.splits` / `assignments` deal the original's
+  prop and kit-slot placements out evenly in hash order, only to variants with a built Active
+  version; `city_library.plan` places them (`ap ue build`). Typed buildings keep their instance builds.
+- `lrAssetsOf("canopy-table")` matched `canopy-table-02` (prefix): the original's card showed the
+  copy's Build review. Modules must belong to the entry (`assetEntry`).
+- Delete entry (user-made entries only) moves the files to `<project>/trash/<UTC time>-<id>/` with
+  an `entry.json` of what it removed; stored files stay linked there until the trash is emptied.
 
 ## Shared file store (2026-10-18)
 - `asset_pipeline/filestore.py`: sheets, views and all GLBs under 3d/ live in `files/` by hash

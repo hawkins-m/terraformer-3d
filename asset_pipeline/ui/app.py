@@ -156,6 +156,10 @@ class EntryMoveReq(BaseModel):
     overwrite: bool = False        # replace files that already exist at the new id
 
 
+class EntryVariantReq(BaseModel):
+    on: bool                       # a duplicate used as a variant of its original
+
+
 class ChildrenReq(BaseModel):
     children: list[dict]           # [{entry, anchor (centre / front), offset [x, y, z], yaw, scale}]
     build: bool = True             # rebuild the assembly preview (a Blender job) when the parent has a model
@@ -1292,8 +1296,12 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def library_get(slug: str):
         store = _store(slug)
         data = sw_library.load(store)
+        from .. import variants
         return {"plan": data, "decisions": sw_library.decisions(store), "names": sw_library.asset_names(store),
                 "areas": _area_members(store) if data else {},
+                # duplicates used as variants: {variant: original}, and each original's placement split
+                "variant_of": variants.duplicates_as_variants(store) if data else {},
+                "splits": variants.splits(store) if data else {},
                 "has_greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
 
     def _area_members(store) -> dict:
@@ -1484,6 +1492,25 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if not req.to:
             raise HTTPException(400, "give the new id (to)")
         return _entry_call(library_entries.duplicate, _store(slug), entry, req.to, req.name, req.overwrite)
+
+    @app.get("/api/projects/{slug}/library/entries/{entry}/delete")
+    def library_entries_delete_info(slug: str, entry: str):
+        """What Delete entry would move to the trash (asked before deleting)."""
+        return _entry_call(library_entries.delete_info, _store(slug), entry)
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/delete")
+    def library_entries_delete(slug: str, entry: str):
+        return _entry_call(library_entries.delete, _store(slug), entry)
+
+    @app.get("/api/projects/{slug}/library/entries/{entry}/variant")
+    def library_entries_variant_get(slug: str, entry: str):
+        from .. import variants
+        return variants.variant_info(_store(slug), entry)
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/variant")
+    def library_entries_variant_set(slug: str, entry: str, req: EntryVariantReq):
+        from .. import variants
+        return _entry_call(variants.set_variant, _store(slug), entry, req.on)
 
     @app.post("/api/projects/{slug}/library/entries/{entry}/rename")
     def library_entries_rename(slug: str, entry: str, req: EntryMoveReq):

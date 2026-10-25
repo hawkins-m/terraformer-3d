@@ -170,3 +170,141 @@ def summary(store: ProjectStore, base: str) -> dict:
     return {"base": base, "prop": noun(store, base), "areas": spec.get("areas") or [], "seed": spec.get("seed", 0),
             "slots": len(rows), "members": [{"entry": m, "weight": w, "share": round(w / total, 3), "slots": counts.get(m, 0)}
                                             for m, w in spec["members"].items()]}
+
+
+# --- duplicates as variants ------------------------------------------------------------------
+# A duplicate (Manage entry… › Duplicate) is a variant of its original unless the user turns it
+# off ("variant": false on its custom entry; Manage entry… › Use as a variant of <original>).
+# Variants share the original's placements: the city's props of its type and the slots its kit
+# build stands in (city_library). Each placement gets the original or one of its variants with a
+# built Active version: placements are ordered by a hash of (original, placement key) and dealt
+# out in turn, so the split is even (within one), and the same between builds while the
+# placements and the variants with a build stay the same. Typed buildings (one instance build per
+# planned building) always keep their own builds.
+
+def duplicates_as_variants(store: ProjectStore) -> dict[str, str]:
+    """{variant: its original} for every duplicate used as a variant (a duplicate of a variant
+    counts for the first original)."""
+    from .stages import sw_library as swl
+    cust = swl.custom(store)
+    ents = _entries(store)
+
+    def root(eid, seen=()):
+        e = cust.get(eid) or {}
+        src = e.get("duplicate_of")
+        if not src or src not in ents or eid in seen or e.get("variant") is False:
+            return eid
+        return root(src, (*seen, eid))
+    out = {}
+    for eid, e in cust.items():
+        if e.get("duplicate_of") and e.get("variant", True) is not False and eid in ents:
+            r = root(eid)
+            if r != eid:
+                out[eid] = r
+    return out
+
+
+def variant_of(store: ProjectStore, eid: str) -> str | None:
+    return duplicates_as_variants(store).get(eid)
+
+
+def set_variant(store: ProjectStore, eid: str, on: bool) -> dict:
+    """Manage entry… › Use as a variant of <original> (duplicates only)."""
+    from .stages import sw_library as swl
+    cust = swl.custom(store)
+    if not (cust.get(eid) or {}).get("duplicate_of"):
+        raise ValueError(f"{eid} is not a duplicate: only a duplicate can be a variant of its original")
+    cust[eid]["variant"] = bool(on)
+    swl.save_custom(store, cust)
+    return variant_info(store, eid)
+
+
+def has_build(store: ProjectStore, eid: str) -> bool:
+    """A built Active version (what a variant needs before it takes placements)."""
+    from . import versions
+    try:
+        return versions.current_glb(store, eid) is not None
+    except (FileNotFoundError, KeyError, ValueError):
+        return False
+
+
+def placement_keys(store: ProjectStore, original: str, gb: dict | None = None) -> list[str]:
+    """The keys of the placements an original's variants share, as city_library keys them: its
+    props in every slot (the prop's main pieces) and the slots its kit build stands in."""
+    from .city_library import PROP_MAINS, prop_groups
+    from .stages import sw_site
+    from .stages.sw_library import PROP_PIECES, _slug
+    if gb is None:
+        try:
+            gb = sw_site.load_greybox(store)
+        except FileNotFoundError:
+            return []
+    from . import kit_proc
+    from .project import read_json
+    e = _entries(store).get(original) or {}
+    has_instances = (store.root / "3d" / "library" / original / "instances" / "index.json").is_file()
+    sp = kit_proc.spec_path(store, original)
+    brief = (read_json(sp, default=None) or {}) if sp.is_file() else None
+    slots = {s["id"]: s for s in gb["slots"]}
+    keys = set()
+    for s in gb["slots"]:
+        for main, n, _ in prop_groups(s, PROP_PIECES, PROP_MAINS):
+            if _slug(n) == original:
+                keys.add(f"{original}_{s['id']}_{main}".replace("-", "m"))
+    for sid in e.get("slot_ids") or [] if brief is not None else []:   # kit slots (look._candidates) and
+        s = slots.get(sid)                           # typed slots no instance build covers (representative)
+        if s is not None and (s.get("typology") and not has_instances or not s.get("typology") and brief.get("kind") == "building"):
+            keys.add(f"{original}_{sid}".replace("-", "m"))
+    return sorted(keys)
+
+
+def deal(original: str, keys: list[str], members: list[str]) -> dict[str, str]:
+    """{placement key: member}: keys in hash order, members dealt out in turn (original first)."""
+    if not members:
+        return {}
+    order = sorted(keys, key=lambda k: (hashlib.sha256(f"{original}|{k}".encode()).hexdigest(), k))
+    return {k: members[i % len(members)] for i, k in enumerate(order)}
+
+
+def pools(store: ProjectStore) -> dict[str, dict]:
+    """{original: {"variants": [all its variants], "built": [those with a built Active version]}}."""
+    out: dict[str, dict] = {}
+    for v, o in sorted(duplicates_as_variants(store).items()):
+        p = out.setdefault(o, {"variants": [], "built": []})
+        p["variants"].append(v)
+        if has_build(store, v):
+            p["built"].append(v)
+    return out
+
+
+def assignments(store: ProjectStore, gb: dict | None = None) -> dict[str, dict[str, str]]:
+    """{original: {placement key: entry}} for every original with a built variant."""
+    out = {}
+    for o, p in pools(store).items():
+        if p["built"]:
+            out[o] = deal(o, placement_keys(store, o, gb), [o, *p["built"]])
+    return out
+
+
+def splits(store: ProjectStore) -> dict[str, dict]:
+    """{original: {placements, counts {entry: placements} (original first), variants, waiting
+    (variants with no built Active version yet)}}: what Library › Asset review and Views and 3D
+    show on the original's row."""
+    out = {}
+    for o, p in pools(store).items():
+        keys = placement_keys(store, o)
+        a = deal(o, keys, [o, *p["built"]])
+        counts = {m: 0 for m in [o, *p["built"]]}
+        for m in a.values():
+            counts[m] += 1
+        out[o] = {"placements": len(keys), "counts": counts, "variants": p["variants"],
+                  "waiting": [v for v in p["variants"] if v not in p["built"]]}
+    return out
+
+
+def variant_info(store: ProjectStore, eid: str) -> dict:
+    """Manage entry…: {duplicate_of, variant (on/off), original (when on), built}."""
+    from .stages import sw_library as swl
+    e = swl.custom(store).get(eid) or {}
+    return {"entry": eid, "duplicate_of": e.get("duplicate_of"), "variant": e.get("variant", True) is not False,
+            "original": variant_of(store, eid), "built": has_build(store, eid)}

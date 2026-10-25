@@ -17,8 +17,10 @@ stored content, and a later change on either entry replaces only its own referen
 Build review statuses (site/library_review.json "_reviews") are copied by neither: a duplicate
 starts unreviewed, a rename carries the old id's review over.
 
-A duplicate owns no greybox slots (slot_ids, instances and district counts empty): the source
-keeps every slot it had. A rename also carries the id over in variant sets and the area
+A duplicate owns no greybox slots (slot_ids, instances and district counts empty) and no shot
+frame (no crop of its own: a "frame crop" decision becomes "description + chosen image" with the
+original's crop). It is a variant of its original by default (variants.py: they share its
+placements). Delete (user-made entries only) moves the files to <project>/trash/. A rename also carries the id over in variant sets and the area
 checklists (areas/*.md); what it can't change (Unreal assets and actor labels made under the old
 id) comes back as `not_updated`. Labels everywhere come from the entry's current name
 (sw_library.asset_names); plans/library.json is refreshed on every name change.
@@ -191,7 +193,7 @@ def view(store: ProjectStore, eid: str) -> dict:
     if e is None:
         raise KeyError(f"no library entry {eid}")
     d = sw_library.decisions(store).get(eid) or {}
-    return {"id": eid, "custom": eid in sw_library.custom(store), "name": d.get("name") or e.get("name") or eid.replace("-", " "),
+    return {"id": eid, "custom": eid in sw_library.custom(store), "duplicate_of": e.get("duplicate_of"), "name": d.get("name") or e.get("name") or eid.replace("-", " "),
             "description": d.get("description"), "description_auto": e.get("description_auto"),
             "decision": d.get("decision"), "route": sw_library.route(e, d), "route_auto": e.get("route_auto"),
             "kind": e.get("kind"), "tier": e.get("tier"), "size_m": e.get("size_m")}
@@ -250,18 +252,129 @@ def duplicate(store: ProjectStore, src: str, dst: str, name: str | None = None, 
     for k in ("sources", "scores", "kept"):
         e.pop(k, None)
     e.update(id=dst, custom=True, slot_ids=[], instances=0, districts={}, district=e.get("district") or "custom",
-             name=(name or "").strip() or f"{view(store, src)['name']} copy", duplicate_of=src)
+             name=(name or "").strip() or f"{view(store, src)['name']} copy", duplicate_of=src, variant=True,
+             best=None, share=0.0, flags=[], mood=[])
     cust = sw_library.custom(store)
     cust[dst] = e
     sw_library.save_custom(store, cust)
     d = sw_library.decisions(store)
     sd = {k: copy.deepcopy(v) for k, v in (d.get(src) or {}).items() if k != "name"}
     sd["name"] = e["name"]
+    if sd.get("decision") == "source":            # no shot frame of its own: the original's crop as its chosen image
+        crop = paths(store, dst)["ref_crop"]
+        frame = crop.relative_to(store.root).as_posix() if crop.is_file() else ents[src].get("best")
+        sd.update(decision="reference", frame=frame) if frame else sd.update(decision="description")
     d[dst] = sd
     write_json(sw_library.decisions_path(store), d)
     if sd.get("decision"):
         sync_plan(store, [dst])
     return view(store, dst)
+
+
+# --- delete (user-made entries only; discovered entries are excluded instead) -----------------
+
+TRASH = "trash"            # <project>/trash/<UTC time>-<entry>/: deleted entries, files at their project paths
+
+
+def _users(store: ProjectStore, eid: str) -> dict[str, list[str]]:
+    """Other entries that name this one: duplicates of it, parents it is attached to, variant sets."""
+    from . import variants
+    cust = sw_library.custom(store)
+    dec = sw_library.decisions(store)
+    sets = variants.sets(store)
+    return {"duplicates": sorted(k for k, e in cust.items() if e.get("duplicate_of") == eid),
+            "attached_to": sorted(p for p, d in dec.items() if not p.startswith("_")
+                                  and any(c.get("entry") == eid for c in (d or {}).get("children") or [])),
+            "variant_sets": sorted(b for b, v in sets.items() if b == eid or eid in (v.get("members") or {}))}
+
+
+def delete_info(store: ProjectStore, eid: str) -> dict:
+    """What Delete entry takes with it: per asset (the entry and its kit modules) its sheets,
+    views, builds (versions and TRELLIS results), brief and cleaned meshes, plus the entries that
+    name it. Raises ValueError for a discovered entry (exclude it instead)."""
+    from . import versions
+    from .stages import s5_3d
+    if eid not in _all_entries(store):
+        raise KeyError(f"no library entry {eid}")
+    if eid not in sw_library.custom(store):
+        raise ValueError(f"{eid} comes from the library plan (discovered in the shots): exclude it instead")
+    assets = []
+    for a in asset_ids(store, eid):
+        ps = paths(store, a)
+        unit = s2_refs.Unit(PLAN, a, "object")
+        assets.append({"asset": a, "sheets": len(s2_refs.sheets(store, unit)), "views": len(s3_views.views(store, PLAN, a)),
+                       "versions": len(versions.load(store, a)), "trellis": len(s5_3d.results(store, PLAN, a)),
+                       "brief": ps["brief"].is_file(), "build": (ps["3d"] / "procedural.glb").is_file(),
+                       "cleanup": ps["cleanup"].is_dir() and any(ps["cleanup"].iterdir()),
+                       "files": [p.relative_to(store.root).as_posix() for p in ps.values() if p.exists()]})
+    return {"entry": eid, "name": view(store, eid)["name"], "assets": assets, "used_by": _users(store, eid),
+            "trash": f"{TRASH}/"}
+
+
+def delete(store: ProjectStore, eid: str) -> dict:
+    """Delete a user-made entry (New entry… or Duplicate…): its files move to the project's trash
+    folder (nothing is erased; stored files stay linked there), and the entry leaves the custom
+    entries, the decisions and reviews, review stars and chosen views, plans/library.json, variant
+    sets and its parents' attached pieces. Duplicates of it keep their files and lose the link."""
+    from datetime import datetime, timezone
+    from . import variants
+    info = delete_info(store, eid)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    bin_ = store.root / TRASH / f"{stamp}-{eid}"
+    n = 1
+    while bin_.exists():
+        n += 1
+        bin_ = store.root / TRASH / f"{stamp}-{eid}-{n}"
+    ids = asset_ids(store, eid)
+    moved = []
+    for a in ids:
+        for p in paths(store, a).values():
+            if p.exists():
+                rel = p.relative_to(store.root)
+                (bin_ / rel).parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(p, bin_ / rel)
+                moved.append(rel.as_posix())
+    cust = sw_library.custom(store)
+    d = sw_library.decisions(store)
+    write_json(bin_ / "entry.json", {"entry": cust.get(eid), "decision": d.get(eid),
+                                     "reviews": {a: (d.get("_reviews") or {}).get(a) for a in ids}, "files": moved})
+    e = cust.pop(eid)
+    for k, c in cust.items():                     # duplicates of it: still theirs, not linked any more
+        if c.get("duplicate_of") == eid:
+            c["duplicate_of"] = e.get("duplicate_of")
+            if not c["duplicate_of"]:
+                c.pop("duplicate_of")
+    sw_library.save_custom(store, cust)
+    d.pop(eid, None)
+    for a in ids:
+        (d.get("_reviews") or {}).pop(a, None)
+    for p, rec in d.items():
+        if not p.startswith("_") and isinstance(rec, dict) and rec.get("children"):
+            rec["children"] = [c for c in rec["children"] if c.get("entry") != eid]
+            if not rec["children"]:
+                rec.pop("children")
+    sets = d.get(variants.KEY) or {}
+    for b in list(sets):
+        if b == eid:
+            sets.pop(b)
+        else:
+            sets[b]["members"] = {m: w for m, w in (sets[b].get("members") or {}).items() if m != eid}
+    if not sets:
+        d.pop(variants.KEY, None)
+    write_json(sw_library.decisions_path(store), d)
+    rv = review.load(store)
+    pre = tuple(f"{root}/{PLAN}/{a}/" for a in ids for root in (s2_refs.REFS, "views"))
+    rv["stars"] = {k: v for k, v in rv["stars"].items() if not k.startswith(pre)}
+    for a in ids:
+        rv["chosen"].pop(f"{PLAN}/{a}", None)
+    write_json(review._file(store), rv)
+    plan = s1_plan.load(store, PLAN)
+    if plan is not None and any(x.id in ids for x in plan.assets):
+        plan.assets = [x for x in plan.assets if x.id not in ids]
+        s1_plan.save(store, PLAN, plan)
+    store.log_run({"stage": "library.entry.delete", "entry": eid, "trash": bin_.relative_to(store.root).as_posix(),
+                   "files": moved})
+    return info | {"deleted": eid, "trash": bin_.relative_to(store.root).as_posix(), "moved": moved}
 
 
 def _rename_refs(store: ProjectStore, src: str, dst: str) -> list[str]:

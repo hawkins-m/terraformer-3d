@@ -497,7 +497,10 @@ details summary { cursor: default; }
 .version-strip .ver-pick { white-space: nowrap; }
 .result.current { outline: 2px solid var(--select); }
 .cur-version { display: inline-flex; align-items: center; gap: 4px; }
-.cur-version img { width: 36px; height: 27px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
+.cur-version img, .cur-thumb img { width: 36px; height: 27px; object-fit: contain; background: #fff; border: 1px solid var(--border); }
+.cur-thumb { display: inline-flex; }
+.asset-copy { font-size: 0.9em; }
+.variant-of { font-weight: normal; }
 .version-strip .ver img, .version-strip .ver-nothumb { width: 72px; height: 54px; object-fit: contain; background: #fff; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
 .version-strip .ver-btns { grid-column: 2 / -1; display: flex; gap: 3px; overflow: hidden; }
 .asset-review .no-views { grid-column: 1 / -1; white-space: nowrap; }

@@ -56,6 +56,21 @@ function assetEntry(id) {
   return ids.filter(e => id.startsWith(e + "-") && ((libraryData.decisions[e] || {}).pieces || {})[id.slice(e.length + 1)])
     .sort((a, b) => b.length - a.length)[0] || null;
 }
+// duplicates used as variants (variants.py): the original a variant shares placements with, and an
+// original's split of its placements ("×20: 10 canopy-table, 10 canopy-table-02")
+const variantOf = id => (libraryData && libraryData.variant_of && libraryData.variant_of[id]) || null;
+function splitText(id) {
+  const s = libraryData && libraryData.splits && libraryData.splits[id];
+  if (!s) return "";
+  return `×${s.placements}: ${Object.entries(s.counts).map(([e, n]) => `${n} ${e}`).join(", ")}`;
+}
+function splitTip(id) {
+  const s = libraryData.splits[id];
+  return `Placements shared with its variants, split evenly and the same on every build (Unreal › Export to Unreal places them so).` +
+    (s.waiting.length ? ` Not yet built (no Active version), so not placed: ${s.waiting.join(", ")}.` : "");
+}
+// a duplicate's original (its own entry id), and the label that names it
+const dupOf = e => e.duplicate_of && libEntries().some(x => x.id === e.duplicate_of) ? e.duplicate_of : null;
 const LIB_ROUTES = {procedural: "procedural", trellis: "TRELLIS"};
 const libRoute = e => (libraryData.decisions[e.id] || {}).route || e.route_auto || null;
 const libDecision = e => (libraryData.decisions[e.id] || {}).decision || null;
@@ -79,13 +94,15 @@ function libCard(e) {
   const flags = e.flags.map(f => `<li class="${f.startsWith("approximate") ? "note" : "flag"}">${esc(f)}</li>`).join("");
   el.innerHTML = `${e.best ? `<a href="${fileUrl(e.best)}" target="_blank" title="Open the source frame">
         <img loading="lazy" alt="" src="${fileUrl(`site/library/crops/${e.id}.jpg`)}"></a>`
-      : `<div class="no-crop">no current shot frame shows it</div>`}
+      : `<div class="no-crop">${dupOf(e) ? "a copy: no shot frame of its own" : "no current shot frame shows it"}</div>`}
     <div class="asset-body">
       <div class="asset-name"><a href="#" class="jump-link" data-jump="refs" data-asset="${esc(e.id)}" title="Show its reference sheets"><b>${esc((libraryData.decisions[e.id] || {}).name || e.name || e.id)}</b></a>${((libraryData.decisions[e.id] || {}).name || e.name) ? ` <span class="hint" style="margin:0">${esc(e.id)}</span>` : ""} <span class="chip tier-${e.tier}" title="${esc(LIB_TIERS[e.tier])}">${e.tier}</span>
         ${libRoute(e) ? `<button type="button" class="chip route route-${libRoute(e)}" data-route="${libRoute(e)}"
           title="Build method${(libraryData.decisions[e.id] || {}).route ? " (yours)" : " (default)"}: click to switch">${LIB_ROUTES[libRoute(e)]}</button>` : ""}</div>
+      ${dupOf(e) ? `<div class="asset-copy">copy of <b>${esc(assetName(dupOf(e)))}</b>${variantOf(e.id) ? ` · variant of ${esc(assetName(variantOf(e.id)))}` : ""}</div>` : ""}
       <div class="hint" style="margin:0">${esc(e.part !== e.typology ? `${e.part} of ${e.typology}` : e.typology)}${e.material ? ` · ${esc(e.material)}` : ""}
-        · ${e.instances ? `${e.instances}× placed` : "not placed"}${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
+        · ${libraryData.splits && libraryData.splits[e.id] ? `<span class="asset-split" title="${esc(splitTip(e.id))}">${esc(splitText(e.id))}</span>`
+          : variantOf(e.id) ? `shares ${esc(assetName(variantOf(e.id)))}'s places` : e.instances ? `${e.instances}× placed` : "not placed"}${e.best ? ` · ${(100 * e.share).toFixed(1)}% of ${esc(src)}` : ""}</div>
       ${flags ? `<ul class="asset-flags">${flags}</ul>` : `<div class="asset-ok">no flags</div>`}
       ${ref ? `<a class="asset-ref" href="${fileUrl(ref)}" target="_blank" title="Look reference for its sheets">
         <img alt="" src="${fileUrl(ref)}"><span>reference: ${esc(shortFrame(ref))}</span></a>` : ""}
@@ -94,9 +111,9 @@ function libCard(e) {
           return `<button type="button" class="small" data-review="${esc(a)}" title="Build review: reference vs build, brief, rebuild">Build review${lrAssetsOf(e.id).length > 1 ? `: ${esc(a.slice(e.id.length + 1))}` : ""}</button>${st ? ` <span class="mark ${LR_STATUS_CLASS[st]}">${esc(lr.list.statuses[st])}</span>` : ""}`;
         }).join(" ")}</div>` : ""}
       <div class="asset-manage"><button type="button" class="small" data-manage="${esc(e.id)}"
-        title="Name, description, build method and decision; duplicate or rename">Manage entry…</button>${e.custom ? ` <span class="chip" title="Made in Library › Entries: a re-plan keeps it">yours</span>` : ""}</div>
+        title="Name, description, build method and decision; duplicate, rename${e.custom ? " or delete" : ""}">Manage entry…</button>${e.custom ? ` <span class="chip" title="Made in Library › Entries: a re-plan keeps it">yours</span>` : ""}</div>
       <div class="asset-actions" role="group" aria-label="Decision for ${esc(e.id)}">
-        ${LIB_DECISIONS.filter(([k]) => k !== "kit" || d === "kit").map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
+        ${LIB_DECISIONS.filter(([k]) => (k !== "kit" || d === "kit") && (k !== "source" || !dupOf(e) || d === "source")).map(([k, label]) => `<button type="button" data-decision="${k}" aria-pressed="${d === k}"
           title="${d === k && (libraryData.decisions[e.id] || {}).auto ? "Set automatically: no usable crop" : ""}"
           ${foliage ? "disabled title=\"Unreal foliage: not generated\"" : k === "source" && !e.best ? "disabled title=\"No crop to use\"" : ""}>${label}${d === k && (libraryData.decisions[e.id] || {}).auto ? " (auto)" : ""}</button>`).join("")}
       </div>
@@ -131,14 +148,20 @@ function renderLibrary() {
   // one grid per district: assets with a crop first, then by tier and typology
   const byD = {};
   for (const e of shown) (byD[e.district || "-"] ||= []).push(e);
-  const groups = Object.keys(byD).sort().map(d => ({key: d, items: byD[d].sort((a, b) => (!!a.unseen - !!b.unseen) ||
-    a.tier.localeCompare(b.tier) || a.typology.localeCompare(b.typology) || (b.share || 0) - (a.share || 0))}));
+  const byId = Object.fromEntries(all.map(e => [e.id, e]));
+  const root = e => { let r = e; for (let i = 0; i < 8 && dupOf(r) && byId[dupOf(r)]; i++) r = byId[dupOf(r)]; return r; };
+  const groups = Object.keys(byD).sort().map(d => ({key: d, items: byD[d].sort((x, y) => {
+    const a = root(x), b = root(y);
+    return (!!a.unseen - !!b.unseen) || a.tier.localeCompare(b.tier) || a.typology.localeCompare(b.typology) ||
+      (b.share || 0) - (a.share || 0) || a.id.localeCompare(b.id) || (x !== a) - (y !== b) || x.id.localeCompare(y.id);
+  })}));
   // keyed: a card is rebuilt only when what it shows changed (keyed.js), so crops never reload
   keyedSections(box, groups, {
     cls: "asset-district", rowsCls: "asset-grid",
     heading: g => `<h3>${esc(g.key)} <span class="hint" style="margin:0">${g.items.length} · ${g.items.filter(e => !e.unseen).length} with a crop</span></h3>`,
     key: e => e.id,
-    sig: e => JSON.stringify([e, libraryData.decisions[e.id], assetName(e.id), fileVersion,
+    sig: e => JSON.stringify([e, libraryData.decisions[e.id], assetName(e.id), fileVersion, variantOf(e.id),
+      dupOf(e) && assetName(dupOf(e)), (libraryData.splits || {})[e.id] || null,
       (typeof lrAssetsOf === "function" && lr.briefs ? lrAssetsOf(e.id) : []).map(a => ((lr.list && lr.list.assets.find(x => x.asset === a)) || {}).status)]),
     build: libCard,
   });
@@ -153,26 +176,37 @@ async function libDecide(id, decision, frame = null) {
   renderLibrary();
 }
 
-// any frame of any shot (old layouts too) as an asset's look reference
-function pickReference(e) {
+// any frame of any shot (old layouts too), or any reference sheet image, as an asset's look reference
+async function pickReference(e) {
   const shots = (framesData && framesData.shots || []).filter(r => r.batches.some(b => b.frames.length));
-  if (!shots.length) { alert("No frames in this project."); return; }
+  let units = [];
+  try { units = (await api(`/api/projects/${slug}/refs`, undefined, "GET")).filter(u => u.sheets.length); } catch (_) { /* frames only */ }
+  // the entry's own sheets and its original's first, then the rest
+  const near = [e.id, dupOf(e)].filter(Boolean);
+  units.sort((a, b) => (near.includes(b.key) - near.includes(a.key)) || a.key.localeCompare(b.key));
+  const sources = [...shots.map(r => ({id: `shot:${r.id}`, label: `Shot ${r.id}`, shot: r})),
+    ...units.map(u => ({id: `sheets:${u.plan}/${u.key}`, label: `Sheets: ${u.plan === "library" ? assetName(u.key) : u.title || u.key}`, unit: u}))];
+  if (!sources.length) { alert("No frames or reference sheets in this project."); return; }
   const cur = (libraryData.decisions[e.id] || {}).frame || null;
-  let shot = cur ? cur.split("/")[1] : (shots.find(r => r.id === `med-${e.district}`) || shots[0]).id, pick = cur;
+  const holds = src => src.shot ? src.shot.batches.some(b => b.frames.some(f => f.key === cur)) : src.unit.sheets.includes(cur);
+  let at = (cur && sources.find(holds)) || (dupOf(e) && sources.find(x => x.unit && near.includes(x.unit.key)))
+    || sources.find(x => x.id === `shot:med-${e.district}`) || sources[0], pick = cur;
   const body = document.createElement("div"); body.className = "ref-picker";
+  const thumb = (key, label) => `<button type="button" class="thumb${key === pick ? " sel" : ""}" data-key="${esc(key)}" aria-pressed="${key === pick}">
+    <img loading="lazy" alt="" src="${fileUrl(key)}"><span>${label}</span></button>`;
   const draw = () => {
-    const r = shots.find(x => x.id === shot);
-    body.innerHTML = `<label>Shot: <select>${shots.map(x => `<option${x.id === shot ? " selected" : ""}>${esc(x.id)}</option>`).join("")}</select></label>
-      <p class="hint" style="margin:4px 0">The frame's look guides the sheets of <b>${esc(e.id)}</b>; its layout doesn't matter, so older-layout frames work too.</p>
-      <div class="ref-batches">${[...r.batches].reverse().map(b => `<div class="ref-batch"><div class="hint" style="margin:0">${esc(b.dir.split("/").pop())}${b.archived ? " (older layout)" : ""}</div>
-        <div class="ref-thumbs">${b.frames.map(f => `<button type="button" class="thumb${f.key === pick ? " sel" : ""}" data-key="${esc(f.key)}" aria-pressed="${f.key === pick}">
-          <img loading="lazy" alt="" src="${fileUrl(f.key)}"><span>${esc(f.key.split("/").pop().replace(".png", ""))}${data.stars[f.key] ? " ★" : ""}${r.locked === f.key ? " · locked" : ""}</span></button>`).join("")}</div></div>`).join("")}</div>`;
-    $("select", body).onchange = ev => { shot = ev.target.value; draw(); };
+    const r = at.shot;
+    body.innerHTML = `<label>Image from: <select>${sources.map(x => `<option value="${esc(x.id)}"${x === at ? " selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
+      <p class="hint" style="margin:4px 0">The image's look guides the sheets of <b>${esc(assetName(e.id))}</b>; a frame's layout doesn't matter, so older-layout frames work too.</p>
+      ${r ? `<div class="ref-batches">${[...r.batches].reverse().map(b => `<div class="ref-batch"><div class="hint" style="margin:0">${esc(b.dir.split("/").pop())}${b.archived ? " (older layout)" : ""}</div>
+        <div class="ref-thumbs">${b.frames.map(f => thumb(f.key, `${esc(f.key.split("/").pop().replace(".png", ""))}${data.stars[f.key] ? " ★" : ""}${r.locked === f.key ? " · locked" : ""}`)).join("")}</div></div>`).join("")}</div>`
+      : `<div class="ref-batches"><div class="ref-batch"><div class="ref-thumbs">${at.unit.sheets.map(k => thumb(k, `${esc(k.split("/").pop().replace(".png", ""))}${data.stars[k] ? " ★" : ""}`)).join("")}</div></div></div>`}`;
+    $("select", body).onchange = ev => { at = sources.find(x => x.id === ev.target.value); draw(); };
     body.querySelectorAll("[data-key]").forEach(t => t.onclick = () => { pick = t.dataset.key; draw(); });
   };
   draw();
-  dialog({title: `Reference frame for ${e.id}`, body, className: "wide", buttons: [
-    {label: "Use this frame", default: true, onClick: async () => { if (!pick) { alert("Pick a frame first."); return false; }
+  dialog({title: `Chosen image for ${assetName(e.id)}`, body, className: "wide", buttons: [
+    {label: "Use this image", default: true, onClick: async () => { if (!pick) { alert("Pick an image first."); return false; }
       await libDecide(e.id, "reference", pick); }},
     {label: "Cancel"}]});
 }
@@ -478,6 +512,8 @@ function entrySavedNotice(id, saved) {
   if (saved.includes("route")) lines.push("Build method saved. Used on the next build: procedural builds come from Reroll or Brief & build, " +
     "TRELLIS ones from Make 3D on Views and 3D.");
   if (saved.includes("name")) lines.push("Name saved: shown everywhere now; the next sheets use it too.");
+  if (saved.includes("variant")) lines.push(variantOf(id) ? `Now a variant of ${assetName(variantOf(id))}: it takes an even share of its places once it has a built Active version (Unreal › Export to Unreal places it).`
+    : "No longer a variant: its original keeps all of its places.");
   const b = document.createElement("div"); b.id = "entry-saved-body";
   b.innerHTML = lines.map(l => `<p>${esc(l)}</p>`).join("");
   dialog({title: `Saved: ${id}`, body: b, buttons: [{label: "OK", default: true}]}).win.id = "entry-saved-dialog";
@@ -498,6 +534,10 @@ async function manageEntry(id) {
     ${entryField("en-decision", "Decision:", `<select id="en-decision"><option value="">not decided</option>${LIB_DECISIONS.filter(([k]) => k !== "kit" || dec.decision === "kit")
       .map(([k, l]) => `<option value="${k}"${dec.decision === k ? " selected" : ""}${k === "source" && !ent.best ? " disabled" : ""}>${l}</option>`).join("")}</select>`)}
     <div class="ff-box" id="en-form-box" style="display:contents"></div>
+    ${dupOf(ent) ? `<div id="en-variant-of" style="grid-column:1/-1"><label class="check"><input type="checkbox" id="en-variant"${ent.variant !== false ? " checked" : ""}>
+      Use as a variant of <b>${esc(assetName(dupOf(ent)))}</b></label>
+      <p class="hint" style="margin:2px 0 0">Shares ${esc(assetName(dupOf(ent)))}'s placements: each place gets the original or one of its variants, split evenly and the same on every build.
+        Only variants with a built Active version take places.</p></div>` : ""}
     <div id="en-variants" style="grid-column:1/-1"></div>
     <div id="en-children" style="grid-column:1/-1"></div>`;
   let finfo = null;
@@ -535,6 +575,10 @@ async function manageEntry(id) {
         }
         if (vs) await vs.save();
         if (kids) await kids.save();
+        const vb = $("#en-variant", body);
+        if (vb && vb.checked !== (ent.variant !== false)) {
+          await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/variant`, {on: vb.checked}); saved.push("variant");
+        }
         const decision = $("#en-decision", body).value || null;
         if (decision !== (dec.decision || null)) {
           if (decision === "reference") { alert("Pick the image with the card's 'Description + chosen image' button."); }
@@ -547,6 +591,7 @@ async function manageEntry(id) {
     {label: "Duplicate…", onClick: () => { setTimeout(() => idPrompt({title: `Duplicate ${id}`, label: "New id:", value: `${id}-copy`, button: "Duplicate",
       intro: "Copies the entry with its description, route, decision, sheets, views, brief, build and TRELLIS results. The copy starts unreviewed; the original is untouched.",
       onGo: async (to, name) => { const r = await entriesCall(`/${id}/duplicate`, {to, name: name || null}); if (r) await reload(); return !!r; }}), 0); }},
+    ...(custom ? [{label: "Delete entry…", onClick: () => { setTimeout(() => deleteEntry(id), 0); }}] : []),
     {label: "Rename…", onClick: () => { setTimeout(() => {
       if (custom) idPrompt({title: `Rename ${id}`, label: "New id:", value: id, button: "Rename",
         intro: "Moves the entry's sheets, views, brief, build, results and versions to the new id (files are renamed, not copied) and keeps its review. Variant sets and area checklists follow; what Unreal still names by the old id is listed afterwards.",
@@ -566,5 +611,33 @@ async function manageEntry(id) {
       }
     }, 0); }},
     {label: "Close"}]});
+}
+// Manage entry… › Delete entry… (user-made entries only; discovered ones are excluded instead):
+// lists what goes, then moves the files to the project's trash folder
+async function deleteEntry(id) {
+  let info;
+  try { info = await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/delete`, undefined, "GET"); }
+  catch (err) { alert(errorText(err)); return; }
+  const n = (k, one, many) => { const v = info.assets.reduce((t, a) => t + (typeof a[k] === "boolean" ? +a[k] : a[k]), 0); return v ? `${v} ${v === 1 ? one : many}` : null; };
+  const goes = [n("sheets", "reference sheet", "reference sheets"), n("views", "view", "views"), n("versions", "build version", "build versions"),
+    n("trellis", "TRELLIS result", "TRELLIS results"), n("brief", "procedural brief", "procedural briefs"), n("build", "procedural build", "procedural builds"),
+    n("cleanup", "cleaned mesh folder", "cleaned mesh folders")].filter(Boolean);
+  const u = info.used_by, uses = [
+    u.duplicates.length && `its duplicates ${u.duplicates.join(", ")} keep their own files and stop being linked to it`,
+    u.attached_to.length && `it is no longer attached to ${u.attached_to.map(assetName).join(", ")}`,
+    u.variant_sets.length && `it leaves the variant set of ${u.variant_sets.join(", ")}`].filter(Boolean);
+  const body = document.createElement("div"); body.id = "entry-delete-body";
+  body.innerHTML = `<p>Delete <b>${esc(info.name)}</b> (${esc(id)})${info.assets.length > 1 ? ` and its ${info.assets.length - 1} kit module(s)` : ""}?</p>
+    <p>Goes with it: ${goes.length ? esc(goes.join(", ")) : "no sheets, views or builds"}.</p>
+    ${info.assets.flatMap(a => a.files).length ? `<details><summary>Files and folders</summary><ul>${info.assets.flatMap(a => a.files).map(f => `<li><code>${esc(f)}</code></li>`).join("")}</ul></details>` : ""}
+    ${uses.length ? `<ul>${uses.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    <p class="hint">The files move to the project's <code>${esc(info.trash)}</code> folder (nothing is erased); its decisions, review and stars are removed.</p>`;
+  dialog({title: `Delete ${id}`, body, buttons: [
+    {label: "Delete", default: true, onClick: async () => {
+      try { await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/delete`, {}); }
+      catch (err) { alert(errorText(err)); return false; }
+      await entriesReload();
+    }},
+    {label: "Cancel"}]}).win.id = "entry-delete-dialog";
 }
 $("#lib-new").onclick = newEntryDialog;

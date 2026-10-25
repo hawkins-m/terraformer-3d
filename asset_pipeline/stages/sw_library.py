@@ -734,7 +734,9 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
             continue
         refs = {"source": [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"], "reference": [d.get("frame")],
                 "description": []}[d["decision"]]
-        if d["decision"] == "source" and not e.get("best"):
+        if d["decision"] == "source" and not e.get("best") and e.get("duplicate_of"):
+            refs = [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"]          # a duplicate made before 2026-10-25: its copied crop
+        elif d["decision"] == "source" and not e.get("best"):
             raise ValueError(f"{eid}: marked good source but no current frame shows it")
         w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
         assets.append(PlanAsset(
@@ -955,6 +957,8 @@ def load(store: ProjectStore) -> dict | None:
     for eid, e in cust.items():
         if eid in ids:
             continue
+        if e.get("duplicate_of"):                 # a duplicate has no shot frame (older ones copied the original's)
+            e = {**e, "best": None, "share": 0.0, "flags": [], "mood": []}
         (data["entries"] if e.get("best") else data["unseen"]).append(e)
     return data
 

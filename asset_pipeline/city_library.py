@@ -4,7 +4,8 @@ library builds stand in the city level instead of their greybox.
 Placements are those of the look scenes (`look._candidates` with no camera: the whole plan):
 typed buildings (one instance build per planned building, no slot id) and kit slots (the entry's
 build at the slot's pose). Attached pieces come with their placed parent
-(`assembly.child_placements`).
+(`assembly.child_placements`). Duplicates used as variants (variants.py) share their original's
+prop and kit-slot placements, split evenly and the same between builds.
 
 Which builds: Approved in library review (default), or every built asset's Active build
 (`use_active`, for previews).
@@ -351,17 +352,20 @@ def representative_placements(store: ProjectStore, gb: dict, cands: list[dict], 
 PROP_MAINS = ("market:hut", "market:tent", "market:canopy", "market:stall")
 
 
-def prop_placements(store: ProjectStore, gb: dict) -> tuple[list[dict], dict[str, set], list[str]]:
+def prop_placements(store: ProjectStore, gb: dict, assign: dict | None = None) -> tuple[list[dict], dict[str, set], list[str]]:
     """TRELLIS props on their greybox pieces: each main prop piece becomes its entry's Active model
     (footprint centred, base on the piece's base, fitted to the plan size: assembly.model) at the
-    piece's yaw; it and its other pieces leave the greybox. Returns (placements, {slot: piece
-    indices they replace}, [prop entries with no model])."""
+    piece's yaw; it and its other pieces leave the greybox. assign: {original: {placement key:
+    entry}} (variants.assignments): a placement given to a variant takes the variant's model.
+    Returns (placements, {slot: piece indices they replace}, [prop entries with no model])."""
     from . import assembly
     from .stages.sw_library import PROP_PIECES, _slug
     out, drop, missing, models = [], {}, set(), {}
     for s in gb["slots"]:
         for main, noun, sub in prop_groups(s, PROP_PIECES, PROP_MAINS):
-            e = _slug(noun)
+            o = _slug(noun)
+            key = f"{o}_{s['id']}_{main}".replace("-", "m")
+            e = ((assign or {}).get(o) or {}).get(key, o)
             if e not in models:
                 models[e] = assembly.model(store, e)
             mdl = models[e]
@@ -370,10 +374,30 @@ def prop_placements(store: ProjectStore, gb: dict) -> tuple[list[dict], dict[str
                 continue
             x, y, z, yaw = piece_pose(s, s["pieces"][main])
             W = assembly._t([x, y, z]) @ assembly._rz(yaw) @ assembly.piece_matrix(mdl)
-            out.append({"key": f"{e}_{s['id']}_{main}".replace("-", "m"), "entry": e, "mesh": f"prop_{e}",
+            out.append({"key": key, "entry": e, "mesh": f"prop_{e}",
                         "glb": Path(mdl["glb"]).relative_to(store.root).as_posix(), "matrix": W.tolist(),
-                        "slot": s["id"], "prop": True, "pieces": [main, *sub]})
+                        "slot": s["id"], "prop": True, "pieces": [main, *sub]} | ({"variant_of": o} if e != o else {}))
     return out, drop, sorted(missing)
+
+
+def apply_variants(store: ProjectStore, placements: list[dict], assign: dict, entries: dict) -> None:
+    """Kit-slot placements (in place) given to a variant (variants.assignments) take the variant's
+    procedural build at the same pose; a variant whose Active version isn't a procedural build
+    leaves the placement to the original. entries gains the variants' job.json."""
+    lib = store.root / "3d" / "library"
+    for p in placements:
+        if p.get("typology"):                        # a typed building's own instance build
+            continue
+        v = (assign.get(p["entry"]) or {}).get(p["key"])
+        if not v or v == p["entry"]:
+            continue
+        glb, job = lib / v / "procedural.glb", lib / v / "procedural" / "job.json"
+        brief = read_json(store.root / "library" / "kits" / f"{v}.json", default=None) or {}
+        if not (glb.is_file() and job.is_file()):
+            continue
+        w, d, *_ = brief.get("dims") or [p["w"], p["d"]]
+        p.update(variant_of=p["entry"], entry=v, glb=glb.relative_to(store.root).as_posix(), w=w, d=d)
+        entries[v] = job.relative_to(store.root).as_posix()
 
 
 def ok_entries(store: ProjectStore, use_active: bool):
@@ -423,6 +447,9 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False) -> dict:
     reps = representative_placements(store, gb, cands, buildings)
     for p in reps:
         entries[p["entry"]] = (Path("3d/library") / p["entry"] / "procedural" / "job.json").as_posix()
+    from . import variants
+    assign = variants.assignments(store, gb)        # duplicates used as variants share the placements
+    apply_variants(store, cands + reps, assign, entries)
     ok = ok_entries(store, use_active)
     placed, replaced, held = choose(cands + reps, {sid: len(v) for sid, v in buildings.items()}, ok)
     ground, rule, bounds = Ground.from_project(store), settings(store).ground_rule, {}
@@ -430,7 +457,7 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False) -> dict:
     kids, kid_entries, missing = assembly.child_placements(store, placed)
     by_key = {p["key"]: p for p in placed}
     kids = [k | {"slot": by_key[k["parent"]]["slot"]} for k in kids]
-    props, _, no_model = prop_placements(store, gb)
+    props, _, no_model = prop_placements(store, gb, assign)
     ground_all(store, kids + props, ground, rule, bounds)
     drop: dict[str, set] = {}
     for p in props:                               # one model per prop entry: all its pieces, or none
