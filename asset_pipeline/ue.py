@@ -390,15 +390,23 @@ def material_preview(store: ProjectStore, asset: str, glb: Path, job: Path, out:
 BACKUP_EXCLUDE = ["Intermediate/", "Saved/", "DerivedDataCache/"]
 
 
-def editor_running(up: Path) -> bool:
-    """Is an Unreal Editor open on this .uproject? (checked by its command line)"""
-    for d in Path("/proc").iterdir():
+def _ours(cmd: list[bytes]) -> bool:
+    """An editor the app's own jobs started: a commandlet (run_script: -run=) or an offscreen
+    render (_render: -RenderOffscreen), both -unattended. A user's editor window has none."""
+    args = [a.lower() for a in cmd[1:]]
+    return any(a == b"-unattended" or a == b"-renderoffscreen" or a.startswith(b"-run=") for a in args)
+
+
+def editor_running(up: Path, proc: Path = Path("/proc")) -> bool:
+    """Is an Unreal Editor window open on this .uproject? (checked by its command line; the
+    app's own headless runs don't count, so a running build doesn't report itself)"""
+    for d in proc.iterdir():
         if d.name.isdigit():
             try:
                 cmd = (d / "cmdline").read_bytes().split(b"\0")
             except OSError:
                 continue
-            if cmd and b"UnrealEditor" in cmd[0] and str(up).encode() in cmd:
+            if cmd and b"UnrealEditor" in cmd[0] and str(up).encode() in cmd and not _ours(cmd):
                 return True
     return False
 

@@ -253,3 +253,22 @@ def test_run_logged_flushes_each_line_while_the_command_runs(tmp_path):
         raise AssertionError("line not in the log while the command ran")
     assert t.is_alive()
     t.join()
+
+
+def test_editor_check_ignores_the_apps_own_headless_unreal_runs(tmp_path):
+    """A running build's commandlet or offscreen render is not "the editor has the project open"."""
+    up = tmp_path / "ue" / "Demo.uproject"
+    procs = {"10": ["/ue/UnrealEditor-Cmd", str(up), "-run=pythonscript", "-script=x.py a.json", "-unattended", "-nullrhi"],
+             "11": ["/ue/UnrealEditor", str(up), "-RenderOffscreen", "-graphicsadapter=1", "-unattended", "-ExecCmds=py r.py"],
+             "12": ["/usr/bin/python3", "-m", "asset_pipeline", str(up)],              # not Unreal
+             "13": ["/ue/UnrealEditor", str(tmp_path / "Other.uproject")],            # another project's window
+             "self": ["/ue/UnrealEditor", str(up)]}                                  # not a pid
+    proc = tmp_path / "proc"
+    for pid, cmd in procs.items():
+        (proc / pid).mkdir(parents=True)
+        (proc / pid / "cmdline").write_bytes(b"\0".join(c.encode() for c in cmd) + b"\0")
+    (proc / "14").mkdir()                                                            # gone mid-scan: no cmdline
+    assert not ue.editor_running(up, proc)
+    (proc / "15").mkdir()
+    (proc / "15" / "cmdline").write_bytes(b"\0".join(c.encode() for c in ["/ue/UnrealEditor", str(up)]) + b"\0")
+    assert ue.editor_running(up, proc)                                               # a real editor window
