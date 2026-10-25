@@ -203,8 +203,9 @@ const LIB_STEPS = [
   {id: "build", name: "Build", go: ["views", null], tip: "Assets with a starred sheet and no 3D model yet (Views and 3D: Make 3D or Reroll)."},
   {id: "approve", name: "Approve", go: ["views", null], tip: "Built assets not approved yet (Views and 3D › Approve)."},
 ];
-function libSteps() {
-  const out = Object.fromEntries(LIB_STEPS.map(s => [s.id, 0]));
+// {asset id: the step it waits at, or null (excluded, vegetation, approved)}
+function libStepOf() {
+  const out = {};
   const decs = (libraryData && libraryData.decisions) || {}, stars = (data && data.stars) || {};
   const sheets = {};
   for (const u of refs || []) if (u.plan === "library") sheets[u.key] = u.sheets || [];
@@ -213,35 +214,119 @@ function libSteps() {
   for (const e of libEntries()) {
     if (e.kind === "vegetation") continue;
     const d = libDecision(e);
-    if (!d) { out.decide++; continue; }
-    if (d === "exclude") continue;
+    if (!d) { out[e.id] = "decide"; continue; }
+    if (d === "exclude") { out[e.id] = null; continue; }
     const ids = d === "kit" ? Object.keys((decs[e.id] || {}).pieces || {}).map(p => `${e.id}-${p}`) : [e.id];
     for (const id of ids) {
       const r = rows[id], built = !!(r && (r.results.length || r.current)), sh = sheets[id] || [];
-      if (built) { if (r.review !== "approved") out.approve++; continue; }
-      out[!sh.length ? "sheets" : !sh.some(k => stars[k]) ? "star" : "build"]++;
+      out[id] = built ? (r.review !== "approved" ? "approve" : null) : !sh.length ? "sheets" : !sh.some(k => stars[k]) ? "star" : "build";
     }
   }
+  return out;
+}
+function libSteps() {
+  const out = Object.fromEntries(LIB_STEPS.map(s => [s.id, 0]));
+  for (const st of Object.values(libStepOf())) if (st) out[st]++;
   return LIB_STEPS.map(s => ({...s, waiting: out[s.id]}));
 }
+// The strip sits on the Library tab and on Views and 3D, so it can be followed left to right:
+// each step goes where it happens with the list filtered to what waits there, and the steps with a
+// batch (2 Sheets, 4 Build) offer it in a bar under the strip, counted by the batch's own dry run
+// over the whole library (/areas/batch everywhere).
+const libOffer = {step: null, counts: {}, seq: 0, sig: null};
 function renderLibSteps() {
-  const el = $("#lib-steps");
-  if (!el) return;
-  if (!libraryData || !libraryData.plan) { el.hidden = true; return; }
+  const els = document.querySelectorAll(".lib-steps");
+  if (!els.length) return;
+  if (!libraryData || !libraryData.plan) { els.forEach(el => { el.hidden = true; }); libOfferShow(null); return; }
   const steps = libSteps(), first = steps.find(s => s.waiting);
   const sig = JSON.stringify(steps.map(s => s.waiting));
-  if (el.dataset.sig === sig && !el.hidden) return;
-  el.dataset.sig = sig; el.hidden = false;
-  el.innerHTML = steps.map((s, i) => `${i ? `<span class="ls-arrow" aria-hidden="true">→</span>` : ""}<button type="button"
-      class="ls-step${s.waiting ? " waiting" : ""}${s === first ? " current" : ""}" data-ls="${s.id}" title="${esc(s.tip)}"
-      aria-label="${i + 1} ${s.name}: ${s.waiting} waiting">${i + 1} ${s.name}${s.waiting ? ` <span class="ls-n">${s.waiting}</span>` : " ✓"}</button>`).join("");
-  el.querySelectorAll("[data-ls]").forEach(b => b.onclick = () => {
-    const s = LIB_STEPS.find(x => x.id === b.dataset.ls);
-    showTab(s.go[0]); if (s.go[1]) showSub(s.go[1]);
-    if (s.id === "decide" && +b.querySelector(".ls-n")?.textContent && $("#lib-filter")) {   // show what waits: the undecided
-      const f = $("#lib-filter"); f.value = "todo"; f.dispatchEvent(new Event("change"));
-    }
+  if (libOffer.step && libOffer.sig !== sig) libOfferCount();     // what waits changed: count the batch again
+  libOffer.sig = sig;
+  els.forEach(el => {
+    if (el.dataset.sig === sig && !el.hidden) return;
+    el.dataset.sig = sig; el.hidden = false;
+    el.innerHTML = steps.map((s, i) => `${i ? `<span class="ls-arrow" aria-hidden="true">→</span>` : ""}<button type="button"
+        class="ls-step${s.waiting ? " waiting" : ""}${s === first ? " current" : ""}" data-ls="${s.id}" title="${esc(s.tip)}"
+        aria-label="${i + 1} ${s.name}: ${s.waiting} waiting">${i + 1} ${s.name}${s.waiting ? ` <span class="ls-n">${s.waiting}</span>` : " ✓"}</button>`).join("");
+    el.querySelectorAll("[data-ls]").forEach(b => b.onclick = () => libStepGo(b.dataset.ls));
   });
+}
+function libStepGo(id) {
+  const s = LIB_STEPS.find(x => x.id === id);
+  showTab(s.go[0]); if (s.go[1]) showSub(s.go[1]);
+  if (s.id === "decide" && $("#lib-filter")) {          // show what waits: the undecided
+    const f = $("#lib-filter"); f.value = "todo"; f.dispatchEvent(new Event("change"));
+  }
+  if (s.id === "sheets" || s.id === "star") refsFilterSet(s.id === "sheets" ? "missing" : "star");
+  if (s.id === "build" || s.id === "approve") viewsFilterSet(s.id === "approve" ? "approve" : "all");
+  libOfferShow(s.id === "sheets" || s.id === "build" ? s.id : null);
+}
+
+// --- the batch offer under the strip ----------------------------------------------------------
+const LIB_OFFER_BATCHES = {
+  sheets: ["Make sheets for all", "across all areas", "Two reference sheets for each decided asset that has none yet (GPU 1, ComfyUI)"],
+  build: ["Build all procedural", "", "Builds each procedural asset with a brief that isn't fresh (Blender on the CPU)"],
+  trellis: ["Make 3D for TRELLIS with a chosen view", "", "A TRELLIS model for each TRELLIS asset with a chosen view and no model yet (GPU 0)"],
+};
+const libOfferKinds = step => step === "sheets" ? ["sheets"] : step === "build" ? ["build", "trellis"] : [];
+function libOfferShow(step) {
+  libOffer.step = step; libOffer.counts = {};
+  if (step) libOfferCount();
+  libOfferRender();
+}
+async function libOfferCount() {
+  const seq = ++libOffer.seq, step = libOffer.step;
+  await Promise.all(libOfferKinds(step).map(async k => {
+    let plan = null;
+    try { plan = await api(`/api/projects/${slug}/areas/batch`, {action: k, everywhere: true, dry_run: true}); }
+    catch (err) { plan = {error: errorText(err)}; }
+    if (seq === libOffer.seq) libOffer.counts[k] = plan;
+  }));
+  if (seq === libOffer.seq) libOfferRender();
+}
+function libOfferRender() {
+  const step = libOffer.step;
+  document.querySelectorAll(".lib-offer").forEach(el => {
+    el.hidden = !step;
+    if (!step) { el.replaceChildren(); return; }
+    const btn = k => {
+      const [label, where, what] = LIB_OFFER_BATCHES[k], p = libOffer.counts[k];
+      if (p && p.error) return `<span class="error" title="${esc(p.error)}">${esc(label)}: ${esc(p.error)}</span>`;
+      const n = p ? p.count : null;
+      return `<button type="button" class="small${n ? " default" : ""}" data-offer="${k}" ${n ? "" : "disabled"} title="${esc(what)}${p && p.notes.length ? `. ${esc(p.notes.join(". "))}` : ""}">${esc(label)} (${n == null ? "…" : n})${where ? ` ${where}` : ""}…</button>`;
+    };
+    let html = `<span class="lo-what">${LIB_STEPS.findIndex(x => x.id === step) + 1} ${LIB_STEPS.find(x => x.id === step).name}:</span> ${libOfferKinds(step).map(btn).join(" ")}`;
+    if (step === "build") {
+      viewsStepMap = null;
+      const needView = reviewData ? reviewData.assets.filter(VIEWS_FILTERS.view[1]).length : 0;
+      const pending = reviewData ? reviewData.pending_sheets.length : 0;
+      if (pending) html += ` <button type="button" class="small" data-offer-extract title="Cut the views out of newly starred sheets (SAM 3.1); then pick one per asset">Extract views from ${pending} new starred sheet${pending === 1 ? "" : "s"}</button>`;
+      if (needView) html += ` <button type="button" class="link" data-offer-views title="Views and 3D, showing the TRELLIS assets with no view picked yet">${needView} need a view picked</button>`;
+    }
+    html += ` <button type="button" class="wclose" data-offer-close aria-label="Hide this bar">x</button>`;
+    el.innerHTML = html;
+    el.querySelectorAll("[data-offer]").forEach(b => b.onclick = () => libOfferRun(b.dataset.offer));
+    el.querySelector("[data-offer-extract]")?.addEventListener("click", () => { showTab("views"); $("#cut-views").click(); });
+    el.querySelector("[data-offer-views]")?.addEventListener("click", () => { showTab("views"); viewsFilterSet("view"); });
+    el.querySelector("[data-offer-close]").onclick = () => libOfferShow(null);
+  });
+}
+// confirm (count, the assets, the time) like an area batch, then start it; the job window opens
+async function libOfferRun(kind) {
+  const [label, where, what] = LIB_OFFER_BATCHES[kind], req = {action: kind, everywhere: true};
+  let plan;
+  try { plan = await api(`/api/projects/${slug}/areas/batch`, {...req, dry_run: true}); }
+  catch (err) { alert(errorText(err)); return; }
+  if (!plan.count) { libOfferCount(); return; }
+  const e = plan.estimate, long = !!(e && e.long);
+  const ok = await confirmDialog({title: `${label} (${plan.count})${e ? `: about ${fmtDur(e.seconds)}` : ""}`, button: long ? "Start" : "Run", id: "lib-offer-confirm",
+    body: `<p>${esc(what)}${where ? `, ${esc(where)}` : ""}.</p><p><b>${plan.count}</b> to run: ${esc(plan.items.slice(0, 40).map(a => assetName(a)).join(", "))}${plan.items.length > 40 ? " …" : ""}</p>
+    ${e ? (long ? longJobHtml(e) : `<p class="hint">About ${fmtDur(e.seconds)} on ${esc(e.lane_names.join(", then "))} (${esc(e.source)}).</p>`) : ""}
+    ${plan.notes.map(n => `<p class="hint">${esc(n)}</p>`).join("")}<p class="hint">Finished items are skipped, so it can be run again.</p>`});
+  if (!ok) return;
+  try { await api(`/api/projects/${slug}/areas/batch`, req, "POST", {confirmed: true}); }
+  catch (err) { alert(errorText(err)); }
+  libOfferCount();
 }
 
 // --- header strip ------------------------------------------------------------------------------

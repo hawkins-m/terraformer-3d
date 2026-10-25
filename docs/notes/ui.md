@@ -119,6 +119,12 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - Library step strip (`#lib-steps`, `libSteps()` in workflow.js): Decide → Sheets → Star → Build →
   Approve, each asset counted at the first step it hasn't done; the first step with work waiting is
   highlighted, and each step jumps to where it happens.
+- The step strip does the work (2026-10-25): it is on Library and on Views and 3D; each step goes where it happens
+  with the list filtered to what waits there (Asset review Not decided; Reference sheets No sheets yet / Sheets, none
+  starred; Views and 3D Needs a view picked / Built, not approved). 2 Sheets and 4 Build offer their batches in a bar
+  under the strip (`.lib-offer`), counted by `/areas/batch` with `everywhere: true` (the whole library), plus Extract
+  views and "N need a view picked". The filters use `libStepOf()` (workflow.js), so their counts match the strip's.
+  Test: tests/test_ui_lib_step_strip.py.
 - Help › Show guide is a small floating window (`.side.guide`, position fixed), off by default.
 - Never find a test server with a loop over /proc cmdlines from the shell: the loop's own bash
   command line contains the pattern and it killed itself. Find it by its listening port

@@ -623,7 +623,7 @@ details summary { cursor: default; }
 .step-head .sh-detail { color: var(--muted); }
 .step-head .sh-reason { color: var(--muted); font-style: italic; }
 .step-head .sh-behind { background: var(--stale); border: 1px solid var(--stale-line); padding: 0 6px; }
-.step-head button.link, .guide button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91;
+.step-head button.link, .guide button.link, .lib-offer button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91;
   text-decoration: underline; font: inherit; cursor: pointer; }
 .st-chip { border: 1px solid var(--border-dark); padding: 0 6px; background: var(--field); white-space: nowrap; font-weight: 700; }
 .st-chip.st-none { color: var(--muted); font-weight: 400; }
@@ -679,6 +679,9 @@ details summary { cursor: default; }
 .lib-steps .ls-step.current { background: var(--stale); border-color: var(--stale-line); }
 .lib-steps .ls-n { display: inline-block; min-width: 14px; padding: 0 3px; background: var(--select); color: var(--select-text, #fff); font-size: 11px; }
 .lib-steps .ls-arrow { color: var(--muted); }
+.lib-offer { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 6px; padding: 4px 6px;
+  border: 1px solid var(--stale-line); background: var(--stale); }
+.lib-offer .lo-what { font-weight: 700; }
 
 /* Setup (setup.js): one block per item, input + Test on one line, the answer under it */
 .setup-window { width: min(780px, 96vw); }

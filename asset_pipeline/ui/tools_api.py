@@ -60,6 +60,7 @@ class BatchReq(BaseModel):
     more: bool = False                   # trellis: another result for assets that have one
     mode: str = "1024_cascade"
     dry_run: bool = False                # count what would run; start nothing
+    everywhere: bool = False             # the whole library instead of an area (the Library step strip)
 
 
 class BriefBuildReq(BaseModel):
@@ -179,9 +180,9 @@ def _run_demo_script(args: list[str], note, log: Path, cancel_hook) -> int:
 def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     """store_of(slug) -> ProjectStore (404 for unknown), comfy_up() -> bool, on_comfy(store, stage) -> bool."""
 
-    def sel(store, area, district):
+    def sel(store, area, district, everywhere=False):
         try:
-            return areas.status(store, area, district)
+            return areas.status(store, area, district, everywhere)
         except KeyError as e:
             raise HTTPException(404, str(e).strip('"'))
         except (FileNotFoundError, ValueError) as e:
@@ -250,7 +251,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     def _batch_plan(store, req: BatchReq, rows=None):
         """(items to run, notes) for an area batch, as the matching `ap library` command picks them.
         No batch changes an asset's build method: each takes the assets already on its method."""
-        rows = sel(store, req.area, req.district) if rows is None else rows
+        rows = sel(store, req.area, req.district, req.everywhere) if rows is None else rows
         if req.assets is not None:
             rows = [r for r in rows if r["asset"] in req.assets]
         notes = []
@@ -292,8 +293,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     @app.post("/api/projects/{slug}/areas/batch")
     def areas_batch(slug: str, req: BatchReq):
         store = store_of(slug)
-        if bool(req.area) == bool(req.district):
-            raise HTTPException(400, "give an area or a district")
+        if (bool(req.area) + bool(req.district) + req.everywhere) != 1:
+            raise HTTPException(400, "give an area, a district or everywhere")
         todo, notes = _batch_plan(store, req)
         count = len(todo)
         info = {"action": req.action, "count": count, "items": todo, "notes": notes,
@@ -302,7 +303,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             return info
         if not count:
             raise HTTPException(400, "nothing to do" + (": " + "; ".join(notes) if notes else ""))
-        tag = {"area": req.area or req.district, "n": len(todo)} | ({"mode": req.mode} if req.action == "trellis" else {})
+        tag = {"area": req.area or req.district or "all areas", "n": len(todo)} | ({"mode": req.mode} if req.action == "trellis" else {})
 
         def failures(done_failed, what):
             done, failed = done_failed
@@ -325,7 +326,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         if req.action == "sheets":
             def run():
                 from .. import library_entries
-                need = {r["asset"] for r in _sheet_rows(store, sel(store, req.area, req.district)) if r["entry"] in todo
+                need = {r["asset"] for r in _sheet_rows(store, sel(store, req.area, req.district, req.everywhere)) if r["entry"] in todo
                         and (req.assets is None or r["asset"] in req.assets)}
                 library_entries.sync_plan(store, extra=todo)       # the assets already included stay included
                 units = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if u.key in need and not s2_refs.sheets(store, u)]
