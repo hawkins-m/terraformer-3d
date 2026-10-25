@@ -18,14 +18,22 @@ grouped by their kit id (the asset's record "kit", else its id without the role 
 my-block-bay -> my-block). A kit's slots: the kit entry's slot_ids plus its modules' own.
 
 Per slot (`assemble`): the footprint outline (the union of the slot's greybox masses, `outline`;
-one assembly per separate block), a corner module at each outer corner turned to face out, each
-edge filled with bays scaled along the facade by at most SCALE_TOL to close it; when that isn't
-enough, fillers, else a gap (reported). Inner corners take an end module per run if the kit has
-one, else the two runs meet there. A slot taller than one module stacks courses. Placements
-carry Blender world matrices; city_library grounds course 0 and stacks the rest on it.
+one assembly per separate block and tier), a corner module at each outer corner turned to face
+out, each edge filled with bays scaled along the facade by at most SCALE_TOL to close it; when
+that isn't enough, fillers, else a gap (reported). Inner corners take an end module per run if
+the kit has one, else the two runs meet there.
+
+Heights (vertical.py): each module is built at the height of the masses under it (a height
+variant with the storeys that fill it); only past a builder's most storeys, or for a module with
+no building brief, do layers stack, each with its vertical role (bottom, middle, top: no ground
+floors above the first, no roof features under another layer). A mass standing on a larger one
+(a setback, `outline`) is a tier of its own: its modules stand on the modules under them, the
+lower tier's without roof features, the upper's without ground floors. Placements carry Blender
+world matrices; city_library grounds each column's first layer and stacks the rest on it.
 """
 import math
 import re
+from pathlib import Path
 
 import numpy as np
 
@@ -37,6 +45,8 @@ GAP_TOL = 0.05             # m: a gap or overlap below this isn't reported
 MIN_PIECE_H = 2.0          # m: greybox pieces lower than this (paving, kerbs) aren't the block's mass
 MIN_PIECE_AREA = 4.0       # m2: nor are thinner ones (piers, columns)
 FUSE_M = 0.3               # m: masses closer than this make one block
+SIT_M = 0.6                # m: a mass whose base is this close to another's top stands on it
+SETBACK = 1.3              # a mass on others whose footprint is this many times its own is a setback tier
 CORNER_DEG = 10.0          # an outer corner further than this from square is reported
 
 ROLE_WORDS = (("corner", ("corner", "corners")), ("end", ("end", "cap", "terminal")),
@@ -175,8 +185,12 @@ def slot_boxes(slot: dict, index: dict | None) -> list[tuple[np.ndarray, list, l
 
 
 def outline(boxes) -> list[dict]:
-    """The blocks a slot's masses make: [{"pts": outer ring CCW [(x, y)], "z0", "height"}]. Low
-    and thin pieces don't count; masses within FUSE_M merge; courtyards are ignored."""
+    """The blocks a slot's masses make: [{"pts": outer ring CCW [(x, y)], "z0", "height", "tier",
+    "role", "masses" [(polygon, base, top)]}]. Low and thin pieces don't count; masses within
+    FUSE_M merge; courtyards are ignored. A mass standing on others (its base on their top) whose
+    footprint is clearly smaller (SETBACK) starts a tier above theirs; one about as large (a
+    greybox building's upper storeys over its ground storey) continues their tier. Roles
+    (vertical.py): single (no tier on or under it), bottom, middle, top."""
     from shapely.geometry import Polygon
     from shapely.geometry.polygon import orient
     from shapely.ops import unary_union
@@ -193,15 +207,42 @@ def outline(boxes) -> list[dict]:
         polys.append((poly, base, base + h))
     if not polys:
         return []
-    u = unary_union([p for p, *_ in polys]).buffer(FUSE_M / 2, join_style="mitre").buffer(-FUSE_M / 2, join_style="mitre")
+    tier = {}
+    for i in sorted(range(len(polys)), key=lambda i: polys[i][1]):          # from the lowest base up
+        P, b, _ = polys[i]
+        under = [j for j in tier if abs(polys[j][2] - b) < SIT_M and P.intersection(polys[j][0]).area > 0.25 * P.area]
+        if not under:
+            tier[i] = 0
+            continue
+        t = max(tier[j] for j in under)
+        tier[i] = t + 1 if unary_union([polys[j][0] for j in under]).area >= SETBACK * P.area else t
     out = []
-    for g in getattr(u, "geoms", [u]):
-        g = orient(Polygon(g.exterior).simplify(0.05), 1.0)
-        mine = [(b, t) for p, b, t in polys if p.intersects(g)]
-        z0 = min(b for b, _ in mine)
-        out.append({"pts": [tuple(map(float, c)) for c in list(g.exterior.coords)[:-1]], "z0": z0,
-                    "height": max(t for _, t in mine) - z0})
+    for t in sorted(set(tier.values())):
+        mine = [polys[i] for i in tier if tier[i] == t]
+        u = unary_union([p for p, *_ in mine]).buffer(FUSE_M / 2, join_style="mitre").buffer(-FUSE_M / 2, join_style="mitre")
+        for g in getattr(u, "geoms", [u]):
+            g = orient(Polygon(g.exterior).simplify(0.05), 1.0)
+            ms = [m for m in mine if m[0].intersects(g)]
+            z0 = min(b for _, b, _ in ms)
+            out.append({"pts": [tuple(map(float, c)) for c in list(g.exterior.coords)[:-1]], "z0": z0,
+                        "height": max(t_ for *_, t_ in ms) - z0, "tier": t, "masses": ms, "_poly": g})
+    for blk in out:
+        below = any(o["tier"] == blk["tier"] - 1 and o["_poly"].intersects(blk["_poly"]) for o in out)
+        above = any(o["tier"] == blk["tier"] + 1 and o["_poly"].intersects(blk["_poly"]) for o in out)
+        blk["role"] = {(False, False): "single", (False, True): "bottom", (True, True): "middle", (True, False): "top"}[(below, above)]
+    for blk in out:
+        del blk["_poly"]
     return out
+
+
+def local_height(masses, foot) -> tuple[float, float] | None:
+    """(base, height) of the masses under a module's footprint polygon (those covering at least
+    a tenth of it), or None."""
+    ms = [(b, t) for P, b, t in masses if P.intersection(foot).area > 0.1 * foot.area]
+    if not ms:
+        return None
+    z0 = min(b for b, _ in ms)
+    return z0, max(t for _, t in ms) - z0
 
 
 # --- the assembly ----------------------------------------------------------------------------
@@ -260,11 +301,12 @@ def fill(span: float, bay_w: float, filler_w: float | None = None) -> dict:
     return {"bays": n, "k": k, "fillers": m, "kf": kf, "gap": max(rest, 0.0)}
 
 
-def assemble(pts, mods: dict[str, tuple], height: float, z0: float = 0.0) -> tuple[list[dict], dict]:
+def assemble(pts, mods: dict[str, tuple], height: float, z0: float = 0.0, stack: bool = True) -> tuple[list[dict], dict]:
     """A block's modules around its outline pts (any orientation). mods: {role: (lo, hi)} module
     bounds (Blender frame); a bay is required. Returns ([{role, matrix, course, edge, k}],
     report {courses, gaps [{edge, m}], inner_corners, off_square [deg], short_edges [{edge, m}],
-    scaled [{edge, k}]})."""
+    scaled [{edge, k}]}). stack False: the ring of modules only (course 0; `placements` fits
+    their heights), else whole copies stacked to the height."""
     if "bay" not in mods:
         raise ValueError("a kit needs a bay module")
     P = _clean(pts)
@@ -277,7 +319,7 @@ def assemble(pts, mods: dict[str, tuple], height: float, z0: float = 0.0) -> tup
     T = [t / max(ln, 1e-9) for t, ln in zip(T, L)]
     cross = [T[i - 1][0] * T[i][1] - T[i - 1][1] * T[i][0] for i in range(n)]    # at vertex i
     convex = [c > 0 for c in cross]
-    courses = max(1, round(height / bay_h)) if bay_h > 0 else 1
+    courses = max(1, round(height / bay_h)) if bay_h > 0 and stack else 1
     rep = {"courses": courses, "gaps": [], "inner_corners": sum(1 for c in convex if not c), "off_square": [],
            "short_edges": [], "scaled": []}
     base: list[dict] = []
@@ -338,14 +380,26 @@ def _key(*parts) -> str:
     return "_".join(str(p) for p in parts).replace("-", "m")
 
 
-def placements(store: ProjectStore, gb: dict, index: dict | None, bounds: dict) -> tuple[list[dict], list[dict]]:
+def placements(store: ProjectStore, gb: dict, index: dict | None, bounds: dict, fitter=None) -> tuple[list[dict], list[dict]]:
     """Kit placements for every slot assigned to a kit: ([placement], [report per slot]).
-    Placements carry key, entry (the module's asset id), mesh (one asset per module), glb,
-    matrix, slot, kit, role, course and, above course 0, base (its course-0 key) and lift (m).
-    bounds: {glb: [lo, hi]} (filled in). A slot whose kit has an unbuilt module gets none."""
+    Placements carry key, entry (the module's asset id), mesh (one asset per module and height
+    variant), glb, matrix, slot, kit, role, tier, course (the layer in its column), vrole (its
+    vertical role) and, above a column's first layer, base (that layer's key, or the key of the
+    column it stands on in the tier below) and lift (m). bounds: {glb: [lo, hi]} (filled in);
+    fitter: vertical.Fitter (height variants; built in Blender when missing). A slot whose kit
+    has an unbuilt module gets none."""
+    from shapely.geometry import Polygon
+
+    from . import vertical
     from .assembly import glb_bounds
+    fitter = fitter or vertical.Fitter(store)
     lib = store.root / "3d" / "library"
     slots = {s["id"]: s for s in gb["slots"]}
+
+    def bounds_of(rel):
+        if rel not in bounds:
+            bounds[rel] = [v.tolist() for v in glb_bounds(store.root / rel)]
+        return bounds[rel]
     out, reps = [], []
     for kit in kits(store):
         mods, missing, extra = {}, [], []
@@ -357,8 +411,7 @@ def placements(store: ProjectStore, gb: dict, index: dict | None, bounds: dict) 
                 missing.append(a)
                 continue
             rel = glb.relative_to(store.root).as_posix()
-            if rel not in bounds:
-                bounds[rel] = [v.tolist() for v in glb_bounds(glb)]
+            bounds_of(rel)
             mods[role] = (a, rel)
         for sid in kit["slots"]:
             s = slots.get(sid)
@@ -369,22 +422,46 @@ def placements(store: ProjectStore, gb: dict, index: dict | None, bounds: dict) 
             if missing:
                 continue
             m_bounds = {role: tuple(bounds[rel]) for role, (_, rel) in mods.items()}
+            columns = []                               # (tier, footprint, first layer's key, top over its origin)
             for bi, blk in enumerate(outline(slot_boxes(s, index))):
-                placed, br = assemble(blk["pts"], m_bounds, blk["height"], blk["z0"])
-                r["blocks"].append(br | {"modules": len(placed)})
-                first = {}
-                for pi, p in enumerate(placed):
+                ring, br = assemble(blk["pts"], m_bounds, blk["height"], blk["z0"], stack=False)
+                fit = {"fitted": 0, "stacked": 0, "copies": 0, "layers": 1}
+                for idx, p in enumerate(ring):
                     a, rel = mods[p["role"]]
-                    idx = pi % (len(placed) // br["courses"])
-                    key = _key(a, sid, bi, idx, p["course"])
-                    row = {"key": key, "entry": a, "mesh": f"kit_{a}", "glb": rel, "matrix": p["matrix"].tolist(),
-                           "slot": sid, "typed": False, "kit": kit["kit"], "role": p["role"], "course": p["course"]}
-                    if p["course"] == 0:
-                        first[idx] = key
+                    lo, hi = m_bounds[p["role"]]
+                    foot = Polygon(module_outline(p["matrix"], lo, hi))
+                    z0, H = local_height(blk["masses"], foot) or (blk["z0"], blk["height"])
+                    plan = fitter.layers(a, H, blk["role"])
+                    if plan is None:                   # no building brief: copies of its own build
+                        k = max(1, round(H / max(hi[2] - lo[2], 1e-6)))
+                        col = [(rel, None)] * k
+                        fit["copies" if k > 1 else "fitted"] += 1
                     else:
-                        lo, hi = bounds[rel]
-                        row |= {"base": first[idx], "lift": p["course"] * (hi[2] - lo[2])}
-                    out.append(row)
+                        col = [(fitter.glb(a, ly), ly["role"]) for ly in plan]
+                        fit["stacked" if len(col) > 1 else "fitted"] += 1
+                    fit["layers"] = max(fit["layers"], len(col))
+                    lifts = vertical.stack_lifts([bounds_of(g) for g, _ in col])
+                    under = None
+                    if blk["tier"]:                    # stands on the column it covers most in the tier below
+                        low = [u for u in columns if u[0] == blk["tier"] - 1]
+                        under = max(low, key=lambda u: (u[1].intersection(foot).area, -u[1].distance(foot)), default=None)
+                    first = None
+                    for c, ((g, vrole), lift) in enumerate(zip(col, lifts)):
+                        key = _key(a, sid, bi, idx, c)
+                        name = Path(g).stem
+                        row = {"key": key, "entry": a, "mesh": f"kit_{a}" if g == rel else f"kit_{a}_{name}", "glb": g,
+                               "matrix": p["matrix"].tolist(), "slot": sid, "typed": False, "kit": kit["kit"],
+                               "role": p["role"], "tier": blk["tier"], "course": c, "vrole": vrole}
+                        if under is not None:
+                            row |= {"base": under[2], "lift": round(under[3] - bounds_of(col[0][0])[0][2] + lift, 4)}
+                        elif c:
+                            row |= {"base": first, "lift": round(lift, 4)}
+                        first = first or key
+                        out.append(row)
+                    top = (under[3] - bounds_of(col[0][0])[0][2] if under else 0.0) + lifts[-1] + bounds_of(col[-1][0])[1][2]
+                    columns.append((blk["tier"], foot, under[2] if under else first, top))
+                r["blocks"].append(br | {"modules": sum(1 for _ in ring), "courses": fit["layers"], "tier": blk["tier"],
+                                         "vrole": blk["role"], "fit": {k: v for k, v in fit.items() if k != "layers"}})
     return out, reps
 
 
@@ -403,4 +480,11 @@ def report_lines(reps: list[dict]) -> list[str]:
                            + ", ".join(f"{g['m']} m (edge {g['edge']})" for g in b["short_edges"]))
             if b["off_square"]:
                 out.append(f"kit {r['kit']} in {r['slot']}: corners off square by {b['off_square']} deg")
+            fit = b.get("fit") or {}
+            if fit.get("stacked"):
+                out.append(f"kit {r['kit']} in {r['slot']}: {fit['stacked']} module(s) in up to {b['courses']} layers "
+                           "(taller than one build makes)")
+            if fit.get("copies"):
+                out.append(f"kit {r['kit']} in {r['slot']}: {fit['copies']} module(s) stacked as copies (no building brief: "
+                           "their ground floors and roofs repeat)")
     return out

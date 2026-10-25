@@ -435,10 +435,11 @@ def _plain_materials(brief: dict) -> dict:
 
 
 def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, dims=None,
-          surface: str | None = None, maps: Path | None = None) -> dict:
+          surface: str | None = None, maps: Path | None = None, role: str | None = None) -> dict:
     """Build an asset's procedural building from its brief (measured once). dims overrides the
     brief's size (a variant, e.g. a taller cube); out the GLB path; surface the band surfaces
-    (DEFAULT_SURFACE); maps where the maps go (the asset's procedural/ dir)."""
+    (DEFAULT_SURFACE); maps where the maps go (the asset's procedural/ dir); role a layer's
+    vertical role in a stack (vertical.py; None: the whole building)."""
     sp = kit_proc.spec_path(store, asset)
     brief = read_json(sp, default=None)
     if brief is None or brief.get("kind") != "building":
@@ -457,6 +458,9 @@ def build(store: ProjectStore, asset: str, log=print, out: Path | None = None, d
     meas = brief["measured"]
     sheet = {k: meas[k] for k in ("bay_m", "storey_h") if meas.get(k)}       # the sheet's rhythm, unless the brief sets it
     f = features(brief["form"], brief.get("features"))
+    if role:
+        from . import vertical
+        f = vertical.role_features(brief["form"], f, sheet | brief.get("params", {}), role)
     parts = generate(brief["form"], dims or brief["dims"], sheet | brief.get("params", {}), f)
     return kit_proc.run_blender(store, asset, parts, mats, out or d / "procedural.glb", maps, log=log,
                                 extra={"form": brief["form"]}, shading=shading_of(brief, parts))

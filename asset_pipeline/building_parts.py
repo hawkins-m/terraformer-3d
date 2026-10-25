@@ -330,11 +330,12 @@ FACADE = {
     # curtain-wall bays: glazing over the storey's height between the slabs, mullions every
     # mullion_m, a transom at that share of the height (0: none)
     "curtain": {"w": 0.96, "mullion_m": 1.5, "transom": 0.0, "frame_mat": "frame"},
-    # plain | shop | sparse | arcade | pilotis | recessed | blind_arcade (pilotis / recessed: "recess" m,
+    # plain | shop | sparse | arcade | pilotis | recessed | blind_arcade | upper (pilotis / recessed: "recess" m,
     # "door_w" / "door_h" of the back wall's doors as shares of a bay). On wall-based kinds (plain, shop,
     # sparse) a layout replaces the kind's own doors: door_count doors door_width_m wide, evenly
     # spaced; an entrance entrance_m wide at entrance_x (share of the length from the centre, -0.5..0.5);
-    # door_leaf: wood | glass. canopy: a slab that deep over the ground storey (any kind).
+    # door_leaf: wood | glass. canopy: a slab that deep over the ground storey (any kind). upper: no
+    # ground storey, the first storey like those above (a stacked layer's; set by vertical.py).
     "ground": {"kind": "plain", "door_count": 0, "door_width_m": 1.2, "door_height_m": 2.6, "door_leaf": "wood",
                "entrance_m": 0.0, "entrance_x": 0.0, "entrance_height_m": 3.2, "canopy": 0.0},
     "balcony": None,                    # {"kind": slab|band, "depth", "balustrade", "planters", "drape", "every", "on", "from"}
@@ -567,9 +568,12 @@ def facade(L: float, F: dict) -> list[dict]:
         nb = max(1, round((x1 - x0) / F["bay_m"]))
         bw = (x1 - x0) / nb
         bands = []                                       # (z, height, openings) per storey: the panel joints
-        # ground storey
+        # ground storey ("upper": none, the first storey is like the ones above: a layer stacked
+        # on another, vertical.py)
         gk = g["kind"]
-        if gk in ("pilotis", "recessed"):
+        if gk == "upper":
+            pass
+        elif gk in ("pilotis", "recessed"):
             rec = g.get("recess", 3.0)
             doors = [{"kind": "rect", "cx": x0 + bw * (b + 0.5), "w": g.get("door_w", 0.8) * bw, "z0": 0.0,
                       "h": g.get("door_h", 0.82) * gh} for b in range(nb)]
@@ -629,7 +633,7 @@ def facade(L: float, F: dict) -> list[dict]:
                 parts.append(box(x0, x1, dy - can, dy, gh - 0.3, gh, "trim"))
         # upper storeys
         pat = sg["pattern"]
-        for s, (z, sh) in enumerate(lv[1:], start=1):
+        for s, (z, sh) in enumerate(lv if gk == "upper" else lv[1:], start=1):
             ops = []
             row = [b for b in counted if x0 <= b[0] < x1] if counted else bays(x0, x1, F, pat)
             for cx, bwi, kind in row:
@@ -715,7 +719,7 @@ def facade(L: float, F: dict) -> list[dict]:
     if pil:                                              # on the bay boundaries: every `every` bays
         bb = bays(-L / 2, L / 2, F, F["pattern"])
         edges = [-L / 2] + [cx + bwi / 2 for cx, bwi, _ in bb]
-        z0 = 0.0 if pil.get("from_ground", False) else lv[0][1]
+        z0 = 0.0 if pil.get("from_ground", False) or g["kind"] == "upper" else lv[0][1]
         prof = pil.get("profile", "pier")
         pw_ = min(pil["w"], 0.3) if prof == "fin" else pil["w"]
         pj = pil.get("proj", 0.12)
@@ -800,18 +804,21 @@ def spring(o: dict) -> float:
 
 def arcade_run(L: float, A: dict, ends=(True, True), end_walls=(False, False), end_t: float = 0.5,
                behind=None, ceiling=None, gallery_storeys: int = 0, gallery_behind=None, gallery_ceiling=None,
-               top_ceiling: bool = True, gallery_t: float = 0.5, mat: str = "base") -> tuple[list[dict], float]:
+               top_ceiling: bool = True, gallery_t: float = 0.5, mat: str = "base",
+               ground: bool = True) -> tuple[list[dict], float]:
     """An arcade along a face, in the facade frame (front at y = 0, inside towards +y), and the
     gallery storeys over it. Returns (parts, height to the top of the last storey).
+    ground False: no arcade storey, the gallery storeys from z 0 (a layer stacked on the arcade's).
     ends: a pier at each end (False: the neighbouring run's corner pier stands there);
     end_walls: a wall end_t thick across the walk at that end, in the neighbouring face's plane,
     pierced by an arch like the arcade's; behind / ceiling: the x interval of the walk's back
     wall and of its ceiling (default: the whole run); gallery_*: the same for a loggia gallery."""
-    pw, h, dep = A["pier_w"], A["h"], A["depth"]
+    pw, h, dep = A["pier_w"], (A["h"] if ground else 0.0), A["depth"]
     t = 0.5
     piers, bays_, s = arcade_bays(L, A, ends)
-    ops = [_arch_opening(A.get("arch", "round"), cx, w, 0.0, A["arch_h"], A.get("rise", 0.3), h - 0.3) for cx, w in bays_]
-    parts = pierced(-L / 2, L / 2, 0.0, h, 0.0, pw, ops, mat)
+    ops = [_arch_opening(A.get("arch", "round"), cx, w, 0.0, A["arch_h"], A.get("rise", 0.3), h - 0.3)
+           for cx, w in bays_] if ground else []
+    parts = pierced(-L / 2, L / 2, 0.0, h, 0.0, pw, ops, mat) if ground else []
     im = A.get("impost")
     if im and ops:                                      # a moulding round each pier at the springing
         zs, ih, pj = spring(ops[0]), im.get("h", 0.3), im.get("proj", 0.1)
@@ -823,7 +830,7 @@ def arcade_run(L: float, A: dict, ends=(True, True), end_walls=(False, False), e
                 parts += archivolt(o, A["archivolt"], 0.0, 0.08)
     bx0, bx1 = behind or (-L / 2, L / 2)
     cx0, cx1 = ceiling or (-L / 2 + (end_t if end_walls[0] else 0.0), L / 2 - (end_t if end_walls[1] else 0.0))
-    if dep > pw + 0.3:
+    if dep > pw + 0.3 and ground:
         parts.append(box(cx0, cx1, pw, dep, h - 0.35, h, "trim"))          # the walk's ceiling
         back = []
         for cx, w in bays_:                             # the back wall's openings, on the arches' axes

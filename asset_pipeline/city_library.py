@@ -14,6 +14,12 @@ Slots assigned to a facade kit (kit_assembly: corner, bay, end and filler module
 footprint outline) are assembled from the kit's modules: every module placement, each its own
 library actor, when all the kit's modules are approved; the slot is then replaced whole.
 
+Heights (vertical.py): a procedural build standing alone in a slot (a kit slot's entry, a
+representative build) is built at the height of the slot's masses (a height variant), after
+the variant split, so the split doesn't depend on it; only when that isn't possible do layers
+stack (keys <key>_L<n>, "layer_of" their first), each with its vertical role. Typed buildings'
+instance builds are already built at their planned storeys.
+
 Mixed slots (no partial slots):
   - a kit slot whose build is placed is replaced whole (its greybox goes);
   - a typed slot (a block of several buildings) is replaced only when every planned building in
@@ -85,12 +91,16 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
             if not ps:
                 continue
         typed = ps[0].get("typed", False)
+        layers = [p for p in ps if p.get("layer_of")]          # a stacked build's upper layers go with it
+        ps = [p for p in ps if not p.get("layer_of")]
         good = [p for p in ps if ok(p["entry"])]
         if not typed:
             if good:
-                placed += good[:1]                  # one build per kit slot
+                mine = [q for q in layers if q["layer_of"] == good[0]["key"]]
+                placed += good[:1] + mine           # one build per kit slot
                 replaced[sid] = "whole"
-                held += [p | {"why": "another build stands in this slot"} for p in ps if p is not good[0]]
+                held += [p | {"why": "another build stands in this slot"} for p in ps + layers
+                         if p is not good[0] and p not in mine]
             else:
                 held += [p | {"why": "not approved"} for p in ps]
             continue
@@ -195,7 +205,8 @@ def actor_rows(placed: list[dict], slots: dict[str, dict]) -> dict[str, list[dic
         B = world_matrix(p)
         out.setdefault(p["slot"], []).append({
             "key": p["key"], "asset": asset_id(p.get("mesh") or p["key"]), "entry": p["entry"],
-            "parent": p.get("parent"), "relative": ue_coords.to_ue(np.linalg.inv(S) @ B), "world": ue_coords.to_ue(B)})
+            "parent": p.get("parent"), "relative": ue_coords.to_ue(np.linalg.inv(S) @ B), "world": ue_coords.to_ue(B)}
+            | ({"vrole": p["vrole"]} if p.get("vrole") else {}) | ({"on": p["base"]} if p.get("base") else {}))
     return out
 
 
@@ -416,6 +427,39 @@ def apply_variants(store: ProjectStore, placements: list[dict], assign: dict, en
         entries[v] = job.relative_to(store.root).as_posix()
 
 
+def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], fitter, bounds: dict) -> list[dict]:
+    """Single-building slot placements (not typed, kit or prop) at their slot's height: each takes
+    its layers' first GLB and role, the layers above it follow as placements of their own
+    (<key>_L<n>: layer_of, base, lift). Models with no building brief stay as they are."""
+    from . import kit_assembly, vertical
+    from .assembly import glb_bounds
+    slots = {s["id"]: s for s in gb["slots"]}
+
+    def bounds_of(rel):
+        if rel not in bounds:
+            bounds[rel] = [v.tolist() for v in glb_bounds(store.root / rel)]
+        return bounds[rel]
+    out = []
+    for p in placements:
+        s = slots.get(p.get("slot"))
+        if p.get("typed") or p.get("typology") or p.get("kit") or p.get("prop") or s is None:
+            out.append(p)
+            continue
+        ms = [m for b in kit_assembly.outline(kit_assembly.slot_boxes(s, index)) for m in b["masses"]]
+        plan = fitter.layers(p["entry"], max(t for *_, t in ms) - min(b for _, b, _ in ms), "single") if ms else None
+        if not plan:
+            out.append(p)
+            continue
+        glbs = [fitter.glb(p["entry"], ly) for ly in plan]
+        lifts = vertical.stack_lifts([bounds_of(g) for g in glbs])
+        for c, (g, ly, lift) in enumerate(zip(glbs, plan, lifts)):
+            q = p | {"glb": g, "vrole": ly["role"]}
+            if c:
+                q |= {"key": f"{p['key']}_L{c}", "layer_of": p["key"], "base": p["key"], "lift": round(lift, 4)}
+            out.append(q)
+    return out
+
+
 def ok_entries(store: ProjectStore, use_active: bool):
     """ok(entry) for `choose`: Approved in library review, or (use_active) any built entry."""
     if use_active:
@@ -452,11 +496,12 @@ def ground_all(store: ProjectStore, placements: list[dict], ground, rule: str, b
         p["foot"] = footprint_of(W, lo, hi)
 
 
-def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | None = None) -> dict:
+def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | None = None, fitter=None) -> dict:
     """{placed (with attached pieces), replaced, held, entries (materials), missing_children,
-    bounds {glb: [lo, hi]}, kits (kit_assembly reports)}. Everything placed stands on the ground
-    (ground.Ground, the project's ground rule). index: the mesh export index (the kit slots'
-    footprint outlines; without it, their bboxes)."""
+    bounds {glb: [lo, hi]}, kits (kit_assembly reports), height_variants (built now)}. Everything
+    placed stands on the ground (ground.Ground, the project's ground rule) or on the layer under
+    it. index: the mesh export index (the kit slots' footprint outlines and heights; without it,
+    their bboxes); fitter: vertical.Fitter (height variants, built in Blender when missing)."""
     from . import assembly
     from .ground import Ground
     from .look import _candidates
@@ -473,13 +518,15 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     from . import variants
     assign = variants.assignments(store, gb)        # duplicates used as variants share the placements
     apply_variants(store, cands + reps, assign, entries)
-    from . import kit_assembly
+    from . import kit_assembly, vertical
+    fitter = fitter or vertical.Fitter(store)
     bounds: dict = {}
-    kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds)
+    singles = fit_heights(store, gb, index, cands + reps, fitter, bounds)    # after the split: it keeps its keys
+    kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds, fitter)
     for p in kit_pl:
         entries[p["entry"]] = (Path("3d/library") / p["entry"] / "procedural" / "job.json").as_posix()
     ok = ok_entries(store, use_active)
-    placed, replaced, held = choose(cands + reps + kit_pl, {sid: len(v) for sid, v in buildings.items()}, ok)
+    placed, replaced, held = choose(singles + kit_pl, {sid: len(v) for sid, v in buildings.items()}, ok)
     ground, rule = Ground.from_project(store), settings(store).ground_rule
     ground_all(store, placed, ground, rule, bounds)          # parents first: their pieces follow them
     kids, kid_entries, missing = assembly.child_placements(store, placed)
@@ -500,7 +547,8 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     parents = [p for p in placed if not p.get("prop")]
     return {"placed": placed + kids, "parents": len(parents), "props": len(placed) - len(parents),
             "replaced": replaced, "held": held, "entries": entries, "missing_children": missing,
-            "drop_pieces": drop, "no_model": no_model, "bounds": bounds, "ground_rule": rule, "kits": kit_reps}
+            "drop_pieces": drop, "no_model": no_model, "bounds": bounds, "ground_rule": rule, "kits": kit_reps,
+            "height_variants": fitter.built}
 
 
 OUTER_RING = "/Game/AP/Terrain/SM_OuterRing"            # ap terrain ue (terrain_build.ue_assets)
@@ -576,7 +624,9 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
                     "slots_replaced": len(pl["replaced"]), "held": len(pl["held"]), "held_entries": held_entries,
                     "missing_children": pl["missing_children"],
                     "kit_modules": sum(1 for p in pl["placed"] if p.get("kit")),
-                    "kit_notes": kit_assembly.report_lines(pl["kits"])}
+                    "kit_notes": kit_assembly.report_lines(pl["kits"]),
+                    "stacked_layers": sum(1 for p in pl["placed"] if p.get("vrole") in ("middle", "top")),
+                    "height_variants_built": pl["height_variants"]}
     for line in m["library"]["kit_notes"]:
         log(line)
     log(f"library: {pl['parents']} builds + {pl['props']} props + {len(pl['placed']) - pl['parents'] - pl['props']} attached pieces in "

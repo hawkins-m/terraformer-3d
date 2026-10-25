@@ -528,23 +528,33 @@ def podium_tower(dims, p, f) -> list[dict]:
     """A slender tower on a low base: the base recessed and glazed, the tower's faces in their
     bay pattern (slot windows either side of framed windows), stone courses every few storeys,
     corner strips, hanging gardens (planted balconies, planting draping over their edges) on
-    alternating storeys of the listed faces, a glass crown under an overhanging roof."""
+    alternating storeys of the listed faces, a glass crown under an overhanging roof.
+
+    ground_floor False (a layer of a stack, vertical.py): no podium, tower storeys from the base;
+    roof_features False: no crown, parapets, cornices or corner strips above the roof."""
     w, d, h = dims
     st = p.get("storey_h", f["storey_h"])
+    ground, roof = f.get("ground_floor", True), f.get("roof_features", True)
     tw = f["tower_w"] or min(22.0, 0.78 * d)
-    Fp = _F(f["podium"], storeys=f["podium_storeys"], storey_h=st, ground_h=st + 0.8, bay_m=6.0, thickness=0.5)
-    ph = height(Fp)
-    parts = walls_around(w, d, {"front": Fp})
-    parts += [box(-w / 2, w / 2, -d / 2, d / 2, ph - 0.4, ph, "roof")] + ring(w + 0.6, d + 0.6, 1.3, ph, ph + 0.35, "trim")
-    cr = f.get("crown")
+    parts, ph = [], 0.0
+    if ground:
+        Fp = _F(f["podium"], storeys=f["podium_storeys"], storey_h=st, ground_h=st + 0.8, bay_m=6.0, thickness=0.5)
+        ph = height(Fp)
+        parts = walls_around(w, d, {"front": Fp})
+        parts += [box(-w / 2, w / 2, -d / 2, d / 2, ph - 0.4, ph, "roof")] + ring(w + 0.6, d + 0.6, 1.3, ph, ph + 0.35, "trim")
+    cr = f.get("crown") if roof else None
     n = max(4, round((h - ph - (cr["h"] if cr else 0)) / st))
     Ft = _F(f["tower"], storeys=n, storey_h=st, ground_h=st, bay_m=p.get("bay_m", 3.4), thickness=0.45)
-    Ft["ground"] = {"kind": "plain"}
+    Ft["ground"] = {"kind": "plain" if ground else "upper"}
     Ft["pilasters"] = None
     gd = f.get("gardens")
     faces = {}
     for side in ("front", "back", "left", "right"):
         F = merged(Ft, (f.get("tower_faces") or {}).get(side))
+        if not roof:
+            F.update(parapet=0.0, cornice=None)
+        if not ground:
+            F["ground"] = {"kind": "upper"}
         if gd and side in gd["faces"]:
             F["balcony"] = {"kind": "slab", "depth": gd["depth"], "balustrade": "glass", "planters": True,
                             "drape": gd.get("drape"), "every": gd["every"], "from": gd["from"], "on": "window"}
@@ -554,7 +564,7 @@ def podium_tower(dims, p, f) -> list[dict]:
     pil = f["tower"].get("pilasters")
     if pil:                                              # corner strips, rising above the roof if asked
         pw, pj = pil["w"], pil["proj"]
-        zt = th + f.get("corner_rise", 0.0)
+        zt = th + (f.get("corner_rise", 0.0) if roof else 0.0)
         for sx in (-1, 1):
             for sy in (-1, 1):
                 parts.append(box(sx * tw / 2, sx * (tw / 2 - pw), sy * tw / 2, sy * (tw / 2 + pj), ph, zt, "wall"))
@@ -695,9 +705,14 @@ def perimeter(dims, p, f) -> list[dict]:
 def row(dims, p, f) -> list[dict]:
     """A row of narrow attached houses along X: each its own storey count (stepping), a street
     facade in the grammar (door, windows, balconies), a plainer back, party walls standing above
-    the roofs, a parapet roof terrace with planters and a pergola."""
+    the roofs, a parapet roof terrace with planters and a pergola.
+
+    ground_floor / roof_features False (a layer of a stack, vertical.py; house_types can switch
+    doors and roofs back on per house, so these override them): no doors or front gardens; no
+    parapets, roof terraces or party walls above the roofs."""
     w, d, h = dims
     st = p.get("storey_h", f["storey_h"])
+    ground, roof = f.get("ground_floor", True), f.get("roof_features", True)
     k = f["houses"]
     hw = w / k
     base_n = max(2, round(h / st))
@@ -708,25 +723,33 @@ def row(dims, p, f) -> list[dict]:
     for i in range(k):
         n = max(2, base_n + steps[i % len(steps)])
         house = merged(f["house"], types[i % len(types)])
+        if not ground:
+            house["ground"] = {"kind": "upper"}
         fw = hw - gap - 0.3                              # the house's own street front
         Fh = _F(house, storeys=n, storey_h=st, bay_m=fw / len(house["pattern"]))
+        if not roof:
+            Fh.update(parapet=0.0, cornice=None)
         hh = height(Fh)
         cx = -w / 2 + hw * (i + 0.5)
         parts += placed(facade(fw, Fh), 0, (cx, -d / 2, 0))
         Fb = _F({"pattern": ["window"], "window": Fh["window"], "mat": Fh["mat"]}, storeys=n, storey_h=st,
-                bay_m=fw / 2, cornice=None, parapet=1.0)
+                bay_m=fw / 2, cornice=None, parapet=1.0 if roof else 0.0)
+        if not ground:
+            Fb["ground"] = {"kind": "upper"}
         parts += placed(facade(fw, Fb), 180, (cx, d / 2, 0))
         ex = fw / 2 + 0.15
         for sx in (-1, 1):                               # party (or, with a gap, gable) walls
-            parts.append(box(cx + sx * ex - 0.15, cx + sx * ex + 0.15, -d / 2, d / 2, 0, hh + 1.0, "wall"))
+            parts.append(box(cx + sx * ex - 0.15, cx + sx * ex + 0.15, -d / 2, d / 2, 0, hh + (1.0 if roof else 0.0), "wall"))
         parts.append(box(cx - ex, cx + ex, -d / 2 + 0.5, d / 2 - 0.5, hh - 0.4, hh, "roof"))
-        fg = f.get("front_garden")
+        fg = f.get("front_garden") if ground else None
         if fg:                                           # a low wall with a gate opening and planting behind it
             gx = cx - fw / 4
             parts += [box(cx - hw / 2 + 0.1, gx - 0.7, -d / 2 - fg["depth"] - 0.25, -d / 2 - fg["depth"], 0, fg["h"], "base"),
                       box(gx + 0.7, cx + hw / 2 - 0.1, -d / 2 - fg["depth"] - 0.25, -d / 2 - fg["depth"], 0, fg["h"], "base")]
             parts += planter(gx + 0.9, cx + hw / 2 - 0.4, -d / 2 - fg["depth"] + 0.05, -d / 2 - 0.4, 0.0, h=0.3, green=0.6, seed=i,
                              style=fg.get("planter"), veg="front_garden")
+        if not roof:
+            continue
         rf = merged(f["roof"], house.get("roof"))        # the row's roof, with this house's own on top
         rb = f.get("roof_box") if rf.get("box", True) else None
         if rb:                                           # the stair box on the roof terrace
@@ -875,13 +898,18 @@ def gallery_storeys(f: dict, h: float) -> int:
     if G.get("storeys"):
         return int(G["storeys"])
     at = (f.get("attic") or {}).get("storey_h", 0.0) if f.get("attic") else 0.0
-    return max(1, round((h - A["h"] - at) / G["storey_h"]))
+    return max(1, round((h - _arcade_h(f, A) - at) / G["storey_h"]))
+
+
+def _arcade_h(f: dict, A: dict) -> float:
+    """The arcade storey's height: 0 on a layer stacked on it (ground_floor off, vertical.py)."""
+    return A["h"] if f.get("ground_floor", True) else 0.0
 
 
 def arcade_height(f: dict, h: float) -> float:
     """The arcade form's walls' height (the arcade and its gallery storeys; no attic)."""
     A = arcade_spec(f["arcade"])
-    return A["h"] + gallery_storeys(f, h) * ((A.get("gallery") or {}).get("storey_h") or 0.0)
+    return _arcade_h(f, A) + gallery_storeys(f, h) * ((A.get("gallery") or {}).get("storey_h") or 0.0)
 
 
 def arcade(dims, p, f) -> list[dict]:
@@ -894,8 +922,12 @@ def arcade(dims, p, f) -> list[dict]:
 
     Corners: an arcaded face runs through a corner it shares with a plain face; of two arcaded
     (or two plain) faces, the front or back one does. The gallery walls stand on the piers'
-    line (pier_w thick), plain walls are 0.5 m."""
+    line (pier_w thick), plain walls are 0.5 m.
+
+    ground_floor False (a layer stacked on another, vertical.py): no arcade storey, the gallery
+    storeys and the plain faces' upper storeys from the base."""
     w, d, h = dims
+    ground = f.get("ground_floor", True)
     A = arcade_spec(f["arcade"])
     f = f | {"arcade": A}
     faces = [s for s in SIDES if s in (f.get("faces") or ["front"])]
@@ -912,7 +944,7 @@ def arcade(dims, p, f) -> list[dict]:
     n = gallery_storeys(f, h)
     gs = (G or {}).get("storey_h") or A["h"]
     gd = min(G.get("depth", 3.0), dep) if G and G.get("kind", "loggia") == "loggia" else 0.0
-    H = A["h"] + n * gs
+    H = _arcade_h(f, A) + n * gs
     arc = {s: s in faces for s in SIDES}
     thick = {s: pw if arc[s] else t for s in SIDES}
     low_hi = {"front": ("left", "right"), "back": ("left", "right"), "left": ("front", "back"), "right": ("front", "back")}
@@ -961,8 +993,12 @@ def arcade(dims, p, f) -> list[dict]:
             run, _ = arcade_run(L, A, ends=(owns(s, lo_end), owns(s, hi_end)),
                                 end_walls=(not arc[lo_end], not arc[hi_end]), end_t=t, behind=rel(g[ax]),
                                 ceiling=rel(ceil), gallery_storeys=n, gallery_behind=rel(gwall),
-                                gallery_ceiling=rel(gceil), top_ceiling=False, gallery_t=pw)
+                                gallery_ceiling=rel(gceil), top_ceiling=False, gallery_t=pw, ground=ground)
             parts += place(s, run, mid)
+            continue
+        if not ground:                                 # a stacked layer: storeys like the upper ones
+            if n:
+                parts += place(s, facade(L, merged(Fs, {"storeys": n, "ground_h": gs, "ground": {"kind": "upper"}})), mid)
             continue
         if n:                                          # a plain face: its upper storeys along the whole run,
             parts += place(s, above(facade(L, Fs), A["h"]), mid)

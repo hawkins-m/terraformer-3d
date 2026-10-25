@@ -299,7 +299,16 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - Footprint: union of the slot's greybox masses (>= 2 m high, >= 4 m2; mesh bounds from the
   export index), one assembly per block. Corners at outer corners facing out (front -Y, left -X),
   bays scaled along x by at most 10% per edge, then fillers, else a gap in the export log and
-  `library.kit_notes`. Inner corners take end modules or the runs meet. Courses stack by the bay
-  height; course 0 is grounded, the rest stand on it.
+  `library.kit_notes`. Inner corners take end modules or the runs meet.
+- Heights (vertical.py, 2026-10-25): each module, and each single-building slot's build, is
+  rebuilt at the height of the masses under it (height variants in 3d/library/<asset>/heights/,
+  cached per role, storey count and parts; ~3 s each in Blender). Layers stack only past a
+  builder's MAX_STOREYS (row 6, perimeter 12, arcade 16, podium_tower 60) or for modules with
+  no brief (copies, reported). Layers get roles bottom / middle / top (no ground floor above the
+  first, no roof features under another); facades without a ground storey use the ground kind
+  "upper". A setback mass on a larger one is its own tier (bottom/top roles); a greybox ground
+  storey under its upper storeys (same footprint) stays one tier. The placement check adds
+  `ground_floor_up` and `roof_under`. On the scratch city (Blender, no Unreal): 857 / 1219 of
+  those before, 0 / 7 after (the 7: overlapping corners on short upper-tier edges); 109 variants.
 - All modules approved, or the slot stays greybox. Written 2026-10-25 in a cloud session on
   synthetic footprints only: NOT yet run in Unreal.

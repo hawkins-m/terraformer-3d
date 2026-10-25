@@ -9,6 +9,13 @@ Unreal has it, against the manifest, the ground and the greybox left around it.
               (attached pieces are exempt: they may stand in front of their parent's slot)
     overlap   a greybox instance left in its slot stands inside its outline (shrunk by
               overlap_margin_m) below its top
+    ground_floor_up   an actor with a ground floor (a whole build, or a stack's bottom layer:
+              its vertical role, vertical.py) stands on another actor, its ground floor above
+              the ground (a building stacked on a building)
+    roof_under        an actor with roof features (a whole build, or a stack's top layer) has
+              another actor standing on it (roof features sandwiched between layers)
+A stack's middle and top layers stand on the layer under them, not the ground: they are
+"floating" only with nothing under them.
 
 Tolerances and the ground rule: project.json "unreal" (schema.UnrealSettings).
 """
@@ -19,7 +26,10 @@ import numpy as np
 
 from .city_library import footprint_of
 
-KINDS = ("moved", "sunk", "floating", "off_slot", "overlap")
+KINDS = ("moved", "sunk", "floating", "off_slot", "overlap", "ground_floor_up", "roof_under")
+GROUND_ROLES = (None, "single", "bottom")          # vertical roles with a ground floor
+ROOF_ROLES = (None, "single", "top")               # ... and with roof features
+SHARE = 0.1                                         # of the smaller outline: two actors overlap in plan
 
 
 def ue_to_blender(loc, rot, scale) -> np.ndarray:
@@ -39,6 +49,34 @@ def check(man: dict, actors: list[dict], slot_instances: dict, slot_bounds: dict
     bounds = {a["id"]: a["bounds"] for a in man.get("library_assets", [])}
     issues: dict[str, list] = defaultdict(list)
     per_entry: dict[str, Counter] = defaultdict(Counter)
+    from shapely.geometry import Polygon
+
+    from .kit_assembly import module_outline
+    placed = {}                                     # key: (slot, outline polygon, base z, top z)
+    attached = {k for k, (_, r) in rows.items() if r.get("parent")}
+    for a in actors:
+        sid, row = rows.get(a["key"], (None, None))
+        if row is not None and row["asset"] in bounds:
+            lo, hi = bounds[row["asset"]]
+            W = ue_to_blender(a["loc"], a["rot"], a["scale"])
+            base = float((W @ np.array([0, 0, lo[2], 1.0]))[2])
+            placed[a["key"]] = (sid, Polygon(module_outline(W, lo, hi)), base, base + (hi[2] - lo[2]) * float(np.linalg.norm(W[:3, 2])))
+
+    def stacked(key, tol):
+        """The actors in its slot over its outline: (those it stands on: their top at its base or
+        in its lower half; those standing on it: their base in its upper half or at its top,
+        rising above it). Neighbours that overlap a little in plan start and end level with it."""
+        sid, P, b, t = placed[key]
+        under, over = [], []
+        for k, (s2, Q, b2, t2) in placed.items():
+            if k == key or s2 != sid or k in attached or P.intersection(Q).area <= SHARE * min(P.area, Q.area):
+                continue
+            mid = (b + t) / 2
+            if b2 < b - tol and b - tol <= t2 <= mid:
+                under.append(k)
+            if mid <= b2 <= t + tol and t2 > t + tol:
+                over.append(k)
+        return under, over
     for a in actors:
         sid, row = rows.get(a["key"], (None, None))
         if row is None or row["asset"] not in bounds:
@@ -47,15 +85,22 @@ def check(man: dict, actors: list[dict], slot_instances: dict, slot_bounds: dict
         W = ue_to_blender(a["loc"], a["rot"], a["scale"])
         f = footprint_of(W, lo, hi)
         found = []
+        vrole = row.get("vrole")
+        under, over = ([], []) if row.get("parent") else stacked(a["key"], max(cfg.floating_m, 0.5))
         w = row["world"]
         if (np.linalg.norm(np.subtract(a["loc"], w["loc"])) / 100 > cfg.place_m
                 or abs((a["rot"][2] - w["rot"][2] + 180) % 360 - 180) > cfg.place_deg):
             found.append("moved")
         g = ground.under(f["x"], f["y"], f["w"], f["d"], f["yaw"], cfg.ground_rule)
-        if f["base"] < g - cfg.sunk_m:
-            found.append("sunk")
-        elif f["base"] > g + cfg.floating_m:
+        if vrole in GROUND_ROLES:
+            if f["base"] < g - cfg.sunk_m:
+                found.append("sunk")
+            elif f["base"] > g + cfg.floating_m:
+                found.append("ground_floor_up" if under else "floating")
+        elif not under:                                # a stacked layer with nothing under it
             found.append("floating")
+        if vrole in ROOF_ROLES and over:
+            found.append("roof_under")
         (x0, y0, _), (x1, y1, _) = slot_bounds.get(sid, [[-math.inf] * 3, [math.inf] * 3])
         m = cfg.slot_margin_m
         if not row.get("parent") and not (x0 - m <= f["x"] <= x1 + m and y0 - m <= f["y"] <= y1 + m):
