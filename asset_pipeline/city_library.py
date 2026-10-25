@@ -8,7 +8,9 @@ build at the slot's pose). Attached pieces come with their placed parent
 prop and kit-slot placements, split evenly and the same between builds.
 
 Which builds: Approved in library review (default), or every built asset's Active build
-(`use_active`, for previews).
+(`use_active`, for previews). An entry whose Active version isn't procedural (a TRELLIS model)
+stands with that model at every one of its placements, scaled to each footprint and height,
+instead of its procedural builds (`use_active_models`; the build report names them).
 
 Slots assigned to a facade kit (kit_assembly: corner, bay, end and filler modules around the slot's
 footprint outline) are assembled from the kit's modules: every module placement, each its own
@@ -427,6 +429,81 @@ def apply_variants(store: ProjectStore, placements: list[dict], assign: dict, en
         entries[v] = job.relative_to(store.root).as_posix()
 
 
+def active_model(store: ProjectStore, entry: str) -> dict | None:
+    """An entry's Active version when it isn't a procedural build (a TRELLIS model):
+    {n, kind, glb (project-relative)}; None when it is procedural or has no model."""
+    from . import versions
+    n = versions.current(store, entry)
+    if n is None:
+        return None
+    kind = versions.get(store, entry, n)["kind"]
+    glb = versions.current_glb(store, entry) if kind != "procedural" else None
+    if glb is None:
+        return None
+    return {"n": n, "kind": kind, "glb": glb.relative_to(store.root).as_posix()}
+
+
+def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], bounds: dict) -> dict[str, dict]:
+    """Placements (in place) of entries whose Active version isn't procedural take that model
+    instead of their procedural build: one mesh per entry and version, scaled to the placement's
+    footprint (a typed building's own; a slot's masses, else the build's) and height (the slot's
+    masses, else the procedural build it replaces), centred on it. Kit modules and props are
+    left alone (props already take the Active model). Returns {entry: {n, kind, placements}}."""
+    from . import kit_assembly
+    from .assembly import glb_bounds
+    slots = {s["id"]: s for s in gb["slots"]}
+
+    def bounds_of(rel):
+        if rel not in bounds:
+            bounds[rel] = [v.tolist() for v in glb_bounds(store.root / rel)]
+        return bounds[rel]
+    models: dict[str, dict | None] = {}
+    out: dict[str, dict] = {}
+    for p in placements:
+        if p.get("kit") or p.get("prop") or p.get("layer_of"):
+            continue
+        e = p["entry"]
+        if e not in models:
+            models[e] = active_model(store, e)
+        m = models[e]
+        if m is None:
+            continue
+        B = world_matrix(p)
+        (plo, phi), (mlo, mhi) = bounds_of(p["glb"]), bounds_of(m["glb"])
+        w, d, h = phi[0] - plo[0], phi[1] - plo[1], phi[2] - plo[2]
+        cx, cy = (plo[0] + phi[0]) / 2, (plo[1] + phi[1]) / 2
+        if p.get("typed") or p.get("typology"):
+            w, d = p.get("w") or w, p.get("d") or d
+        elif slots.get(p.get("slot")) is not None:      # a slot's build: the slot's masses
+            ms = [m_ for b in kit_assembly.outline(kit_assembly.slot_boxes(slots[p["slot"]], index)) for m_ in b["masses"]]
+            if ms:
+                from shapely.ops import unary_union
+                inv = np.linalg.inv(B)
+                pts = np.array([(inv @ np.array([x, y, 0.0, 1.0]))[:2] for P, *_ in ms for x, y in P.exterior.coords])
+                (x0, y0), (x1, y1) = pts.min(0), pts.max(0)
+                w, d, cx, cy = x1 - x0, y1 - y0, (x0 + x1) / 2, (y0 + y1) / 2
+                h = max(t for *_, t in ms) - min(b for _, b, _ in ms)
+        ext = np.subtract(mhi, mlo)
+        k = [w / max(ext[0], 1e-6), d / max(ext[1], 1e-6), h / max(ext[2], 1e-6)]
+        mc = [(mlo[0] + mhi[0]) / 2, (mlo[1] + mhi[1]) / 2, mlo[2]]
+        T = np.eye(4)
+        T[:3, 3] = [cx, cy, plo[2]]
+        M = B @ T @ np.diag([*k, 1.0])
+        M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
+        p.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}", matrix=M.tolist(), active=m["n"], active_kind=m["kind"],
+                 procedural=p["glb"])
+        p.pop("vrole", None)
+        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "placements": 0})
+        r["placements"] += 1
+    return out
+
+
+def active_lines(active: dict[str, dict]) -> list[str]:
+    """The build report's line per entry placed with its non-procedural Active version."""
+    return [f"{e}: {r['placements']} placements use Active v{r['n']} {r['kind'].upper() if r['kind'] == 'trellis' else r['kind']}"
+            for e, r in sorted(active.items())]
+
+
 def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], fitter, bounds: dict) -> list[dict]:
     """Single-building slot placements (not typed, kit or prop) at their slot's height: each takes
     its layers' first GLB and role, the layers above it follow as placements of their own
@@ -442,7 +519,7 @@ def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: l
     out = []
     for p in placements:
         s = slots.get(p.get("slot"))
-        if p.get("typed") or p.get("typology") or p.get("kit") or p.get("prop") or s is None:
+        if p.get("typed") or p.get("typology") or p.get("kit") or p.get("prop") or p.get("active") or s is None:
             out.append(p)
             continue
         ms = [m for b in kit_assembly.outline(kit_assembly.slot_boxes(s, index)) for m in b["masses"]]
@@ -521,6 +598,7 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     from . import kit_assembly, vertical
     fitter = fitter or vertical.Fitter(store)
     bounds: dict = {}
+    active = use_active_models(store, gb, index, cands + reps, bounds)
     singles = fit_heights(store, gb, index, cands + reps, fitter, bounds)    # after the split: it keeps its keys
     kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds, fitter)
     for p in kit_pl:
@@ -542,13 +620,15 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
         placed.append(p)
         drop.setdefault(p["slot"], set()).update(p["pieces"])
         replaced.setdefault(p["slot"], "pieces")
-    used = {p["entry"] for p in placed + kids}
+    used = {p["entry"] for p in placed + kids if not p.get("active")}     # (an Active model keeps its own maps)
     entries = {e: j for e, j in {**kid_entries, **entries}.items() if e in used}
+    active = {e: r | {"placements": sum(1 for p in placed if p["entry"] == e and p.get("active"))} for e, r in active.items()}
+    active = {e: r for e, r in active.items() if r["placements"]}
     parents = [p for p in placed if not p.get("prop")]
     return {"placed": placed + kids, "parents": len(parents), "props": len(placed) - len(parents),
             "replaced": replaced, "held": held, "entries": entries, "missing_children": missing,
             "drop_pieces": drop, "no_model": no_model, "bounds": bounds, "ground_rule": rule, "kits": kit_reps,
-            "height_variants": fitter.built}
+            "height_variants": fitter.built, "active": active}
 
 
 OUTER_RING = "/Game/AP/Terrain/SM_OuterRing"            # ap terrain ue (terrain_build.ue_assets)
@@ -597,11 +677,11 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
         raw = src.read_bytes()
         # the importer gives these the entry's materials, so their maps go (Unreal would import
         # every one); TRELLIS builds and painted kit pieces keep their GLB's own materials
-        dst.write_bytes(strip_textures(raw) if p["entry"] in own else raw)
+        dst.write_bytes(strip_textures(raw) if p["entry"] in own and not p.get("active") else raw)
         assets[aid] = {"id": aid, "kind": "library", "entry": p["entry"], "glb": f"{LIB_DIR}/{aid}.glb",
                        "source": p["glb"], "bounds": pl["bounds"][p["glb"]],
                        "stripped_kb": round((len(raw) - dst.stat().st_size) / 1024)}
-        if p["entry"] not in own:                    # its own baked maps go into its material instances
+        if p["entry"] not in own or p.get("active"):   # its own baked maps go into its material instances
             assets[aid]["baked"] = baked_materials(raw)
     for s in m["slots"]:
         mode = pl["replaced"].get(s["id"])
@@ -626,8 +706,9 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
                     "kit_modules": sum(1 for p in pl["placed"] if p.get("kit")),
                     "kit_notes": kit_assembly.report_lines(pl["kits"]),
                     "stacked_layers": sum(1 for p in pl["placed"] if p.get("vrole") in ("middle", "top")),
-                    "height_variants_built": pl["height_variants"]}
-    for line in m["library"]["kit_notes"]:
+                    "height_variants_built": pl["height_variants"],
+                    "active_models": active_lines(pl["active"])}
+    for line in m["library"]["kit_notes"] + m["library"]["active_models"]:
         log(line)
     log(f"library: {pl['parents']} builds + {pl['props']} props + {len(pl['placed']) - pl['parents'] - pl['props']} attached pieces in "
         f"{len(pl['replaced'])} slots; {len(pl['held'])} held back as greybox")

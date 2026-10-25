@@ -44,10 +44,13 @@ SCALE_TOL = 0.10           # a run's bays scale along the facade by at most this
 GAP_TOL = 0.05             # m: a gap or overlap below this isn't reported
 MIN_PIECE_H = 2.0          # m: greybox pieces lower than this (paving, kerbs) aren't the block's mass
 MIN_PIECE_AREA = 4.0       # m2: nor are thinner ones (piers, columns)
+MIN_BLOCK_W = 1.5          # m: nor a block thinner than this on average (walls left between masses)
 FUSE_M = 0.3               # m: masses closer than this make one block
 SIT_M = 0.6                # m: a mass whose base is this close to another's top stands on it
 SETBACK = 1.3              # a mass on others whose footprint is this many times its own is a setback tier
 CORNER_DEG = 10.0          # an outer corner further than this from square is reported
+CLOSE_M = 3.0              # m: gaps under twice this in what an upper mass stands on still hold it up
+FIT_M = 0.5                # m: an upper mass or module reaching this far past what holds it up overhangs
 
 ROLE_WORDS = (("corner", ("corner", "corners")), ("end", ("end", "cap", "terminal")),
               ("filler", ("filler", "fill", "infill", "spacer")), ("bay", ("bay", "bays", "module", "repeat")))
@@ -189,8 +192,10 @@ def outline(boxes) -> list[dict]:
     "role", "masses" [(polygon, base, top)]}]. Low and thin pieces don't count; masses within
     FUSE_M merge; courtyards are ignored. A mass standing on others (its base on their top) whose
     footprint is clearly smaller (SETBACK) starts a tier above theirs; one about as large (a
-    greybox building's upper storeys over its ground storey) continues their tier. Roles
-    (vertical.py): single (no tier on or under it), bottom, middle, top."""
+    greybox building's upper storeys over its ground storey) continues their tier. A setback is
+    clamped to what it stands on (their union, courtyards and gaps under 2 CLOSE_M closed: an
+    arcade's walk) and is a setback by the part it keeps. Roles (vertical.py): single (no tier on or under it),
+    bottom, middle, top."""
     from shapely.geometry import Polygon
     from shapely.geometry.polygon import orient
     from shapely.ops import unary_union
@@ -215,13 +220,21 @@ def outline(boxes) -> list[dict]:
             tier[i] = 0
             continue
         t = max(tier[j] for j in under)
-        tier[i] = t + 1 if unary_union([polys[j][0] for j in under]).area >= SETBACK * P.area else t
+        support = filled(unary_union([polys[j][0] for j in under])).buffer(CLOSE_M, join_style="mitre").buffer(-CLOSE_M, join_style="mitre")
+        held = P if support.buffer(FIT_M).contains(P) else largest(P.intersection(support))
+        if held is None or support.area < SETBACK * held.area:
+            tier[i] = t                                  # about as large: one building with what it stands on
+            continue
+        tier[i] = t + 1                                  # a setback tier, never wider than what it stands on
+        polys[i] = (held, b, polys[i][2])
     out = []
     for t in sorted(set(tier.values())):
         mine = [polys[i] for i in tier if tier[i] == t]
         u = unary_union([p for p, *_ in mine]).buffer(FUSE_M / 2, join_style="mitre").buffer(-FUSE_M / 2, join_style="mitre")
         for g in getattr(u, "geoms", [u]):
             g = orient(Polygon(g.exterior).simplify(0.05), 1.0)
+            if _narrow(g) < MIN_BLOCK_W:
+                continue
             ms = [m for m in mine if m[0].intersects(g)]
             z0 = min(b for _, b, _ in ms)
             out.append({"pts": [tuple(map(float, c)) for c in list(g.exterior.coords)[:-1]], "z0": z0,
@@ -232,6 +245,59 @@ def outline(boxes) -> list[dict]:
         blk["role"] = {(False, False): "single", (False, True): "bottom", (True, True): "middle", (True, False): "top"}[(below, above)]
     for blk in out:
         del blk["_poly"]
+    return out
+
+
+def _narrow(g) -> float:
+    """A polygon's mean thickness (2 area / perimeter: a w-wide strip's is about w)."""
+    return 2 * g.area / max(g.length, 1e-9)
+
+
+def filled(g):
+    """A (multi)polygon without its holes (a ring of masses holds up its courtyard too)."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    return unary_union([Polygon(p.exterior) for p in getattr(g, "geoms", [g]) if not p.is_empty])
+
+
+def largest(g):
+    """The largest polygon of an intersection (None when it has none)."""
+    ps = [p for p in getattr(g, "geoms", [g]) if p.geom_type == "Polygon" and not p.is_empty]
+    return max(ps, key=lambda p: p.area, default=None)
+
+
+def fold_tiers(blocks: list[dict], rings: list[list[dict]], mods: dict[str, tuple]) -> set[int]:
+    """Upper tiers whose modules would reach past the tier under them (corner modules wider than
+    a small setback) join that tier instead (in place): their masses go to the lower block they
+    stand on most, whose modules under them then rise to their top (local_height: one
+    height-fit building on the lower footprint), and they get no ring of their own ("folded").
+    Roles are set again without them. Returns the folded blocks' indices."""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    polys = [Polygon(b["pts"]) for b in blocks]
+    out: set[int] = set()
+    for i in sorted(range(len(blocks)), key=lambda i: -blocks[i]["tier"]):     # the highest first
+        t = blocks[i]["tier"]
+        if not t:
+            continue
+        low = [j for j, b in enumerate(blocks) if b["tier"] == t - 1 and j not in out and polys[j].intersects(polys[i])]
+        if not low:
+            continue
+        support = filled(unary_union([polys[j] for j in low])).buffer(FIT_M, join_style="mitre")
+        if all(support.contains(Polygon(module_outline(p["matrix"], *mods[p["role"]]))) for p in rings[i]):
+            continue
+        j = max(low, key=lambda j: polys[j].intersection(polys[i]).area)
+        blocks[j]["masses"] = blocks[j]["masses"] + blocks[i]["masses"]
+        top = max(b + h for b, h in [(blocks[j]["z0"], blocks[j]["height"]), (blocks[i]["z0"], blocks[i]["height"])])
+        blocks[j]["height"] = top - blocks[j]["z0"]
+        blocks[i]["folded"] = True
+        out.add(i)
+    live = [i for i in range(len(blocks)) if i not in out]
+    for i in live:
+        b = blocks[i]
+        below = any(blocks[j]["tier"] == b["tier"] - 1 and polys[j].intersects(polys[i]) for j in live)
+        above = any(blocks[j]["tier"] == b["tier"] + 1 and polys[j].intersects(polys[i]) for j in live)
+        b["role"] = {(False, False): "single", (False, True): "bottom", (True, True): "middle", (True, False): "top"}[(below, above)]
     return out
 
 
@@ -423,8 +489,12 @@ def placements(store: ProjectStore, gb: dict, index: dict | None, bounds: dict, 
                 continue
             m_bounds = {role: tuple(bounds[rel]) for role, (_, rel) in mods.items()}
             columns = []                               # (tier, footprint, first layer's key, top over its origin)
-            for bi, blk in enumerate(outline(slot_boxes(s, index))):
-                ring, br = assemble(blk["pts"], m_bounds, blk["height"], blk["z0"], stack=False)
+            blocks = outline(slot_boxes(s, index))
+            rings = [assemble(blk["pts"], m_bounds, blk["height"], blk["z0"], stack=False) for blk in blocks]
+            r["folded"] = len(fold_tiers(blocks, [ring for ring, _ in rings], m_bounds))
+            for bi, (blk, (ring, br)) in enumerate(zip(blocks, rings)):
+                if blk.get("folded"):
+                    continue
                 fit = {"fitted": 0, "stacked": 0, "copies": 0, "layers": 1}
                 for idx, p in enumerate(ring):
                     a, rel = mods[p["role"]]
@@ -472,6 +542,9 @@ def report_lines(reps: list[dict]) -> list[str]:
         if r["unbuilt"]:
             out.append(f"kit {r['kit']} in {r['slot']}: not placed, unbuilt module(s) {', '.join(r['unbuilt'])}")
             continue
+        if r.get("folded"):
+            out.append(f"kit {r['kit']} in {r['slot']}: {r['folded']} upper tier(s) too small for the modules "
+                       "built into the tier under them (no overhang)")
         for b in r["blocks"]:
             if b["gaps"]:
                 out.append(f"kit {r['kit']} in {r['slot']}: gaps " + ", ".join(f"{g['m']} m (edge {g['edge']})" for g in b["gaps"]))

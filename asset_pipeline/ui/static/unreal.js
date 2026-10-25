@@ -45,6 +45,7 @@ function ueBuildReport(r) {
   return `<div>${head}</div><div>${esc(facts.join(" · "))}</div>` +
     `<div class="${placeOk ? "" : "error"}">${esc(place[0])}</div>` +
     (place.length > 1 ? `<ul>${place.slice(1).map(l => `<li>${esc(l.trim())}</li>`).join("")}</ul>` : "") +
+    ((r.active_models || []).length ? `<ul>${r.active_models.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : "") +
     (r.warnings.length ? `<div>${n(r.warnings.length, "warning", "warnings")}:</div><ul>${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
 }
 

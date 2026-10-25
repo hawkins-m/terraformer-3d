@@ -582,7 +582,7 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
         lo_d, hi_d = typ.depth
         form = brief["form"]
         if form == "row":
-            hw = w / f["houses"]
+            hw = w / building_gen.row_houses(w, f)
             if not lo_w <= hw <= hi_w:
                 warns.append(f"house width {hw:.1f} m outside the catalog's {lo_w:g}–{hi_w:g} m")
             if not lo_d <= d <= hi_d + 0.01:

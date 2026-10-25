@@ -156,9 +156,9 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
            "skipped": len(rep["assets"]["skipped"]), "reset": len(rep["actors"]["reset"]),
            "pruned": len(rep.get("pruned", [])), "terrain_outer": bool(rep.get("terrain_outer")),
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
-           "placement": placement,
+           "placement": placement, "active_models": lib.get("active_models", []),
            "steps": steps, "seconds": round(time.time() - t0, 1)}
-    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement")},
+    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models")},
                    "placement_ok": None if placement is None else placement["ok"]})
     return out
 
@@ -174,6 +174,7 @@ def report_lines(r: dict) -> list[str]:
              f"{r['pruned']} orphans pruned; outer ring {'placed' if r['terrain_outer'] else 'not placed'}"
              + (f"; {r['shots']} shots rendered" if r["shots"] is not None else ""),
              f"time: {r['seconds'] / 60:.1f} min (" + ", ".join(f"{k} {v:.0f} s" for k, v in r["steps"].items()) + ")"]
+    lines += r.get("active_models") or []
     if r.get("placement") is not None:
         from .placement_check import lines as check_lines
         lines += check_lines(r["placement"])

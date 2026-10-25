@@ -310,5 +310,16 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   storey under its upper storeys (same footprint) stays one tier. The placement check adds
   `ground_floor_up` and `roof_under`. On the scratch city (Blender, no Unreal): 857 / 1219 of
   those before, 0 / 7 after (the 7: overlapping corners on short upper-tier edges); 109 variants.
+- Placement fixes (2026-10-25): (1) a setback mass is clamped to what it stands on (gaps under
+  6 m closed: an arcade's walk) and is a setback by the part it keeps; an upper tier whose ring
+  won't stay on the tier under it (16 m corners on a small top) folds into that tier
+  (`fold_tiers`: the lower modules under it rise to its top); blocks under 1.5 m mean thickness
+  (walls left between masses) get no ring. Check kind `overhang`. (2) Row builder
+  `min_house_w` (default 5 m, `building_gen.row_houses`): fewer houses, one at the whole width
+  when even one is narrower; instance index records `houses`, so `skip_fresh` rebuilds stale
+  rows. (3) An entry whose Active version isn't procedural places that model at every one of its
+  placements (`city_library.use_active_models`, one mesh per entry and version, scaled to each
+  footprint and height; its own baked maps, never the entry's procedural materials) and the build
+  report says so. Scratch test: three entries given the real project's TRELLIS Active versions.
 - All modules approved, or the slot stays greybox. Written 2026-10-25 in a cloud session on
   synthetic footprints only: NOT yet run in Unreal.

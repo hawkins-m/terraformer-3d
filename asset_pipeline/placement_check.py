@@ -14,6 +14,9 @@ Unreal has it, against the manifest, the ground and the greybox left around it.
               the ground (a building stacked on a building)
     roof_under        an actor with roof features (a whole build, or a stack's top layer) has
               another actor standing on it (roof features sandwiched between layers)
+    overhang  an actor standing on others reaches past what holds it up (the outlines of those
+              reaching up to its base; courtyards, and gaps under 2 OVERHANG_CLOSE, filled) by
+              more than OVERHANG_M: an upper tier wider than the tier under it
 A stack's middle and top layers stand on the layer under them, not the ground: they are
 "floating" only with nothing under them.
 
@@ -26,10 +29,13 @@ import numpy as np
 
 from .city_library import footprint_of
 
-KINDS = ("moved", "sunk", "floating", "off_slot", "overlap", "ground_floor_up", "roof_under")
+KINDS = ("moved", "sunk", "floating", "off_slot", "overlap", "ground_floor_up", "roof_under", "overhang")
 GROUND_ROLES = (None, "single", "bottom")          # vertical roles with a ground floor
 ROOF_ROLES = (None, "single", "top")               # ... and with roof features
 SHARE = 0.1                                         # of the smaller outline: two actors overlap in plan
+OVERHANG_M = 0.5                                    # m: an outline this far past its support overhangs
+OVERHANG_AREA = 1.0                                 # m2: ... over at least this much
+OVERHANG_CLOSE = 2.5                                # m: gaps under twice this between supports (a kit run's gap) hold up
 
 
 def ue_to_blender(loc, rot, scale) -> np.ndarray:
@@ -77,6 +83,20 @@ def check(man: dict, actors: list[dict], slot_instances: dict, slot_bounds: dict
             if mid <= b2 <= t + tol and t2 > t + tol:
                 over.append(k)
         return under, over
+
+    def overhangs(key, tol) -> bool:
+        """Does it reach past the actors in its slot that reach up to its base from below (a
+        ring of modules holds up its courtyard too)?"""
+        from shapely.geometry import Polygon as Poly
+        from shapely.ops import unary_union
+        sid, P, b, _ = placed[key]
+        held = [Q for k, (s2, Q, b2, t2) in placed.items()
+                if k != key and s2 == sid and k not in attached and b2 < b - tol and t2 >= b - tol]
+        if not held:
+            return False
+        u = unary_union(held).buffer(OVERHANG_CLOSE, join_style="mitre").buffer(-OVERHANG_CLOSE, join_style="mitre")
+        support = unary_union([Poly(g.exterior) for g in getattr(u, "geoms", [u]) if not g.is_empty])
+        return P.difference(support.buffer(OVERHANG_M)).area > OVERHANG_AREA
     for a in actors:
         sid, row = rows.get(a["key"], (None, None))
         if row is None or row["asset"] not in bounds:
@@ -101,6 +121,8 @@ def check(man: dict, actors: list[dict], slot_instances: dict, slot_bounds: dict
             found.append("floating")
         if vrole in ROOF_ROLES and over:
             found.append("roof_under")
+        if under and overhangs(a["key"], max(cfg.floating_m, 0.5)):
+            found.append("overhang")
         (x0, y0, _), (x1, y1, _) = slot_bounds.get(sid, [[-math.inf] * 3, [math.inf] * 3])
         m = cfg.slot_margin_m
         if not row.get("parent") and not (x0 - m <= f["x"] <= x1 + m and y0 - m <= f["y"] <= y1 + m):

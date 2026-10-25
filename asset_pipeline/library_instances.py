@@ -8,7 +8,7 @@ import math
 import numpy as np
 
 from . import building_proc, kit_proc
-from .building_gen import features
+from .building_gen import features, row_houses
 from .project import ProjectStore, read_json, write_json
 
 SKIP_ROLES = {"roof", "cornice", "roof-garden", "tree", "vault", "crown"}
@@ -54,12 +54,16 @@ def build(store: ProjectStore, entry: str, buildings: list, storeys_range: tuple
           log=print, skip_fresh: bool = False) -> list[dict]:
     """Build entry at each building's own footprint; storeys clamped to storeys_range. Returns
     the index (also written to instances/index.json, after each build: a crash loses one).
-    skip_fresh: keep instances built from the same brief at the same size (a resumed batch)."""
+    skip_fresh: keep instances built from the same brief at the same size (a resumed batch) and,
+    for a row, with as many houses as it now takes (building_gen.row_houses)."""
     from .areas import brief_sha
     d = kit_proc.out_dir(store, entry) / "instances"
     d.mkdir(parents=True, exist_ok=True)
     sh = storey_h(store, entry)
     sha = brief_sha(store, entry)
+    brief = read_json(kit_proc.spec_path(store, entry))
+    f = features(brief["form"], brief.get("features"))
+    houses = (lambda w: row_houses(w, f)) if brief["form"] == "row" else (lambda w: None)
     old = {i["key"]: i for i in read_json(d / "index.json", default=[]) or []}
     index = []
     for b in buildings:
@@ -68,11 +72,13 @@ def build(store: ProjectStore, entry: str, buildings: list, storeys_range: tuple
         key = f"{entry}_{round(x)}_{round(y)}".replace("-", "m")
         glb = d / f"{key}.glb"
         dims = [round(w, 2), round(dd, 2), round(st * sh, 2)]
-        if not (skip_fresh and glb.is_file() and old.get(key, {}).get("brief_sha") == sha and old[key].get("dims") == dims):
+        fresh = old.get(key, {}).get("brief_sha") == sha and old[key].get("dims") == dims and old[key].get("houses") == houses(w)
+        if not (skip_fresh and glb.is_file() and fresh):
             building_proc.build(store, entry, log=lambda *a: None, out=glb, dims=dims, maps=d / "maps")
         index.append({"key": key, "glb": glb.relative_to(store.root).as_posix(), "x": round(x, 3), "y": round(y, 3),
                       "z": round(z0, 3), "yaw": round(b.rot, 3), "w": round(w, 2), "d": round(dd, 2), "storeys": st,
-                      "storeys_plan": b.storeys, "typology": b.typology, "dims": dims, "brief_sha": sha})
+                      "storeys_plan": b.storeys, "typology": b.typology, "dims": dims, "brief_sha": sha}
+                     | ({"houses": houses(w)} if houses(w) else {}))
         write_json(d / "index.json", list((old | {i["key"]: i for i in index}).values()))      # resumable
         log(f"{entry}: {key} {w:.0f} x {dd:.0f} m, {st} storeys")
     return index

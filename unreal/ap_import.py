@@ -663,7 +663,7 @@ def import_library(man, root, master, args, report):
                 if mesh.get_material(i) != mi:
                     mesh.set_material(i, mi)
                     dirty = True
-        own = entries.get(a["entry"])             # None: no procedural materials to give it
+        own = None if "baked" in a else entries.get(a["entry"])     # None: no procedural materials to give it
         for i, sm in enumerate(mesh.get_editor_property("static_materials") if own is not None else []):
             slot = re.sub(r"(_\d+|\.\d+)$", "", str(sm.get_editor_property("material_slot_name")))
             spec = own.get(slot)

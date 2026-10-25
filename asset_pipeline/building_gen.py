@@ -100,7 +100,7 @@ TYPE_FEATURES = {
         "accent": None, "court_garden": True, "street_garden": None,
     },
     "row": {
-        "storey_h": 3.2, "houses": 4, "steps": [0, 1, -1, 0],
+        "storey_h": 3.2, "houses": 4, "min_house_w": 5.0, "steps": [0, 1, -1, 0],
         "house": {"ground": {"kind": "plain"}, "pattern": ["window", "window"],
                   "window": {"kind": "rect", "w": 0.55, "h": 0.66, "sill": 0.18, "frame": True},
                   "balcony": {"kind": "slab", "depth": 1.1, "balustrade": "glass", "every": 1, "on": "window"},
@@ -702,6 +702,14 @@ def perimeter(dims, p, f) -> list[dict]:
     return parts
 
 
+def row_houses(w: float, f: dict) -> int:
+    """How many houses a row w metres long holds: `houses`, fewer where they'd be narrower than
+    `min_house_w` (one house at the whole width when even one is)."""
+    k = max(1, int(f["houses"]))
+    mw = float(f.get("min_house_w") or 0.0)
+    return max(1, min(k, int(w // mw))) if mw > 0 else k
+
+
 def row(dims, p, f) -> list[dict]:
     """A row of narrow attached houses along X: each its own storey count (stepping), a street
     facade in the grammar (door, windows, balconies), a plainer back, party walls standing above
@@ -709,11 +717,12 @@ def row(dims, p, f) -> list[dict]:
 
     ground_floor / roof_features False (a layer of a stack, vertical.py; house_types can switch
     doors and roofs back on per house, so these override them): no doors or front gardens; no
-    parapets, roof terraces or party walls above the roofs."""
+    parapets, roof terraces or party walls above the roofs. Never houses narrower than
+    min_house_w: fewer of them (row_houses)."""
     w, d, h = dims
     st = p.get("storey_h", f["storey_h"])
     ground, roof = f.get("ground_floor", True), f.get("roof_features", True)
-    k = f["houses"]
+    k = row_houses(w, f)
     hw = w / k
     base_n = max(2, round(h / st))
     steps = f["steps"]
