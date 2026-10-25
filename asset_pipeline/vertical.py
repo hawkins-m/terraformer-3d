@@ -29,9 +29,11 @@ import copy
 import hashlib
 import json
 import math
+import time
 
 from .project import ProjectStore, read_json, write_json
 
+HV_LOG = ": height variant "     # the log line each variant build starts with (ue_build counts them)
 ROLES = ("single", "bottom", "middle", "top")
 FLAGS = {"single": (True, True), "bottom": (True, False), "middle": (False, False), "top": (False, True)}   # (ground, roof)
 # the most storeys a builder makes in one build (beyond that: layers)
@@ -112,14 +114,19 @@ def _sha(obj) -> str:
 
 class Fitter:
     """Height variants of procedural builds for one project. build(store, asset, out, dims,
-    role, maps): builds one GLB (default: building_proc.build in Blender); tests pass their own."""
+    role, maps): builds one GLB (default: building_proc.build in Blender); tests pass their own.
+    dry: build nothing, only list the variants a build would make (`missing`), with their bounds
+    from the parts (`bounds`, which city_library.plan reads instead of the missing GLBs)."""
 
-    def __init__(self, store: ProjectStore, build=None, log=print):
-        self.store, self.log = store, log
+    def __init__(self, store: ProjectStore, build=None, log=print, dry: bool = False):
+        self.store, self.log, self.dry = store, log, dry
         self._build = build or _blender_build
         self._specs: dict = {}
         self._plans: dict = {}
         self.built: list[str] = []
+        self.build_s = 0.0                  # seconds spent building them (estimates: per variant)
+        self.missing: list[str] = []        # dry: the variants' GLBs (relative to the project) a build would make
+        self.bounds: dict = {}              # {glb: [lo, hi]}, shared with the plan
 
     def spec(self, asset: str) -> dict | None:
         """{form, f, p, dims} of an asset's building brief, or None (no brief: a TRELLIS model)."""
@@ -204,15 +211,24 @@ class Fitter:
         out = d / f"{name}.glb"
         idx = read_json(d / "index.json", default={}) or {}
         sha = f"{brief_sha(self.store, asset)}:{layer['sha']}"
+        rel = out.relative_to(self.store.root).as_posix()
         if not (out.is_file() and (idx.get(name) or {}).get("sha") == sha):
+            if self.dry:
+                if rel not in self.missing:
+                    w, dd = s["dims"][:2]
+                    self.missing.append(rel)
+                    self.bounds[rel] = [[-w / 2, -dd / 2, 0.0], [w / 2, dd / 2, layer["top"]]]
+                return rel
             d.mkdir(parents=True, exist_ok=True)
-            self.log(f"{asset}: height variant {name} ({layer['h']:.1f} m)")
+            self.log(f"{asset}{HV_LOG}{name} ({layer['h']:.1f} m)")
+            t = time.time()
             self._build(self.store, asset, out, [*s["dims"][:2], layer["h"]], layer["role"], d / "maps")
+            self.build_s += time.time() - t
             idx[name] = {"sha": sha, "role": layer["role"], "storeys": layer["storeys"], "h": layer["h"], "walls": layer["walls"],
                          "top": layer["top"]}
             write_json(d / "index.json", idx)
             self.built.append(f"{asset}/{name}")
-        return out.relative_to(self.store.root).as_posix()
+        return rel
 
 
 def _blender_build(store, asset, out, dims, role, maps):

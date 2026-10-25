@@ -310,3 +310,21 @@ def test_a_variant_placement_fits_with_its_own_brief_and_keeps_its_key(proj):
     assert a[0]["key"] == b[0]["key"] == key                        # the variant split's key: the same
     assert a[0]["glb"].startswith("3d/library/test-row/") and b[0]["glb"].startswith("3d/library/test-row-v/")
     assert bounds[a[0]["glb"]][1][2] != bounds[b[0]["glb"]][1][2]               # built from its own brief
+
+
+def test_a_dry_fitter_lists_the_variants_a_build_would_make_and_builds_nothing(proj):
+    """The build estimate's count (ue_build.queued_work): the same variants, no Blender, no files."""
+    s, index = _slot("blk-1", [(20, 12, 0, 40, 24, 44.0)])
+    dry = vertical.Fitter(proj, build=lambda *a: pytest.fail("a dry fitter built"), log=lambda *a: None, dry=True)
+    Fake(proj, dry.bounds)                               # the entries' own builds exist; no variants yet
+    pl, _ = ka.placements(proj, {"slots": [s]}, index, dry.bounds, dry)
+    assert len(dry.missing) == 2 and not dry.built and all("/heights/" in g for g in dry.missing)
+    assert not any((proj.root / g).exists() for g in dry.missing)
+    assert {p["glb"] for p in pl} == set(dry.missing) and all(dry.bounds[g][1][2] > 40 for g in dry.missing)
+    bounds: dict = {}
+    fake = Fake(proj, bounds)                            # the real build makes those, then none are missing
+    pl2, _ = ka.placements(proj, {"slots": [s]}, index, bounds, fake.fitter)
+    assert {p["glb"] for p in pl2} == set(dry.missing) and len(fake.fitter.built) == 2 and fake.fitter.build_s >= 0
+    again = vertical.Fitter(proj, log=lambda *a: None, dry=True)
+    ka.placements(proj, {"slots": [s]}, index, bounds, again)
+    assert again.missing == []

@@ -191,7 +191,8 @@ def test_ui_build_is_a_staged_cpu_job_with_the_report_on_the_tab(stub_build, mon
     client = _client()
     U = "/api/projects/demo-build"
     est = client.post(f"{U}/ue/build", json={}, headers={"X-AP-Estimate": "1"}).json()["estimate"]
-    assert est["kind"] == "ue.build" and est["long"]                # the long-job dialog asks first
+    assert est["kind"] == "ue.build" and [x["stage"] for x in est["stages_est"]] == ue_build.STAGES
+    assert est["breakdown"] and est["seconds"] == sum(x["seconds"] for x in est["stages_est"])
     assert not stub_build.calls                                     # an estimate starts nothing
     j = _wait(client, client.post(f"{U}/ue/build", json={"use_active": True, "keep_hand_moves": False}).json())
     assert j["status"] == "done" and j["lane"] == "cpu" and j["kind"] == "ue.build", j
@@ -242,3 +243,102 @@ def test_progress_shows_build_stages_and_counts_the_export_meshes(stub_build):
     job.tag["stage"] = 4
     p = ui_app._progress(stub_build.store, job, t0, t0 + 5)
     assert p["stage_label"] == "Import" and p["done"] is None
+
+
+# --- the build's time estimate: per stage, from the work queued before it starts ------------
+
+def _synthetic_plan(store, glbs, missing):
+    """city_library.plan's stand-in: placements of `glbs` (relative paths); the dry fitter
+    learns the `missing` ones are height variants still to build."""
+    def plan(st, gb, use_active=False, index=None, fitter=None, log=print):
+        assert fitter.dry
+        fitter.missing += [g for g in missing if g not in fitter.missing]
+        return {"placed": [{"key": f"k{i}", "glb": g} for i, g in enumerate(glbs)]}
+    return plan
+
+
+def test_queued_work_counts_missing_variants_and_changed_imports_only(stub_build, monkeypatch):
+    from asset_pipeline import city_library, ue
+    from asset_pipeline.project import write_json
+    from asset_pipeline.stages import s7_export
+    st = stub_build.store
+    have = [f"3d/library/b{i}/procedural.glb" for i in range(5)]
+    for i, g in enumerate(have):
+        (st.root / g).parent.mkdir(parents=True, exist_ok=True)
+        (st.root / g).write_bytes(b"glb%d" % i)
+    variants = [f"3d/library/b0/heights/middle-{n}s-abc.glb" for n in range(3)]
+    monkeypatch.setattr(city_library, "plan", _synthetic_plan(st, have + variants, variants))
+    write_json(s7_export.export_dir(st) / "mesh_index.json", {"m1": {"id": "SM_a"}, "m2": {"id": "SM_a"}, "m3": {"id": "SM_b"}})
+    w = ue_build.queued_work(st)
+    assert w["height_variants"] == 3 and w["first_import"] and "error" not in w
+    assert w["imports"] == 5 + 3 + 2                     # first import: every build and stand-in mesh
+    ue.record_imported(st, {"library_assets": [{"id": city_library.asset_id(f"k{i}"), "source": g} for i, g in enumerate(have)],
+                            "assets": [{"id": "SM_a"}, {"id": "SM_b"}]},
+                       {"assets": {"imported": [city_library.asset_id(f"k{i}") for i in range(5)], "skipped": []}})
+    (st.root / have[1]).write_bytes(b"changed")          # one build changed since the last import
+    w = ue_build.queued_work(st)
+    assert (w["height_variants"], w["imports"], w["first_import"]) == (3, 1 + 3, False)
+    monkeypatch.setattr(city_library, "plan", lambda *a, **k: (_ for _ in ()).throw(ValueError("no greybox")))
+    assert ue_build.queued_work(st)["error"] == "no greybox"           # never fails the build
+
+
+def test_estimate_is_per_stage_from_the_queue_with_defaults_then_recorded_times(tmp_path, monkeypatch):
+    from asset_pipeline import estimates
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    estimates._cache.clear()
+    tag = {"stages": ue_build.STAGES, "work": {"backup": True, "terrain": False, "height_variants": 120, "imports": 40}}
+    e = estimates.estimate("ue.build", "cpu", tag)
+    D = estimates.UE_BUILD_DEFAULTS
+    by = {x["stage"]: x for x in e["stages_est"]}
+    assert by["export"]["seconds"] == D["ue.build.export"] + 120 * D["ue.height_variant"]
+    assert by["import"]["seconds"] == D["ue.build.import"] + 40 * D["ue.import_asset"]
+    assert by["terrain"]["seconds"] == 0 and e["long"] and "default" in e["source"]
+    assert e["breakdown"] == "~120 height variants to build, ~40 imports"
+    assert estimates.job_seconds(SimpleNamespace(kind="ue.build", tag=tag)) == e["seconds"]
+    small = estimates.estimate("ue.build", "cpu", tag | {"work": {"height_variants": 0, "imports": 0}})
+    assert not small["long"] and small["breakdown"] == "no height variants to build, nothing changed to import"
+    for _ in range(3):                                   # three builds recorded: 30 s per variant, 2 s per import
+        estimates.record_time("ue.height_variant", 10, 300)
+        estimates.record_time("ue.import_asset", 5, 10)
+        estimates.record_time("ue.build.export", 1, 50)
+    e = estimates.estimate("ue.build", "cpu", tag)
+    by = {x["stage"]: x for x in e["stages_est"]}
+    assert by["export"]["seconds"] == 50 + 120 * 30 and by["import"]["seconds"] == D["ue.build.import"] + 40 * 2
+    assert e["source"] == "recorded builds"
+
+
+def test_a_build_records_its_parts_for_the_next_estimate(stub_build, monkeypatch):
+    from asset_pipeline import estimates, ue
+    from asset_pipeline.stages import s7_export
+    man = s7_export.load_manifest(stub_build.store)
+    man["library"] |= {"height_variants_built": ["a/x", "a/y"], "height_variant_s": 0.0}
+    monkeypatch.setattr(ue, "import_", lambda st, **kw: {
+        "ok": True, "assets": {"imported": [1, 2], "skipped": []}, "actors": {"reset": []}, "landscape": True,
+        "warnings": [], "import_seconds": {"a": 1.5, "b": 2.5}})
+    ue_build.build(stub_build.store, log=lambda *a: None)
+    rows = [json.loads(x) for x in estimates.log_path().read_text().splitlines()]
+    kinds = {r["kind"]: r for r in rows}
+    assert kinds["ue.import_asset"]["items"] == 2 and kinds["ue.import_asset"]["seconds"] == 4.0
+    assert {"ue.build.backup", "ue.build.export", "ue.build.lighting", "ue.build.import"} <= set(kinds)
+    assert "ue.height_variant" not in kinds              # no Blender seconds measured: nothing to learn from
+    assert all(r["seconds"] >= 0 for r in rows)
+
+
+def test_progress_time_left_follows_the_stage_not_the_old_median(stub_build):
+    from asset_pipeline import estimates
+    from asset_pipeline.ui import app as ui_app
+    t0 = time.time()
+    work = {"backup": True, "terrain": False, "height_variants": 100, "imports": 40}
+    tag = {"stages": ue_build.STAGES, "stage": 1, "work": work, "stage_t0": t0 - 600,
+           "hv_t0": t0 - 500, "hv_started": 11}                # 10 variants done in 500 s: 50 s each
+    job = SimpleNamespace(kind="ue.build", tag=tag, created=t0 - 700, note="b0: height variant …", est_s=999)
+    p = ui_app._progress(stub_build.store, job, t0 - 700, t0)
+    later = sum(x["seconds"] for x in estimates.ue_build_stages(tag)[2:])
+    assert (p["done"], p["total"]) == (10, 100)
+    assert p["eta_s"] == round(90 * 50 + later) and not p["over"]
+    tag["stage"] = 4                                          # import: its own counted log line
+    (ue_build.ue.work_dir(stub_build.store)).mkdir(parents=True, exist_ok=True)
+    (ue_build.ue.work_dir(stub_build.store) / "ap_import.log").write_text("LogPython: library: imported 30 of 40 (3.0 s each)\n")
+    p = ui_app._progress(stub_build.store, job, t0 - 700, t0 + 1)
+    check = estimates.ue_build_stages(tag)[5]["seconds"]
+    assert (p["done"], p["total"]) == (30, 40) and p["eta_s"] == round(10 * 3.0 + check)

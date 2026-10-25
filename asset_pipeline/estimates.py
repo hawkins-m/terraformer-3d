@@ -9,6 +9,11 @@ RECENT recorded runs of that kind (and variant: TRELLIS mode), each divided by i
 Without recorded runs it falls back to the stage timings in the projects' runs.jsonl (stages
 log their own seconds, e.g. 3d.trellis, frames.generate), then to DEFAULTS (a guess, said so).
 
+`ap ue build` (ue.build) is estimated per stage from the work counted before it starts
+(ue_build.queued_work, the job's tag["work"]): missing height variants x seconds per Blender
+build, changed assets x seconds per import, plus each stage's fixed part (ue_build_stages). Each
+build records those parts itself (ue_build: record_time), with UE_BUILD_DEFAULTS until it has.
+
 An "item" is what a job repeats: a frame, a sheet, a shot, an asset of a batch (items()).
 Jobs run one at a time per GPU lane (CPU: a few slots), so a job waits behind the jobs ahead of
 it in its lanes; wait() estimates that from their own estimates.
@@ -38,6 +43,10 @@ DEFAULTS = {
     "ue.look": 300, "terrain.analyse": 60, "terrain.build": 180, "terrain.outer": 120, "terrain.apply": 60,
     "terrain.landscape": 300, "terrain.ue": 300, "demo": 1800, "vlm.up": 60, "vlm.down": 5,
 }
+# `ap ue build`'s parts (recorded by ue_build after each build): per height variant, per imported
+# asset, and each stage's fixed part (Blender and editor start-up, the level read, the light...)
+UE_BUILD_DEFAULTS = {"ue.height_variant": 20, "ue.import_asset": 4, "ue.build.backup": 30, "ue.build.export": 90,
+                     "ue.build.terrain": 120, "ue.build.lighting": 5, "ue.build.import": 180, "ue.build.check": 10}
 MODE_FACTOR = {"512": 0.6}      # TRELLIS 512 against 1024_cascade, until 512 runs are recorded
 # job kind -> the stage name it logs in runs.jsonl, and what one logged run covers (its items)
 RUN_STAGES = {
@@ -127,8 +136,13 @@ def record(job, log=None) -> None:
     """Append a finished job's run time (successful jobs only)."""
     if job.status != "done" or not job.started or not job.finished:
         return
-    rec = {"time": time.time(), "kind": job.kind, "variant": variant(job.kind, job.tag),
-           "items": items(job.kind, job.tag), "seconds": round(job.finished - job.started, 1), "project": job.project}
+    record_time(job.kind, items(job.kind, job.tag), job.finished - job.started, job.project,
+                variant(job.kind, job.tag), log)
+
+
+def record_time(kind: str, n: int, seconds: float, project: str | None = None, var: str = "", log=None) -> None:
+    """Append one run time: `n` items of `kind` took `seconds`."""
+    rec = {"time": time.time(), "kind": kind, "variant": var, "items": n, "seconds": round(seconds, 1), "project": project}
     p = Path(log) if log else log_path()
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
@@ -178,6 +192,8 @@ def per_item(kind: str, var: str = "", log=None, projects_dir: Path | None = Non
         if xs:
             xs = xs[-RECENT * 2:]
             return statistics.median(xs), f"median of {len(xs)} logged stage run{'s' if len(xs) != 1 else ''} (runs.jsonl)"
+    if kind in UE_BUILD_DEFAULTS:
+        return float(UE_BUILD_DEFAULTS[kind]), "default guess (no builds recorded yet)"
     if kind.startswith("terrain.") and kind not in DEFAULTS:
         return 120.0, "default guess (no runs recorded yet)"
     if kind not in DEFAULTS:
@@ -197,13 +213,74 @@ def estimate(kind: str, lane: str, tag: dict | None = None, store=None, queue=No
     out = {"kind": kind, "label": label or kind, "items": n, "per_item_s": round(s, 1), "seconds": round(n * s),
            "source": src, "lanes": ls, "lane_names": [LANE_NAMES.get(x, x) for x in ls],
            "blocks": [BLOCKS[x] for x in ls if x in BLOCKS]}
+    if kind == "ue.build" and (tag or {}).get("work"):
+        st = ue_build_stages(tag)
+        total = sum(x["seconds"] for x in st)
+        out |= {"per_item_s": round(total, 1), "seconds": round(total), "stages_est": st,
+                "breakdown": breakdown(tag["work"]),
+                "source": "recorded builds" if any(x["recorded"] for x in st) else "default guesses (no builds recorded yet)"}
     out["long"] = out["seconds"] > LONG_S
     out |= wait(queue, ls[0]) if queue is not None else {"wait_s": 0, "ahead": 0}
     return out
 
 
+def ue_build_stages(tag: dict) -> list[dict]:
+    """An `ap ue build`'s stages (tag["stages"]) with their estimates from the work queued
+    (tag["work"]): [{stage, items, per_item_s, fixed_s, seconds, recorded}]. Export builds the
+    missing height variants, Import imports the changed assets, Render renders the shots."""
+    w = tag.get("work") or {}
+    per = {"export": ("ue.height_variant", w.get("height_variants") or 0),
+           "import": ("ue.import_asset", w.get("imports") or 0),
+           "render": ("ue.render", w.get("shots") or 1)}
+    out = []
+    for st in tag.get("stages") or []:
+        skip = (st == "backup" and w.get("backup") is False) or (st == "terrain" and not w.get("terrain"))
+        fixed, fsrc = (0.0, "") if skip or st == "render" else per_item(f"ue.build.{st}")
+        kind, n = per.get(st, (None, 0))
+        each, esrc = per_item(kind) if kind and n and not skip else (0.0, "")
+        out.append({"stage": st, "items": n if kind and not skip else 0, "per_item_s": round(each, 1),
+                    "fixed_s": round(fixed, 1), "seconds": round(fixed + (n * each if kind else 0)),
+                    "recorded": fsrc.startswith("median") or esrc.startswith("median")})
+    return out
+
+
+def breakdown(work: dict) -> str:
+    """The queued work in a line: "~120 height variants to build, ~40 imports"."""
+    if work.get("error"):
+        return f"couldn't count the queued work ({work['error']}): stage defaults only"
+    hv, imp = work.get("height_variants") or 0, work.get("imports") or 0
+    parts = [f"~{hv} height variant{'s' * (hv != 1)} to build" if hv else "no height variants to build",
+             f"~{imp} import{'s' * (imp != 1)}" + (" (first import: everything)" if work.get("first_import") and imp else "")
+             if imp else "nothing changed to import"]
+    if work.get("terrain"):
+        parts.append("terrain assets")
+    if work.get("shots"):
+        parts.append(f"{work['shots']} shot{'s' * (work['shots'] != 1)} to render")
+    return ", ".join(parts)
+
+
+def stage_left(tag: dict, stage_elapsed: float, done: int | None = None, rate: float | None = None) -> float:
+    """Seconds left of a running `ap ue build`: the current stage from its own progress (`done`
+    of its items, at `rate` s each when measured this run; else its estimate less the time it
+    has run), then the stages after it at their estimates."""
+    st = ue_build_stages(tag)
+    at = tag.get("stage", 0)
+    if not st or at >= len(st):
+        return 0.0
+    cur = st[at]
+    if done is not None and cur["items"]:
+        each = rate if rate else cur["per_item_s"]
+        fixed_left = max(0.0, cur["fixed_s"] - stage_elapsed) if not done else 0.0
+        left = max(0, cur["items"] - done) * each + fixed_left
+    else:
+        left = max(0.0, cur["seconds"] - stage_elapsed)
+    return left + sum(x["seconds"] for x in st[at + 1:])
+
+
 def job_seconds(job, store=None) -> float:
     """A submitted job's own estimate (the Jobs panel's time left for jobs it can't count)."""
+    if job.kind == "ue.build" and (job.tag or {}).get("work"):
+        return float(sum(x["seconds"] for x in ue_build_stages(job.tag)))
     return items(job.kind, job.tag, store) * per_item(job.kind, variant(job.kind, job.tag))[0]
 
 
