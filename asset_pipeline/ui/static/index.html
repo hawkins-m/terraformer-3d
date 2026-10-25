@@ -64,8 +64,7 @@
       <section class="tabpanel" data-tab="style" id="style-tab" hidden>
         <div class="applybar-slot"></div>
         <fieldset id="explore"><legend>Explore scenes</legend>
-          <p class="hint">Generate environment concepts from a brief. Starred scenes go to scene analysis and are
-            the source for the style anchor.</p>
+          <p class="hint tab-help">Concept scenes from a brief; star the good ones. <button type="button" class="help-q" title="Generate environment concepts from a brief. Starred scenes go to scene analysis and are the source for the style anchor." aria-label="More about Explore scenes">?</button></p>
           <form id="explore-form" class="form">
             <label for="ex-brief">Brief:</label>
             <textarea id="ex-brief" name="brief" rows="2" placeholder="e.g. a misty fishing harbour at dawn, painterly, muted blues and rust"></textarea>
@@ -79,8 +78,7 @@
         </fieldset>
 
         <fieldset id="derive"><legend>Derive anchor objects</legend>
-          <p class="hint">Pick a starred scene and name objects in it. Each is cut out with SAM 3 and redrawn on
-            white in the scene's style. Star the good ones.</p>
+          <p class="hint tab-help">Name objects in a starred scene; star the good redraws. <button type="button" class="help-q" title="Pick a starred scene and name objects in it. Each is cut out with SAM 3 and redrawn on white in the scene&#x27;s style. Star the good ones." aria-label="More about Derive anchor objects">?</button></p>
           <div id="starred-scenes" class="grid small"></div>
           <form id="derive-form" class="form">
             <label for="dv-nouns">Objects:</label>
@@ -94,8 +92,7 @@
         </fieldset>
 
         <fieldset id="moodboard"><legend>Moodboard</legend>
-          <p class="hint">Reference images for the style, one group at a time. They can be used in
-            <em>Derive objects</em> like scenes, and the vision LLM can draft the style text from them (GPU 0).</p>
+          <p class="hint tab-help">Upload style references, one group at a time. <button type="button" class="help-q" title="Reference images for the style, one group at a time. They can be used in Derive objects like scenes, and the vision LLM can draft the style text from them (GPU 0)." aria-label="More about the moodboard">?</button></p>
           <form id="moodboard-form" class="form">
             <label for="mb-group">Group:</label><input id="mb-group" name="group" placeholder="e.g. references" required>
             <label for="mb-files">Images:</label><input id="mb-files" name="files" type="file" accept="image/png,image/jpeg,image/webp" multiple required>
@@ -113,8 +110,7 @@
             <label for="an-str">Image strength:</label>
             <div class="row" style="margin:0"><input id="an-str" name="strength" type="range" min="0.02" max="0.3" step="0.01" value="0.06" style="width:240px">
               <output id="strength-out">0.06</output></div>
-            <span></span><p class="hint">Start low (0.06). If new images pick up parts of the anchor objects, lower it; if the
-              style is too weak, raise it a little or strengthen the text.</p>
+            <span></span><p class="hint tab-help">Start low (0.06). <button type="button" class="help-q" title="Start low (0.06). If new images pick up parts of the anchor objects, lower it; if the style is too weak, raise it a little or strengthen the text." aria-label="More about image strength">?</button></p>
             <span></span><div class="row" style="margin:0"><button class="default">Save anchor</button>
               <button type="button" id="anchor-text-only">Save style text only</button></div>
           </form>
@@ -129,10 +125,9 @@
           <button type="button" id="city-apply" class="default" title="Shows what it will run first (Ctrl+Enter)">Update plan, greybox &amp; passes…</button>
           <button type="button" id="city-replan" title="Re-plan the city from the catalog (F5)">Update city plan</button>
         </div>
-        <p id="city-none" class="hint">This project has no city layout yet. <button type="button" id="city-init" class="small">Start from the starter city</button>
-          <span id="city-none-own">To lay out the site yourself in Blender, use the starter layout in the Greybox tab.</span></p>
-        <p id="city-own" class="hint" hidden>This project's layout is <code>site/layout.json</code> (the starter layout or your own), not a
-          generated city: build and edit it in the Greybox tab.</p>
+        <p id="city-none" class="hint">No layout yet: <button type="button" id="city-init" class="small">Start from the starter city</button>
+          <span id="city-none-own"><button type="button" class="help-q" title="This project has no city layout yet. To lay out the site yourself in Blender, use the starter layout in the Greybox tab." aria-label="More about starting a layout">?</button></span></p>
+        <p id="city-own" class="hint" hidden>Your own layout: build and edit it in the Greybox tab. <button type="button" class="help-q" title="This project's layout is site/layout.json (the starter layout or your own), not a generated city: build and edit it in the Greybox tab." aria-label="More about your own layout">?</button></p>
         <div id="catalog" class="city" hidden>
           <div class="row city-top">
             <label>Edit: <select id="city-section" aria-label="Catalog section"></select></label>
@@ -154,10 +149,8 @@
       <section class="tabpanel" data-tab="site" id="site-tab" hidden>
         <div class="applybar-slot"></div>
         <fieldset><legend>Greybox</legend>
-          <p class="hint">The layout (<code>site/layout.json</code>) builds a Blender greybox. Optionally move buildings or
-            cameras in Blender, then <em>Re-read .blend</em>: the .blend is then the source of truth. Blender runs on the CPU.</p>
-          <p class="hint" id="site-byo">No layout yet. To lay out the site yourself in Blender instead of generating a city,
-            start from the small starter layout, build its greybox and edit that.</p>
+          <p class="hint tab-help">Build the block-out; edit it in Blender if you like. <button type="button" class="help-q" title="The layout (site/layout.json) builds a Blender greybox. Optionally move buildings or cameras in Blender, then Re-read .blend: the .blend is then the source of truth. Blender runs on the CPU." aria-label="More about the greybox">?</button></p>
+          <p class="hint" id="site-byo">No layout yet: start from the starter layout. <button type="button" class="help-q" title="To lay out the site yourself in Blender instead of generating a city, start from the small starter layout, build its greybox and edit that." aria-label="More about laying out the site yourself">?</button></p>
           <div class="row">
             <button id="site-init" type="button">Start from the starter layout</button>
             <button id="site-build" type="button" class="default">Build greybox</button>
@@ -174,7 +167,7 @@
       <section class="tabpanel" data-tab="shots" id="shots-tab" hidden>
         <div class="applybar-slot"></div>
         <div class="row"><button id="shots-render" type="button" class="default">Render all passes</button>
-          <span class="hint" style="margin:0">Each shot camera renders depth, edges and object-id passes that guide its frames.</span></div>
+          <span class="hint tab-help" style="margin:0">Passes that guide each shot's frames. <button type="button" class="help-q" title="Each shot camera renders depth, edges and object-id passes that guide its frames." aria-label="More about shot passes">?</button></span></div>
         <div id="shots-list"></div>
       </section>
 
@@ -194,6 +187,7 @@
       <!-- Library: scene plans (stage 1) and reference sheets (stage 2) -->
       <section class="tabpanel" data-tab="library" id="library-tab" hidden>
         <div class="applybar-slot"></div>
+        <nav class="lib-steps" id="lib-steps" aria-label="Library steps"></nav>
         <div role="tablist" class="subtabs" id="lib-tabs" aria-label="Library">
           <button role="tab" data-sub="areas">Areas</button>
           <button role="tab" data-sub="assets">Asset review</button>
@@ -203,12 +197,7 @@
         <div class="tabpanel lib-body">
           <div data-sub="areas" id="areas-tab" class="scroll-list" hidden></div>
           <div data-sub="assets" id="assets-tab" hidden>
-            <p class="hint">World mode: the assets the locked shot frames show, from their object-id passes. Each card
-              crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky,
-              something else over the asset). Decide each one before the pilot sheets: <b>Frame crop</b> (the crop
-              guides its sheets), <b>Description only</b> (built from its description), <b>Description + chosen image</b>
-              (its description plus a frame you pick) or <b>Exclude</b>.
-              Pressing a chosen button again clears it.</p>
+            <p class="hint tab-help">Decide how each asset is made. <button type="button" class="help-q" title="World mode: the assets the locked shot frames show, from their object-id passes. Each card crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky, something else over the asset). Decide each one before the pilot sheets: Frame crop (the crop guides its sheets), Description only (built from its description), Description + chosen image (its description plus a frame you pick) or Exclude. Pressing a chosen button again clears it." aria-label="More about Asset review">?</button></p>
             <div class="row">
               <button id="lib-plan" type="button" title="Finds the assets the locked shot frames show (CPU, seconds); decisions are kept">Discover assets from locked shots</button>
               <button id="lib-new" type="button" title="Add an entry of your own (kept through re-plans)">New entry…</button>
@@ -223,8 +212,7 @@
           </div>
           <div data-sub="plan" id="plan-tab" hidden>
             <fieldset id="plan-scenes"><legend>Scenes</legend>
-              <p class="hint">Starred scenes from Style, plus any you upload. The vision LLM lists the assets to model with
-                counts, sizes and placement; SAM 3.1 then redraws the boxes (solid; dashed are the LLM's own).</p>
+              <p class="hint tab-help">Pick a scene; the vision model lists its assets. <button type="button" class="help-q" title="Starred scenes from Style, plus any you upload. The vision LLM lists the assets to model with counts, sizes and placement; SAM 3.1 then redraws the boxes (solid; dashed are the LLM&#x27;s own)." aria-label="More about Scene plans">?</button></p>
               <p id="vlm-status" class="hint"></p>
               <div id="plan-scene-list" class="grid small"></div>
               <div class="row">
@@ -262,8 +250,7 @@
             </fieldset>
           </div>
           <div data-sub="refs" id="refs-tab" hidden>
-            <p class="hint">Each included asset drawn on white in the project's style: three views side by side, a kit's
-              pieces in one sheet, ground as a top-down texture. Star the sheets to keep. About 55 s per sheet.</p>
+            <p class="hint tab-help">Generate sheets per asset; star the ones to keep. <button type="button" class="help-q" title="Each included asset drawn on white in the project&#x27;s style: three views side by side, a kit&#x27;s pieces in one sheet, ground as a top-down texture. Star the sheets to keep. About 55 s per sheet." aria-label="More about Reference sheets">?</button></p>
             <div class="row">
               <button id="refs-missing" type="button" class="default">Generate missing</button>
               <button type="button" id="refs-missing-stop" class="stop" hidden>Stop</button>
@@ -282,7 +269,7 @@
       <section class="tabpanel" data-tab="views" id="review-tab" hidden>
         <div class="applybar-slot"></div>
         <fieldset><legend title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cine or hero, then Make 3D (TRELLIS.2 on GPU 0, about 2.5 min). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance.">Views and 3D</legend>
-          <p class="hint">Pick a view per asset, then Make 3D or Reroll. Hover any control for details.</p>
+          <p class="hint tab-help">Pick a view per asset, then Make 3D or Reroll. <button type="button" class="help-q" title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cine or hero, then Make 3D (TRELLIS.2 on GPU 0, about 2.5 min). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance. Hover any control for details." aria-label="More about Views and 3D">?</button></p>
           <div class="row">
             <button id="cut-views" type="button" class="default" title="Cut the asset views out of newly starred reference sheets with SAM 3.1.">Extract reference views</button>
             <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
@@ -303,30 +290,30 @@
         <fieldset><legend>Steps</legend>
           <ol class="ue-steps" id="ue-steps">
             <li data-step="init"><span class="n">1</span><b>Create UE project</b>
-              <span class="hint">An empty project in the Unreal projects folder, with the plugins the import needs.</span>
+              <span class="hint" title="An empty project in the Unreal projects folder, with the plugins the import needs.">Empty project with plugins</span>
               <span class="ue-do"><button type="button" id="ue-init" data-needs="unreal">Create UE project</button></span><span class="ue-state" id="ue-init-state"></span></li>
             <li data-step="export"><span class="n">2</span><b>Export</b>
-              <span class="hint">The greybox as stand-in GLBs plus the UE manifest, in <code>export/</code> (Blender, CPU).</span>
+              <span class="hint" title="The greybox as stand-in GLBs plus the UE manifest, in export/ (Blender, CPU).">Greybox and manifest to export/</span>
               <span class="ue-do"><button type="button" id="ue-export" data-needs="blender">Export to Unreal</button><span id="ue-export-stop"></span></span>
               <span class="ue-state" id="ue-export-state"></span></li>
             <li data-step="import"><span class="n">3</span><b>Import</b>
-              <span class="hint">The manifest into the UE level, headless (a wholesale relayout is Import with Reset layout and Prune, after a backup).</span>
+              <span class="hint" title="The manifest into the UE level, headless (a wholesale relayout is Import with Reset layout and Prune, after a backup).">Manifest into the UE level</span>
               <span class="ue-do"><button type="button" id="ue-import" data-needs="unreal">Import…</button></span><span class="ue-state" id="ue-import-state"></span></li>
             <li data-step="render"><span class="n">4</span><b>Render shots</b>
-              <span class="hint">Each shot camera rendered in Unreal, offscreen on a GPU with little VRAM in use.</span>
+              <span class="hint" title="Each shot camera rendered in Unreal, offscreen on a GPU with little VRAM in use.">Each shot camera, offscreen</span>
               <span class="ue-do"><button type="button" id="ue-render" data-needs="unreal">Render shots…</button></span><span class="ue-state" id="ue-render-state"></span></li>
             <li data-step="look"><span class="n">5</span><b>Match look</b>
-              <span class="hint">A look scene per approved shot: its library builds, light and ground matched to the locked frame.</span>
+              <span class="hint" title="A look scene per approved shot: its library builds, light and ground matched to the locked frame.">Look scene per approved shot</span>
               <span class="ue-do"><button type="button" id="ue-look" data-needs="unreal">Match look…</button></span><span class="ue-state" id="ue-look-state"></span></li>
           </ol>
         </fieldset>
         <fieldset><legend>Back up the UE project</legend>
-          <p class="hint">Snapshots <code id="ue-project"></code> without its caches; unchanged files are hard-linked, 10 kept.</p>
+          <p class="hint tab-help">Snapshots <code id="ue-project"></code>, 10 kept. <button type="button" class="help-q" title="Snapshots the UE project without its caches; unchanged files are hard-linked, 10 kept." aria-label="More about backups">?</button></p>
           <div class="row"><button type="button" id="ue-backup">Back up now</button><span id="ue-backup-stop"></span>
             <span id="ue-backup-state" class="hint" style="margin:0"></span></div>
         </fieldset>
         <fieldset><legend>Layout</legend>
-          <p class="hint">In the <b>Unreal</b> menu: Pull layout (moves made in Unreal back into the greybox), Stale report….</p>
+          <p class="hint tab-help">Pull layout and Stale report: Unreal menu. <button type="button" class="help-q" title="In the Unreal menu: Pull layout (moves made in Unreal back into the greybox), Stale report…." aria-label="More about the layout round trip">?</button></p>
         </fieldset>
       </section>
     </div>

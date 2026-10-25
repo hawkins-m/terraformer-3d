@@ -91,7 +91,7 @@ function libCard(e) {
   const src = e.best ? shortFrame(e.best) : "";
   const ref = d === "reference" ? libraryData.decisions[e.id].frame : null;
   const foliage = e.kind === "vegetation";
-  const flags = e.flags.map(f => `<li class="${f.startsWith("approximate") ? "note" : "flag"}">${esc(f)}</li>`).join("");
+  const flags = e.flags.map(f => `<li class="${f.startsWith("approximate") ? "note" : "flag"}">${shortNote(f)}</li>`).join("");
   el.innerHTML = `${e.best ? `<a href="${fileUrl(e.best)}" target="_blank" title="Open the source frame">
         <img loading="lazy" alt="" src="${fileUrl(`site/library/crops/${e.id}.jpg`)}"></a>`
       : `<div class="no-crop">${dupOf(e) ? "a copy: no shot frame of its own" : "no current shot frame shows it"}</div>`}
@@ -165,7 +165,8 @@ function renderLibrary() {
       (typeof lrAssetsOf === "function" && lr.briefs ? lrAssetsOf(e.id) : []).map(a => ((lr.list && lr.list.assets.find(x => x.asset === a)) || {}).status)]),
     build: libCard,
   });
-  if (!shown.length) box.innerHTML = `<p class="hint">No assets match.</p>`;
+  if (!shown.length) box.innerHTML = `<p class="hint">No assets match: pick another Show filter.</p>`;
+  if (typeof renderLibSteps === "function") renderLibSteps();
 }
 
 async function libDecide(id, decision, frame = null) {
@@ -197,7 +198,7 @@ async function pickReference(e) {
   const draw = () => {
     const r = at.shot;
     body.innerHTML = `<label>Image from: <select>${sources.map(x => `<option value="${esc(x.id)}"${x === at ? " selected" : ""}>${esc(x.label)}</option>`).join("")}</select></label>
-      <p class="hint" style="margin:4px 0">The image's look guides the sheets of <b>${esc(assetName(e.id))}</b>; a frame's layout doesn't matter, so older-layout frames work too.</p>
+      <p class="hint" style="margin:4px 0">Its look guides the sheets of <b>${esc(assetName(e.id))}</b>. ${helpQ(`The image's look guides the sheets of ${assetName(e.id)}; a frame's layout doesn't matter, so older-layout frames work too.`, "the chosen image")}</p>
       ${r ? `<div class="ref-batches">${[...r.batches].reverse().map(b => `<div class="ref-batch"><div class="hint" style="margin:0">${esc(b.dir.split("/").pop())}${b.archived ? " (older layout)" : ""}</div>
         <div class="ref-thumbs">${b.frames.map(f => thumb(f.key, `${esc(f.key.split("/").pop().replace(".png", ""))}${data.stars[f.key] ? " ★" : ""}${r.locked === f.key ? " · locked" : ""}`)).join("")}</div></div>`).join("")}</div>`
       : `<div class="ref-batches"><div class="ref-batch"><div class="ref-thumbs">${at.unit.sheets.map(k => thumb(k, `${esc(k.split("/").pop().replace(".png", ""))}${data.stars[k] ? " ★" : ""}`)).join("")}</div></div></div>`}`;

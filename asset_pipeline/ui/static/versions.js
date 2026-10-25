@@ -104,7 +104,7 @@ function versionStripDraw(box, asset, d, onChange) {
   const draw = () => {
     box.dataset.sel = JSON.stringify([...sel]);
     box.className = "version-strip";
-    box.innerHTML = `<legend title="Keeps your last ${d.keep} versions plus any marked Keep. The Active version is never removed.">Versions <span class="hint" style="margin:0" data-role="total">${d.versions.length} version${d.versions.length === 1 ? "" : "s"} · ${fmtBytes(d.bytes)} · the last ${d.keep} not marked Keep stay</span></legend>
+    box.innerHTML = `<legend title="Keeps your last ${d.keep} versions plus any marked Keep. The Active version is never removed.">Versions <span class="hint" style="margin:0" data-role="total">${d.versions.length} version${d.versions.length === 1 ? "" : "s"} · ${fmtBytes(d.bytes)}</span></legend>
       ${d.prunable.length ? `<div class="ver-prune row"><span>${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} can be removed (${fmtBytes(d.prunable_bytes)})</span>
         <button type="button" class="small ver-prune-btn" title="Delete these old versions (asks first); Active, Approved and Keep versions stay.">Remove</button></div>` : ""}
       <div class="ver-list">${d.versions.map(v => `<div class="ver${v.current ? " cur" : ""}" data-n="${v.n}">

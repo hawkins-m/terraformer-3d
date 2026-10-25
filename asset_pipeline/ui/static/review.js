@@ -116,7 +116,7 @@ function assetReview(a) {
   });
 
   const g = document.createElement("div"); g.className = "grid views";
-  if (!a.views.length) g.innerHTML = `<span class="hint no-views" title="Star a sheet in Library › Reference sheets, then click Extract reference views at the top of this tab.">No reference views yet</span>`;
+  if (!a.views.length) g.innerHTML = `<span class="hint no-views" title="Star a sheet in Library › Reference sheets, then click Extract reference views at the top of this tab.">No views yet: star a sheet, then Extract reference views</span>`;
   for (const v of a.views) {
     const b = document.createElement("button");
     b.type = "button"; b.className = "view" + (v.key === a.chosen ? " chosen" : "");
@@ -189,7 +189,7 @@ function assetReview(a) {
   if (a.plan === "library") {
     const vs = document.createElement("fieldset"); vs.className = "version-strip"; body.append(vs);
     if (a.results.length || a.current) versionStrip(vs, x.id, () => load());
-    else vs.innerHTML = `<legend>Versions</legend><span class="hint">No builds yet.</span>`;
+    else vs.innerHTML = `<legend>Versions</legend><span class="hint">No builds yet: Make 3D${a.reroll ? " or Reroll" : ""}.</span>`;
   }
   const models = document.createElement("div"); models.className = "ar-models"; body.append(models);
   if (a.results.length) {

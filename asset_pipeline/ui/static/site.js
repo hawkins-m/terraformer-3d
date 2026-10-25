@@ -42,7 +42,7 @@ function renderSite() {
       c.innerHTML = `<a href="${u}" target="_blank"><img loading="lazy" alt="" src="${u}"></a><span class="label">${name}</span>`;
       g.append(c);
     }
-    if (!Object.keys(r.passes).length) g.innerHTML = `<span class="empty">No passes yet.</span>`;
+    if (!Object.keys(r.passes).length) g.innerHTML = `<span class="empty">No passes yet: Render all passes.</span>`;
     el.append(g); list.append(el);
   }
 }

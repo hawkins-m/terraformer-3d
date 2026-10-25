@@ -735,6 +735,27 @@ function renderShell() {
     : statusData.comfy_service === "starting" ? " · ComfyUI starting" : " · ComfyUI not running";
   renderComfyControls();
   renderApplyBar();
-  if (typeof renderStepHeads === "function") { renderStepHeads(); renderGuide(); }
+  if (typeof renderStepHeads === "function") { renderStepHeads(); renderGuide(); renderLibSteps(); }
   updateJobDialog();
 }
+
+// --- short help: one line on screen, the full text behind a "?" ----------------------------------
+// The "?" shows the full text as its tooltip; clicking it (or Enter) opens the same text in a
+// window, for touch screens and keyboards. Nothing is dropped: the long text only moves.
+function helpQ(full, about = "this") {
+  return `<button type="button" class="help-q" title="${esc(full)}" aria-label="More about ${esc(about)}">?</button>`;
+}
+// a wordy note as its first words, the whole note as the tooltip ("approximate crop: the id
+// pass shows…" -> "approximate crop"); a note that is already short is shown as is
+function shortNote(text, max = 48) {
+  const s = String(text || ""), head = s.split(/:\s|\s\(|;\s|\.\s/)[0].trim();
+  const short = head.length <= max ? head : head.slice(0, head.lastIndexOf(" ", max)).trim() + "…";
+  return short === s ? esc(s) : `<span title="${esc(s)}">${esc(short)}</span>`;
+}
+document.addEventListener("click", e => {
+  const q = e.target.closest(".help-q");
+  if (!q) return;
+  e.preventDefault();
+  const body = document.createElement("p"); body.className = "help-full"; body.textContent = q.title;
+  dialog({title: q.getAttribute("aria-label").replace(/^More about /, "About ") || "About this", body});
+});

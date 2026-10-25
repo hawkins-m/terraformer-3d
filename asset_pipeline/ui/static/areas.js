@@ -85,7 +85,7 @@ async function areasPanel(host) {
     <div class="row" id="area-batches">${Object.entries(AREA_BATCHES).map(([k, v]) =>
       `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}" title="${esc(v[1])}. ${esc(v[2])}">${v[0]}…</button>`).join("")}
       <button type="button" class="small" id="area-checklist" title="Writes this table as a checklist to areas/<name>.md in the project, keeping your own notes around it. Named areas only.">Write checklist</button></div>`;
-  body.insertAdjacentHTML("afterbegin", `<p class="hint" style="margin-top:0" id="area-help" title="An area is a set of shots and/or districts. Each row is one asset of it, with what it has so far and its Next step: the button does that step. The batch buttons below run one step for every asset of the area that needs it.">One row per asset of the area; <b>Next</b> does its next step. Hover any header or value for details.</p>`);
+  body.insertAdjacentHTML("afterbegin", `<p class="hint tab-help" style="margin-top:0" id="area-help">One row per asset; <b>Next</b> does its next step. ${helpQ("An area is a set of shots and/or districts. Each row is one asset of it, with what it has so far and its Next step: the button does that step. The batch buttons below run one step for every asset of the area that needs it. Hover any header or value for details.", "areas")}</p>`);
   host.replaceChildren(body);
   const d = {win: host, close() {}};      // the steps that open another tab "close" the panel: nothing to do
   const reload = async () => {
@@ -110,7 +110,7 @@ async function areasPanel(host) {
     catch (err) { box.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
     areaGaps(d, table);
     box.className = "";
-    if (!areaState.rows.length) { box.innerHTML = `<p class="hint">No assets in this area.</p>`; return; }
+    if (!areaState.rows.length) { box.innerHTML = `<p class="hint">No assets in this area: pick another area, or New area….</p>`; return; }
     const tip = t => t ? ` title="${esc(t)}"` : "";
     box.innerHTML = `<table class="grid-table" id="area-table"><thead><tr>${Object.entries(AREA_HEADS).map(([h, t]) => `<th${tip(t)}>${esc(h)}</th>`).join("")}</tr></thead><tbody>${areaState.rows.map((r, i) => {
         const st = areaStep(r), rv = r.status || "not reviewed", bt = areaBuildText(r);
@@ -164,7 +164,7 @@ function areaGaps(d, table) {
   box.hidden = !gaps.length;
   if (!gaps.length) { box.replaceChildren(); return; }
   box.innerHTML = `<fieldset id="area-gap-list"><legend>Form gaps (${gaps.length})</legend>
-    <p class="hint" style="margin-top:0">These can't be briefed yet. The first button is the suggested fix.</p>
+    <p class="hint" style="margin-top:0">Can't be briefed yet. ${helpQ("These can't be briefed yet. The first button is the suggested fix.", "form gaps")}</p>
     ${gaps.map((g, i) => `<div class="row area-gap" data-asset="${esc(g.asset)}"><b style="min-width:13em" title="${esc(g.asset)}">${esc(assetName(g.asset))}</b>
       <span class="error" style="min-width:6em">no ${esc(g.missing.join(", no "))}</span>
       ${g.fixes.map((f, k) => `<button type="button" class="small${k === 0 ? " default" : ""} area-fix" data-g="${i}" data-f="${k}"

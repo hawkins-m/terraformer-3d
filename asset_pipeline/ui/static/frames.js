@@ -229,7 +229,7 @@ function renderFrameRight(r, f) {
         <button type="button" id="fr-lock" class="${r.locked ? "" : "default"}" ${f && r.locked !== f.key ? "" : "disabled"}
           title="Lock the shot on this frame: it is never regenerated, and assets are discovered from it">Use this frame for this shot</button>
         ${r.locked ? `<button type="button" id="fr-unlock">Unlock</button>` : ""}</div>
-      <p class="hint" style="margin:4px 0 0">Starring only marks frames you like; locking picks the one frame this shot uses.</p>
+      <p class="hint" style="margin:4px 0 0">Star = like; lock = use. ${helpQ("Starring only marks frames you like; locking picks the one frame this shot uses.", "star and lock")}</p>
       ${r.locked ? `<button type="button" id="fr-discover" class="default" style="margin-top:6px"
         title="Library › Discover assets from locked shots (CPU, seconds)">Discover assets →</button>` : ""}
     </fieldset>

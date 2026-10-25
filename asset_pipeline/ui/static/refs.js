@@ -68,7 +68,7 @@ function refsUnit(u) {
   }
   refsNextStep(u, el);
   const g = document.createElement("div"); g.className = "grid sheets";
-  if (!u.sheets.length) g.innerHTML = `<span class="empty">No sheets yet.</span>`;
+  if (!u.sheets.length) g.innerHTML = `<span class="empty">No sheets yet: click + ${+$("#refs-n").value || 2} more.</span>`;
   const delSel = $(".sheets-del-sel", el);
   const selOf = () => u.sheets.filter(k => refsSel[k]);
   const showSel = () => { const n = selOf().length; delSel.hidden = !n; delSel.textContent = `Delete selected (${n})`; };

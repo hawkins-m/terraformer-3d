@@ -8,14 +8,14 @@ const ST = {none: "Not started", input: "Needs input", ready: "Ready", running: 
 // Steps in tab order. Layout (tab id "city") sets the rules and generates where every building slot
 // goes; Greybox (tab id "site") builds the block-out from it, which may then be edited in Blender.
 const STEPS = [
-  {id: "style", tabs: ["style"], name: "Style", desc: "explore looks and save a style anchor (optional: frames use its style text)."},
-  {id: "layout", tabs: ["city"], name: "Layout", desc: "set the rules and generate the layout (where every building slot goes)."},
-  {id: "greybox", tabs: ["site"], name: "Greybox", desc: "build the block-out from the layout; optionally edit it in Blender and re-read it (the .blend then becomes the source of truth)."},
-  {id: "shots", tabs: ["shots"], name: "Shots", desc: "render each shot camera's depth, edge and object-id passes from the greybox."},
-  {id: "frames", tabs: ["frames"], name: "Frames", desc: "generate concept frames per shot and lock the one to use for each shot."},
-  {id: "library", tabs: ["library"], name: "Library", desc: "discover the assets the locked shots show, decide how each is made, and build them."},
-  {id: "views", tabs: ["views"], name: "Views and 3D", desc: "extract reference views from starred sheets and make 3D models (TRELLIS) for props and irregular assets."},
-  {id: "unreal", tabs: ["unreal"], name: "Unreal", desc: "export, import into Unreal, render the shots and match the look to the approved frames."},
+  {id: "style", tabs: ["style"], name: "Style", short: "Explore looks; save a style anchor (optional).", desc: "explore looks and save a style anchor (optional: frames use its style text)."},
+  {id: "layout", tabs: ["city"], name: "Layout", short: "Set the rules and generate the layout.", desc: "set the rules and generate the layout (where every building slot goes)."},
+  {id: "greybox", tabs: ["site"], name: "Greybox", short: "Build the block-out from the layout.", desc: "build the block-out from the layout; optionally edit it in Blender and re-read it (the .blend then becomes the source of truth)."},
+  {id: "shots", tabs: ["shots"], name: "Shots", short: "Render each shot camera's passes.", desc: "render each shot camera's depth, edge and object-id passes from the greybox."},
+  {id: "frames", tabs: ["frames"], name: "Frames", short: "Generate frames; lock one per shot.", desc: "generate concept frames per shot and lock the one to use for each shot."},
+  {id: "library", tabs: ["library"], name: "Library", short: "Decide, sheet and build each asset.", desc: "discover the assets the locked shots show, decide how each is made, and build them."},
+  {id: "views", tabs: ["views"], name: "Views and 3D", short: "Pick views and make the 3D models.", desc: "extract reference views from starred sheets and make 3D models (TRELLIS) for props and irregular assets."},
+  {id: "unreal", tabs: ["unreal"], name: "Unreal", short: "Export, import, render, match the look.", desc: "export, import into Unreal, render the shots and match the look to the approved frames."},
 ];
 const stepOfTab = tab => STEPS.find(s => s.tabs.includes(tab));
 const plural = (n, one, many = one + "s") => `${n} ${n === 1 ? one : many}`;
@@ -159,9 +159,9 @@ function wireGo(el) {
   el.querySelectorAll(".prereq-go").forEach(b => b.onclick = () => { showTab(b.dataset.goTab); if (b.dataset.goSub) showSub(b.dataset.goSub); });
 }
 
-// --- guide panel (Help › Show guide): optional, off unless the viewer turns it on ---------------
-// Each step ticks itself from the same states as the headers; Go opens its tab. The choice is a
-// per-browser convenience (localStorage), never forced on.
+// --- guide (Help › Show guide): a small floating step list, off unless the viewer turns it on -------
+// Each step ticks itself from the same states as the headers; Go opens its tab; what a step is and
+// its state are the tooltips. The choice is a per-browser convenience (localStorage), never forced on.
 const guideOn = () => { try { return localStorage.getItem("ap.guide") === "1"; } catch (_) { return false; } };
 function toggleGuide(on = !guideOn()) {
   try { localStorage.setItem("ap.guide", on ? "1" : "0"); } catch (_) { /* private window: this page only */ }
@@ -173,28 +173,75 @@ function renderGuide() {
   if (!el) return;
   const on = el.dataset.on ? el.dataset.on === "1" : guideOn();
   el.hidden = !on || !slug || !data;
-  document.querySelector(".body").classList.toggle("with-guide", !el.hidden);
   if (el.hidden) return;
   const wf = workflow();
   const nextUp = wf.find(s => s.status !== "done" && !(s.id === "style" && s.status === "none"));
   const sig = JSON.stringify([currentTab, wf.map(s => [s.status, s.label, s.detail]), nextUp && nextUp.id]);
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
-  el.innerHTML = `<fieldset><legend>Guide</legend>
-      <div class="row" style="margin:0 0 6px"><span class="hint" style="margin:0;flex:1">Ticks itself from the project's state.</span>
-        <button type="button" class="small" id="guide-close" title="Help › Show guide turns it back on">Hide</button></div>
+  el.innerHTML = `<div class="wtitle"><span class="wt">Guide</span><button type="button" class="wclose" id="guide-close" aria-label="Hide the guide" title="Help › Show guide turns it back on">x</button></div>
       <ol class="guide-steps">${wf.map((s, i) => {
         const tab = s.tabs[0];
-        return `<li class="${s.status === "done" ? "done" : ""}${nextUp && s.id === nextUp.id ? " next" : ""}${s.tabs.includes(currentTab) ? " here" : ""}">
+        return `<li class="${s.status === "done" ? "done" : ""}${nextUp && s.id === nextUp.id ? " next" : ""}${s.tabs.includes(currentTab) ? " here" : ""}" title="${esc(`${s.short} ${s.detail || ""}`.trim())}">
           <span class="gcheck" aria-hidden="true">${s.status === "done" ? "☑" : "☐"}</span>
-          <div><b>${i + 1}. ${esc(s.name)}</b> <span class="st-chip st-${s.status}">${esc(s.label || ST[s.status])}</span>
-            <div class="hint" style="margin:2px 0 0">${esc(s.detail || s.desc)}</div></div>
+          <span><b>${i + 1}. ${esc(s.name)}</b> <span class="st-chip st-${s.status}">${esc(s.label || ST[s.status])}</span></span>
           <button type="button" class="small guide-go" data-go-tab="${tab}" ${s.tabs.includes(currentTab) ? "disabled" : ""}
             aria-label="Go to ${esc(TAB_NAMES[tab])}">${s.tabs.includes(currentTab) ? "Here" : "Go"}</button></li>`; }).join("")}</ol>
-      ${nextUp ? `<p class="hint" style="margin:6px 0 0">Next up: <b>${esc(nextUp.name)}</b>.</p>` : `<p class="hint" style="margin:6px 0 0">Every step is complete.</p>`}
-    </fieldset>`;
+      <p class="hint" style="margin:4px 0 0">${nextUp ? `Next up: <b>${esc(nextUp.name)}</b>: ${esc(nextUp.short)}` : "Every step is complete."}</p>`;
   el.querySelectorAll(".guide-go").forEach(b => b.onclick = () => showTab(b.dataset.goTab));
   $("#guide-close", el).onclick = () => toggleGuide(false);
+}
+
+// --- Library step strip: Decide → Sheets → Star → Build → Approve, with what waits at each ---------
+// Counts per asset (an entry, or each module of a kit decision); vegetation is Unreal foliage and
+// never waits. An asset waits at the first step it hasn't done: no decision, no sheet, no starred
+// sheet, no 3D model, not approved. A model built without sheets (a brief) has passed 2 and 3.
+const LIB_STEPS = [
+  {id: "decide", name: "Decide", go: ["library", "assets"], tip: "Assets without a decision (Library › Asset review)."},
+  {id: "sheets", name: "Sheets", go: ["library", "refs"], tip: "Included assets with no reference sheet yet (Library › Reference sheets)."},
+  {id: "star", name: "Star", go: ["library", "refs"], tip: "Assets with sheets but none starred (Library › Reference sheets)."},
+  {id: "build", name: "Build", go: ["views", null], tip: "Assets with a starred sheet and no 3D model yet (Views and 3D: Make 3D or Reroll)."},
+  {id: "approve", name: "Approve", go: ["views", null], tip: "Built assets not approved yet (Views and 3D › Approve)."},
+];
+function libSteps() {
+  const out = Object.fromEntries(LIB_STEPS.map(s => [s.id, 0]));
+  const decs = (libraryData && libraryData.decisions) || {}, stars = (data && data.stars) || {};
+  const sheets = {};
+  for (const u of refs || []) if (u.plan === "library") sheets[u.key] = u.sheets || [];
+  const rows = {};
+  for (const a of (reviewData && reviewData.assets) || []) if (a.plan === "library") rows[a.asset.id] = a;
+  for (const e of libEntries()) {
+    if (e.kind === "vegetation") continue;
+    const d = libDecision(e);
+    if (!d) { out.decide++; continue; }
+    if (d === "exclude") continue;
+    const ids = d === "kit" ? Object.keys((decs[e.id] || {}).pieces || {}).map(p => `${e.id}-${p}`) : [e.id];
+    for (const id of ids) {
+      const r = rows[id], built = !!(r && (r.results.length || r.current)), sh = sheets[id] || [];
+      if (built) { if (r.review !== "approved") out.approve++; continue; }
+      out[!sh.length ? "sheets" : !sh.some(k => stars[k]) ? "star" : "build"]++;
+    }
+  }
+  return LIB_STEPS.map(s => ({...s, waiting: out[s.id]}));
+}
+function renderLibSteps() {
+  const el = $("#lib-steps");
+  if (!el) return;
+  if (!libraryData || !libraryData.plan) { el.hidden = true; return; }
+  const steps = libSteps(), first = steps.find(s => s.waiting);
+  const sig = JSON.stringify(steps.map(s => s.waiting));
+  if (el.dataset.sig === sig && !el.hidden) return;
+  el.dataset.sig = sig; el.hidden = false;
+  el.innerHTML = steps.map((s, i) => `${i ? `<span class="ls-arrow" aria-hidden="true">→</span>` : ""}<button type="button"
+      class="ls-step${s.waiting ? " waiting" : ""}${s === first ? " current" : ""}" data-ls="${s.id}" title="${esc(s.tip)}"
+      aria-label="${i + 1} ${s.name}: ${s.waiting} waiting">${i + 1} ${s.name}${s.waiting ? ` <span class="ls-n">${s.waiting}</span>` : " ✓"}</button>`).join("");
+  el.querySelectorAll("[data-ls]").forEach(b => b.onclick = () => {
+    const s = LIB_STEPS.find(x => x.id === b.dataset.ls);
+    showTab(s.go[0]); if (s.go[1]) showSub(s.go[1]);
+    if (s.id === "decide" && +b.querySelector(".ls-n")?.textContent && $("#lib-filter")) {   // show what waits: the undecided
+      const f = $("#lib-filter"); f.value = "todo"; f.dispatchEvent(new Event("change"));
+    }
+  });
 }
 
 // --- header strip ------------------------------------------------------------------------------
@@ -212,13 +259,11 @@ function renderStepHeads() {
   if (!el || !wf.length) return;
   const i = wf.findIndex(s => s.tabs.includes(tab)), s = wf[i], nxt = wf[i + 1];
   const behind = wf.slice(0, i).filter(x => x.status === "stale");
-  const desc = s.desc;
   const nextTab = nxt && nxt.tabs[0];
   const sig = JSON.stringify([tab, s.status, s.label, s.detail, s.next, behind.map(x => x.id), nextTab]);
   if (el.dataset.sig === sig) return;
   el.dataset.sig = sig;
-  el.innerHTML = `<div class="sh-main"><span class="sh-step">This step:</span> ${esc(desc)}
-</div>
+  el.innerHTML = `<div class="sh-main tab-help"><span class="sh-step">This step:</span> ${esc(s.short)} ${helpQ(s.desc[0].toUpperCase() + s.desc.slice(1), s.name)}</div>
     <span class="st-chip st-${s.status}" title="${esc(s.detail)}">${esc(s.label || ST[s.status])}</span>
     <span class="sh-detail">${esc(s.detail)}</span>
     ${behind.map(b => `<span class="sh-behind">${esc(b.name)} is out of date: <button type="button" class="link sh-go" data-go-tab="${b.tabs[0]}">revisit ${esc(TAB_NAMES[b.tabs[0]])}</button></span>`).join("")}

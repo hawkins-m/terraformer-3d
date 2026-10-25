@@ -109,3 +109,17 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   next reference sheets (sw_library.asset_fields -> s2_refs); form and size the next unguided Reroll or Brief &
   build; the brief, guided Reroll and Make 3D never read the description.
 - Test: tests/test_ui_auto_fields.py (browser).
+
+## Readability pass (2026-10-25)
+- Help text is one line plus a "?" (`helpQ(full)` in shell.js; `.tab-help`): the full text is the
+  "?"'s tooltip, and a click opens it in a window. Every tab's header line is `STEPS[].short`, its
+  `desc` behind the "?". Wordy card notes go through `shortNote` (first words, the rest as tooltip).
+  Nothing is removed, only moved. `tests/test_ui_readability.py` fails on any `.hint` in index.html
+  longer than one line (80 characters).
+- Library step strip (`#lib-steps`, `libSteps()` in workflow.js): Decide → Sheets → Star → Build →
+  Approve, each asset counted at the first step it hasn't done; the first step with work waiting is
+  highlighted, and each step jumps to where it happens.
+- Help › Show guide is a small floating window (`.side.guide`, position fixed), off by default.
+- Never find a test server with a loop over /proc cmdlines from the shell: the loop's own bash
+  command line contains the pattern and it killed itself. Find it by its listening port
+  (/proc/net/tcp inode -> /proc/<pid>/fd).

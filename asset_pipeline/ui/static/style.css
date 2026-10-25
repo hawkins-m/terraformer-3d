@@ -614,7 +614,6 @@ details summary { cursor: default; }
 /* Step header on every tab: what this step is, its status, and the Next button */
 .step-head { flex: none; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 0 0 8px; padding: 5px 8px;
   background: var(--panel); border: 1px solid; border-color: var(--hi) var(--border-dark) var(--border-dark) var(--hi); }
-.step-head .sh-main { flex: 1 1 100%; }
 .step-head .spacer { flex: 1; }
 .step-head .sh-step { font-weight: 700; }
 .step-head .sh-detail { color: var(--muted); }
@@ -643,17 +642,35 @@ details summary { cursor: default; }
 .ue-why { color: var(--muted); font-style: italic; }
 .ue-why:not(:first-child) { margin-left: 8px; }
 
-/* Guide panel (Help › Show guide): a third column, only while it is on */
-.body.with-guide { grid-template-columns: 250px minmax(0, 1fr) 260px; }
-.guide-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.guide-steps li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 6px; align-items: start; padding: 4px;
+/* Guide (Help › Show guide): a small floating window over the page, only while it is on */
+.side.guide { position: fixed; right: 12px; bottom: 34px; z-index: 40; width: 240px; max-height: 70vh; gap: 0; padding: 2px;
+  background: var(--panel); border: 1px solid; border-color: var(--hi) var(--border-dark) var(--border-dark) var(--hi);
+  box-shadow: 2px 2px 6px rgba(0, 0, 0, 0.3); }
+.side.guide .wtitle { margin-bottom: 4px; }
+.guide-steps { list-style: none; margin: 0; padding: 0 4px; display: grid; gap: 2px; }
+.guide-steps li { display: grid; grid-template-columns: 16px minmax(0, 1fr) auto; gap: 6px; align-items: center; padding: 2px 4px;
   border: 1px solid transparent; }
 .guide-steps li.here { background: var(--field); border-color: var(--border); }
 .guide-steps li.next { border-color: var(--select); }
 .guide-steps li.done .gcheck { color: var(--ready); }
 .guide-steps .gcheck { font-size: 13px; line-height: 1.1; }
 .guide-steps .st-chip { font-size: 11px; }
-@media (max-width: 1100px) { .body.with-guide { grid-template-columns: 250px minmax(0, 1fr); } .body.with-guide .guide { display: none; } }
+.side.guide > .hint { padding: 0 4px 4px; }
+
+/* "?" beside a one-line help text: the full text is its tooltip (and a window on click) */
+.help-q { min-width: 0; width: 16px; height: 16px; padding: 0; margin-left: 2px; font: 700 10px/14px var(--ui); border-radius: 50%;
+  vertical-align: middle; cursor: help; }
+.tab-help { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.step-head .sh-main { flex: 0 1 auto; }
+
+/* Library step strip: 1 Decide → 2 Sheets → 3 Star → 4 Build → 5 Approve */
+.lib-steps { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 0 0 6px; }
+.lib-steps .ls-step { min-width: 0; padding: 1px 8px; }
+.lib-steps .ls-step:not(.waiting) { color: var(--muted); }
+.lib-steps .ls-step.waiting { font-weight: 700; }
+.lib-steps .ls-step.current { background: var(--stale); border-color: var(--stale-line); }
+.lib-steps .ls-n { display: inline-block; min-width: 14px; padding: 0 3px; background: var(--select); color: var(--select-text, #fff); font-size: 11px; }
+.lib-steps .ls-arrow { color: var(--muted); }
 
 /* Setup (setup.js): one block per item, input + Test on one line, the answer under it */
 .setup-window { width: min(780px, 96vw); }
