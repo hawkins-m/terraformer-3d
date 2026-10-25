@@ -520,6 +520,32 @@ function entrySavedNotice(id, saved) {
   dialog({title: `Saved: ${id}`, body: b, buttons: [{label: "OK", default: true}]}).win.id = "entry-saved-dialog";
 }
 
+// Manage entry… › Kit modules (kit_assembly.py): each module's role. Block slots assigned to a kit
+// are built from it in Unreal: corners at the block's corners, bays along its edges, end modules at
+// inner corners, fillers for what the bays can't close. "detected": from the id, brief or description.
+async function kitSection(id, box) {
+  let info;
+  try { info = await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/kit`, undefined, "GET"); }
+  catch (err) { box.innerHTML = `<p class="error">${esc(errorText(err))}</p>`; return null; }
+  const mine = m => m.source === "yours" ? (m.role || "none") : "";
+  box.innerHTML = `<fieldset><legend>Kit modules</legend>
+    <p class="hint" style="margin:0 0 4px">Block slots assigned to a kit are assembled from its modules in Unreal: a corner at each corner, bays along the edges (scaled at most 10% to fit), end and filler modules where they help.</p>
+    ${info.modules.map((m, i) => `<div><label>${esc(assetName(m.asset) || m.asset)}: <select class="kit-role" data-i="${i}">
+      <option value="">${m.detected ? `detected (${esc(m.detected)})` : "not a kit module (detected)"}</option>
+      ${info.roles.map(r => `<option value="${r}"${mine(m) === r ? " selected" : ""}>${r}</option>`).join("")}
+      <option value="none"${mine(m) === "none" ? " selected" : ""}>not a kit module</option></select></label></div>`).join("")}</fieldset>`;
+  return {save: async () => {
+    const roles = {};
+    box.querySelectorAll(".kit-role").forEach(sel => {
+      const m = info.modules[+sel.dataset.i];
+      if (sel.value !== mine(m)) roles[m.asset] = sel.value || null;
+    });
+    if (!Object.keys(roles).length) return false;
+    await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/kit`, {roles});
+    return true;
+  }};
+}
+
 async function manageEntry(id) {
   const ent = libEntries().find(x => x.id === id); if (!ent) return;
   const dec = libraryData.decisions[id] || {};
@@ -540,10 +566,12 @@ async function manageEntry(id) {
       <p class="hint" style="margin:2px 0 0">Shares ${esc(assetName(dupOf(ent)))}'s placements: each place gets the original or one of its variants, split evenly and the same on every build.
         Only variants with a built Active version take places.</p></div>` : ""}
     <div id="en-variants" style="grid-column:1/-1"></div>
-    <div id="en-children" style="grid-column:1/-1"></div>`;
+    <div id="en-children" style="grid-column:1/-1"></div>
+    <div id="en-kit" style="grid-column:1/-1"></div>`;
   let finfo = null;
   const vs = ent.kind === "prop" ? await variantSection(id, $("#en-variants", body)) : null;
   const kids = await childrenSection(id, $("#en-children", body));
+  const kit = ent.kind === "prop" ? null : await kitSection(id, $("#en-kit", body));
   if ((ent.route || ent.route_auto) === "procedural" || dec.route === "procedural") {
     try { finfo = await api(`/api/projects/${slug}/library/entries/${id}/form`, undefined, "GET");
           $("#en-form-box", body).innerHTML = await formFieldsHtml(finfo, {allowAuto: true}); formFieldsWire(body); }
@@ -576,6 +604,7 @@ async function manageEntry(id) {
         }
         if (vs) await vs.save();
         if (kids) await kids.save();
+        if (kit && await kit.save()) saved.push("kit roles");
         const vb = $("#en-variant", body);
         if (vb && vb.checked !== (ent.variant !== false)) {
           await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/variant`, {on: vb.checked}); saved.push("variant");

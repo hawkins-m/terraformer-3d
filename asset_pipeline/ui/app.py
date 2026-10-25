@@ -165,6 +165,10 @@ class ChildrenReq(BaseModel):
     build: bool = True             # rebuild the assembly preview (a Blender job) when the parent has a model
 
 
+class KitRolesReq(BaseModel):
+    roles: dict[str, str | None]   # {asset: bay / corner / end / filler / none, or None: detected}
+
+
 class EntryDescriptionReq(BaseModel):
     description: str | None = None     # None / empty: back to the automatic one
 
@@ -1458,6 +1462,18 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def library_children_get(slug: str, entry: str):
         from .. import assembly
         return _entry_call(assembly.info, _store(slug), entry)
+
+    # kit modules (kit_assembly.py): the roles block slots assigned to a kit are assembled from
+    @app.get("/api/projects/{slug}/library/entries/{entry}/kit")
+    def library_kit_get(slug: str, entry: str):
+        from .. import kit_assembly
+        return {"roles": list(kit_assembly.ROLES), "modules": _entry_call(kit_assembly.modules, _store(slug), entry)}
+
+    @app.post("/api/projects/{slug}/library/entries/{entry}/kit")
+    def library_kit_set(slug: str, entry: str, req: KitRolesReq):
+        from .. import kit_assembly
+        return {"roles": list(kit_assembly.ROLES),
+                "modules": _entry_call(kit_assembly.set_roles, _store(slug), entry, req.roles)}
 
     @app.get("/api/projects/{slug}/library/entries/{entry}/footprint")
     def library_footprint(slug: str, entry: str):
