@@ -530,7 +530,33 @@ def test_a_reroll_version_says_what_changed_in_the_brief(store, monkeypatch):
     res = lr.reroll(store, "gate", "wider")
     assert versions.get(store, "gate", 2)["changes"] == res["changes"] == "Changed: width 10 → 14"
     assert versions.get(store, "gate", 2)["changes_short"] == "Changed: width 10 → 14"
-    assert res["message"].startswith("v2: Changed: width")
+    assert res["message"] == "v2: Applied: width 10 → 14."
+    assert res["guidance_report"]["applied"] == ["width 10 → 14"] and not res["guidance_report"]["small"]
+
+
+def test_a_reroll_says_what_the_builder_could_not_apply_and_suggests_the_sheet_route(store, monkeypatch):
+    from asset_pipeline import brief_guide
+    _fake_reroll_deps(store, monkeypatch)
+    _build(store)
+    monkeypatch.setattr(brief_guide, "propose", lambda *a, **k: {
+        "edits": [{"path": "params.w", "before": 10.0, "after": 11.0, "why": "a touch wider"}], "dropped": [],
+        "brief_made": False, "unsupported": ["monolithic presence", "spherical forms"]})
+    monkeypatch.setattr(brief_guide, "apply", lambda store, asset, edits, guidance: write_json(
+        kit_proc.spec_path(store, asset), read_json(kit_proc.spec_path(store, asset)) | {"params": {"w": 11.0}}))
+    res = lr.reroll(store, "gate", "monolithic presence, spherical forms, a touch wider")
+    rep = res["guidance_report"]
+    assert rep["applied"] == ["width 10 → 11"] and rep["not_possible"] == ["monolithic presence", "spherical forms"]
+    assert rep["small"] and rep["suggest"] == lr.TRY_SHEET
+    assert res["message"] == ("v2: Applied: width 10 → 11. Not possible with this builder: monolithic presence, "
+                              "spherical forms. Small change. " + lr.TRY_SHEET)
+
+
+def test_small_change_is_slight_measurements_only():
+    old = {"kind": "building", "dims": [20, 15, 12], "params": {"w": 10.0}}
+    assert lr.small_change(old, old | {"params": {"w": 11.0}})
+    assert not lr.small_change(old, old | {"params": {"w": 14.0}})
+    assert not lr.small_change(old, old | {"dims": [20, 15, 12]})                 # nothing changed
+    assert not lr.small_change(old, old | {"material_types": {"base": "granite"}})
 
 
 def test_guidance_no_setting_carries_adds_no_version_and_lists_the_settings(store, monkeypatch):
@@ -544,7 +570,9 @@ def test_guidance_no_setting_carries_adds_no_version_and_lists_the_settings(stor
     monkeypatch.setattr(kit_proc, "build_any", lambda *a, **k: built.append(1))
     res = lr.reroll(store, "gate", "rounded corners")
     assert res["version"] is None and res["unchanged"] and not built
-    assert res["message"] == "Guidance didn't match any setting this builder has: shading (smooth/flat), vault thickness."
+    assert res["message"] == ("Guidance didn't match any setting this builder has: shading (smooth/flat), vault thickness."
+                              " Not possible with this builder: rounded corners. " + lr.TRY_SHEET)
+    assert res["guidance_report"]["not_possible"] == ["rounded corners"] and res["guidance_report"]["applied"] == []
     assert [r["n"] for r in versions.load(store, "gate")] == [1] and versions.current(store, "gate") == 1
 
 
@@ -566,7 +594,7 @@ def test_a_reroll_built_from_the_same_input_adds_no_version_even_when_the_glb_by
     res = lr.reroll(store, "gate", "wider")
     assert res["version"] is None and res["unchanged"] and res["same_as"] == 1
     assert res["message"] == ("Nothing changed: the build is identical to v1 "
-                              "(the brief edits (width 10 → 14) build the same model).")
+                              "(the brief edits (width 10 → 14) build the same model). " + lr.TRY_SHEET)
     assert [r["n"] for r in versions.load(store, "gate")] == [1] and not versions.vdir(store, "gate", 2).exists()
 
 

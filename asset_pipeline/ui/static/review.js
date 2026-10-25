@@ -9,6 +9,27 @@ const ACTIVE_TIP = "This version is the one later steps (Cleanup, Unreal look sc
 // sheet-tinted surfaces to white and hid material changes.
 const MV_LOOK = `tone-mapping="neutral" exposure="0.75" shadow-intensity="0.8"`;
 const APPROVE_TIP = "Unreal look scenes only place approved assets. Until then, export uses greybox stand-ins.";
+const make3dNotes = {};        // "plan/asset" -> {message, why}: the last Make 3D queued nothing (same as a version)
+const rowNotesClosed = new Set();   // reroll job ids whose report the user dismissed
+
+// the row's note: a Make 3D that would only repeat a version, else the newest finished reroll's
+// report on its guidance (what was applied, what this builder can't do)
+function rowNote(a) {
+  const dup = make3dNotes[`${a.plan}/${a.asset.id}`];
+  if (dup) return {key: "dup", cls: "warn", html: esc(dup.message), title: dup.why || ""};
+  if (a.plan !== "library" || activeJobs("library.reroll", {asset: a.asset.id}).length) return null;
+  const j = (data ? data.jobs : []).filter(j => j.kind === "library.reroll" && j.tag.asset === a.asset.id && j.status === "done")
+    .sort((x, y) => (y.finished || 0) - (x.finished || 0))[0];
+  const r = j && j.result;
+  if (!r || rowNotesClosed.has(j.id) || !r.guidance) return null;
+  const rep = r.guidance_report || {};
+  const head = r.version ? `Reroll v${r.version}` : `Reroll: ${r.same_as ? `same as v${r.same_as}, no new version` : "no new version"}`;
+  const lines = [`<b>${esc(head)}</b> (guidance: “${esc(r.guidance)}”)`,
+    `Applied: ${rep.applied && rep.applied.length ? esc(rep.applied.join("; ")) : "nothing"}${rep.small ? ` <span class="mark m-chg">Small change</span>` : ""}`];
+  if (rep.not_possible && rep.not_possible.length) lines.push(`Not possible with this builder: ${esc(rep.not_possible.join(", "))}`);
+  if (rep.suggest) lines.push(esc(rep.suggest));
+  return {key: j.id, cls: "", html: lines.join("<br>"), title: r.message || ""};
+}
 
 function renderReview() {
   if (!reviewData) return;
@@ -33,7 +54,7 @@ function renderReview() {
     heading: g => `<h3>${esc(g.key)}</h3>`,
     key: a => `${a.plan}/${a.asset.id}`,
     sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name), a.plan === "library" ? verRev(a.asset.id) : 0,
-      ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status))]),
+      ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status)), rowNote(a)]),
     build: assetReview,
   });
 }
@@ -50,7 +71,7 @@ function assetReview(a) {
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
       <span class="actions">${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}
         <button type="button" class="make3d" data-needs="${a.procedural ? "blender" : "trellis"}">Make 3D</button>
-        ${a.procedural ? "" : `<label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Seeds only apply to TRELLIS builds."><input type="checkbox" class="new-seed-box"> New seed</label>`}
+        <label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Without it, Make 3D from the same view and mode repeats the same version."><input type="checkbox" class="new-seed-box"> New seed</label>
         <button type="button" class="secondary cleanup" title="Scale the Active version to the plan size and set its pivot at the base${x.usage === "game" ? ", then decimate and bake it for game use" : ""}.">Clean up</button>
         ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
           <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>
@@ -61,6 +82,17 @@ function assetReview(a) {
       <button type="button" class="small default reroll-go" title="Start the reroll; the new version appears under Versions.">Go</button>
       <button type="button" class="small reroll-cancel" title="Close without rerolling.">Cancel</button>
       <div class="hint reroll-settings" style="margin:0;flex-basis:100%"></div></div>` : ""}`;
+  const note = rowNote(a);
+  if (note) {
+    const n = document.createElement("div"); n.className = `row-note ${note.cls}`; n.setAttribute("role", "status");
+    n.title = note.title;
+    n.innerHTML = `<span>${note.html}</span><button type="button" class="wclose" aria-label="Dismiss this note">x</button>`;
+    $(".wclose", n).onclick = () => {
+      if (note.key === "dup") delete make3dNotes[`${a.plan}/${x.id}`]; else rowNotesClosed.add(note.key);
+      renderReview();
+    };
+    el.append(n);
+  }
   const me = $(".manage-entry", el);
   if (me) me.onclick = () => manageEntry(assetEntry(x.id));
   for (const [cls, status] of [[".approve", "approved"], [".changes", "needs_changes"]]) {
@@ -101,7 +133,13 @@ function assetReview(a) {
     make.after(stopButton(jobs3d));
   }
   make.onclick = async () => {
-    try { await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value, new_seed: !!$(".new-seed-box", el)?.checked}); await load(); }
+    const k = `${a.plan}/${x.id}`;
+    delete make3dNotes[k];
+    try {
+      const r = await api(`/api/projects/${slug}/3d`, {plan: a.plan, asset: x.id, mode: $("#trellis-mode").value, new_seed: !!$(".new-seed-box", el)?.checked});
+      if (r && r.duplicate != null) { make3dNotes[k] = {message: r.message, why: r.why}; renderReview(); }
+      else await load();
+    }
     catch (err) { alert(errorText(err)); }
   };
 

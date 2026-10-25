@@ -231,24 +231,74 @@ def label(path: str) -> str:
     return " ".join([x.replace("_", " ") for x in segs[:-1]] + [_word(segs[-1])])
 
 
+def _brief_diff(old: dict, new: dict) -> tuple[list[str], list[tuple[str, object, object]]]:
+    """(parts switched on/off as "label on|off", [(path, before, after)] of the other settings)."""
+    from . import brief_guide, versions
+    raw = [versions._flat({k: x[k] for k in BRIEF_ROOTS if k in x}) for x in (old, new)]
+    off_a, off_b = set(), set()
+    res = [brief_guide.values(old, off_a), brief_guide.values(new, off_b)]
+    switched = [f"{label(p)} on" for p in sorted(off_a - off_b)] + [f"{label(p)} off" for p in sorted(off_b - off_a)]
+    values = []
+    for k in list(raw[0]) + [k for k in raw[1] if k not in raw[0]]:
+        if raw[0].get(k) == raw[1].get(k) or any(k.startswith(p + ".") for p in off_b):
+            continue
+        a, b = (r.get(k, x.get(k)) for r, x in zip(res, raw))
+        if a != b:
+            values.append((k, a, b))
+    return switched, values
+
+
 def brief_changes(old: dict, new: dict) -> list[str]:
     """What changed in the brief, one "field before → after" in plain words per setting that was
     set explicitly (guidance, a reroll, the brief form) in either brief. Values the builder fills
     in from defaults and templates are not changes; they only stand in as the "before" of a field
     set for the first time (a part switched on shows its template value). A part switched on or
     off is one item."""
-    from . import brief_guide, versions
-    raw = [versions._flat({k: x[k] for k in BRIEF_ROOTS if k in x}) for x in (old, new)]
-    off_a, off_b = set(), set()
-    res = [brief_guide.values(old, off_a), brief_guide.values(new, off_b)]
-    out = [f"{label(p)} on" for p in sorted(off_a - off_b)] + [f"{label(p)} off" for p in sorted(off_b - off_a)]
-    for k in list(raw[0]) + [k for k in raw[1] if k not in raw[0]]:
-        if raw[0].get(k) == raw[1].get(k) or any(k.startswith(p + ".") for p in off_b):
-            continue
-        a, b = (r.get(k, x.get(k)) for r, x in zip(res, raw))
-        if a != b:
-            out.append(f"{label(k)} {_short(a)} → {_short(b)}")
-    return out
+    switched, values = _brief_diff(old, new)
+    return switched + [f"{label(k)} {_short(a)} → {_short(b)}" for k, a, b in values]
+
+
+SMALL_CHANGE = 0.2     # every change a measurement moved by at most this fraction: "Small change"
+
+
+def small_change(old: dict, new: dict) -> bool:
+    """The brief changed, but only measurements, each by SMALL_CHANGE or less: no part switched on
+    or off, no material, type or shading swapped."""
+    switched, values = _brief_diff(old, new)
+    if switched or not values:
+        return False
+
+    def nums(v):
+        v = v if isinstance(v, list) else [v]
+        return v if all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v) else None
+    for _, a, b in values:
+        na, nb = nums(a), nums(b)
+        if na is None or nb is None or len(na) != len(nb):
+            return False
+        if any(abs(y - x) > SMALL_CHANGE * max(abs(x), abs(y), 1e-6) for x, y in zip(na, nb)):
+            return False
+    return True
+
+
+TRY_SHEET = "For a different look, reroll the reference sheet with this guidance and use Make 3D."
+
+
+def guidance_report(guidance: str, changes: list[str], unsupported: list[str], edits: int,
+                    small: bool = False, suggest: bool = False) -> dict:
+    """What a procedural reroll did with the guidance: the brief changes it made, what the builder
+    has no setting for, "Small change" when the changes are slight, and when most of the guidance
+    couldn't be applied, the route that can (a sheet reroll, then Make 3D)."""
+    if not guidance:
+        return {}
+    rep = {"applied": changes, "not_possible": unsupported, "small": bool(changes) and small,
+           "suggest": TRY_SHEET if suggest or (unsupported and len(unsupported) >= max(1, edits)) else ""}
+    parts = [("Applied: " + "; ".join(changes)) if changes else "Applied: nothing"]
+    if unsupported:
+        parts.append("Not possible with this builder: " + ", ".join(unsupported))
+    if rep["small"]:
+        parts.append("Small change")
+    rep["line"] = ". ".join(parts) + "." + (f" {rep['suggest']}" if rep["suggest"] else "")
+    return rep
 
 
 def _fit(items: list[str], budget: int) -> str:
@@ -342,18 +392,22 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
     for f in REROLL_FILES:
         if (out / f).is_file():
             filestore.copy(store, out / f, bak / f)
-    vn, unsupported, line, same = None, [], "", None
+    vn, unsupported, line, same, rep, n_edits = None, [], "", None, {}, 0
     no_tex = material_lib.missing_materials(guidance)
     try:
         if guidance:
             at(1, "VLM: brief edits from the guidance…")
             prop = brief_guide.propose(store, asset, sheet, guidance, view)
             unsupported = prop.get("unsupported") or []
+            n_edits = len(prop["edits"])
             if not prop["edits"]:                          # nothing to build: no version
-                return {"version": None, "current": cur, "guidance": guidance, "unchanged": True,
+                rep = guidance_report(guidance, [], unsupported, 0, suggest=True)
+                return {"version": None, "current": cur, "guidance": guidance, "unchanged": True, "guidance_report": rep,
                         "message": "Guidance didn't match any setting this builder has: "
                                    + ", ".join(prop.get("settings") or []) + "."
-                                   + (f" Note: {NO_TEXTURE.format(', '.join(no_tex))}." if no_tex else "")}
+                                   + (f" Not possible with this builder: {', '.join(unsupported)}." if unsupported else "")
+                                   + (f" Note: {NO_TEXTURE.format(', '.join(no_tex))}." if no_tex else "")
+                                   + f" {TRY_SHEET}"}
             brief_guide.apply(store, asset, prop["edits"], guidance)
         else:
             at(1, "VLM: measuring the sheet again…")
@@ -362,7 +416,9 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
         at(2, "Waiting for the CPU…")
         to_cpu()
         at(2, "Blender build…")
-        changes = brief_changes(brief, read_json(sp, default={}) or {})
+        rebriefed = read_json(sp, default={}) or {}
+        changes = brief_changes(brief, rebriefed)
+        rep = guidance_report(guidance, changes, unsupported, n_edits, small_change(brief, rebriefed))
         line, short = change_line(changes, unsupported, no_tex), change_short(changes, unsupported, no_texture=no_tex)
         res = kit_proc.build_any(store, asset, log=log, make_current=False)
         vn = res["version"]
@@ -372,9 +428,12 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             vn = None
             why = ("the brief came out the same" if not changes else
                    f"the brief edits ({'; '.join(changes)}) build the same model")
+            rep = guidance_report(guidance, changes, unsupported, n_edits, suggest=True)
             return {"version": None, "current": cur, "guidance": guidance, "unchanged": True, "same_as": same,
+                    "guidance_report": rep,
                     "message": f"Nothing changed: the build is identical to v{same} ({why})."
-                               + (f" No setting for: {', '.join(unsupported)}." if unsupported else "")}
+                               + (f" Not possible with this builder: {', '.join(unsupported)}." if unsupported else "")
+                               + (f" {TRY_SHEET}" if guidance else "")}
         d = versions.vdir(store, asset, vn)                # the version's own GLB: the build on disk goes back
         filestore.copy(store, out / "procedural.glb", d / "procedural.glb")
         keep = {"procedural.glb"}
@@ -411,7 +470,9 @@ def reroll(store: ProjectStore, asset: str, guidance: str = "", view: str = "fro
             versions._save(store, asset, rows)
         if cur is not None:
             versions.set_current(store, asset, cur)
-    return {"version": vn, "current": cur, "guidance": guidance, "changes": line, "message": f"v{vn}: {line}"}
+    return {"version": vn, "current": cur, "guidance": guidance, "changes": line, "guidance_report": rep,
+            "message": f"v{vn}: " + (rep["line"] + (f" Note: {NO_TEXTURE.format(', '.join(no_tex))}." if no_tex else "")
+                                     if rep else line)}
 
 
 # --- usage, checks ---------------------------------------------------------------------------

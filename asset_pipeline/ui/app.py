@@ -1012,6 +1012,11 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             raise HTTPException(400, "choose a view first")
         if req.mode not in s5_3d.MODES:
             raise HTTPException(400, f"mode must be one of {', '.join(s5_3d.MODES)}")
+        same = None if req.new_seed else s5_3d.same_as(store, req.plan, req.asset, req.mode, req.seed)
+        if same is not None:          # nothing queued: the run would rebuild that version as it is
+            return {"duplicate": same, "message": f"Same as v{same} — tick New seed for a different result.",
+                    "why": f"v{same} was built from this view in {req.mode} mode with seed {req.seed}; "
+                           "the same run would only rebuild it."}
         return jobs.submit("3d.trellis", slug, lambda: s5_3d.run(store, req.plan, req.asset,
                                                                  mode=req.mode, seed=None if req.new_seed else req.seed),
                            lane="gpu0", tag={"plan": req.plan, "asset": req.asset, "mode": req.mode}).public()

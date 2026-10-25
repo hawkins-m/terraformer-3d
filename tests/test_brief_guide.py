@@ -1,5 +1,6 @@
 """Build guidance (brief edits from the local VLM) and Make 3D with a new seed. No VLM, no GPU."""
 import json
+import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
@@ -160,6 +161,15 @@ def test_make_3d_new_seed_passes_a_non_default_seed_and_records_it(proj, monkeyp
     j = c.post("/api/projects/p/3d", json={"plan": "library", "asset": "canopy-table", "new_seed": True}).json()
     _wait(c, j)
     assert seen["seed"] is None
+    # a second Make 3D with the same view, mode and seed queues nothing and says which version it is
+    seen.clear()
+    r = c.post("/api/projects/p/3d", json={"plan": "library", "asset": "canopy-table"}).json()
+    n = s5_3d.same_as(proj, "library", "canopy-table", "1024_cascade", 42)
+    assert n is not None and r["duplicate"] == n and "id" not in r and not seen
+    assert r["message"] == f"Same as v{n} — tick New seed for a different result."
+    view = proj.root / s5_3d.review.chosen(proj, "library", "canopy-table")     # the view cut again: a new run
+    os.utime(view, (time.time() + 60, time.time() + 60))
+    assert s5_3d.same_as(proj, "library", "canopy-table", "1024_cascade", 42) is None
 
 
 

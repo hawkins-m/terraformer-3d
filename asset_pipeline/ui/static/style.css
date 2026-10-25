@@ -244,7 +244,14 @@ button.remove { min-width: 0; width: 22px; height: 20px; padding: 0; }
 .grid.views { grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }
 .view { position: relative; background: #fff; border: 1px solid var(--border-dark); padding: 0; min-width: 0; border-radius: 0; }
 .view img { display: block; width: 100%; aspect-ratio: 1; object-fit: contain; }
-.view.chosen { border-color: var(--select); box-shadow: inset 0 0 0 2px var(--select); }
+/* chosen view: like the Active version card (blue border, light blue fill), its border 1 px thicker;
+   the fill tints the sheet's white background through the image (multiply) */
+.view.chosen { border: 2px solid var(--select); margin: -1px; background: color-mix(in srgb, var(--select) 18%, #fff); }
+.view.chosen img { mix-blend-mode: multiply; }
+.asset-review .row-note { display: flex; gap: 6px; align-items: flex-start; margin: 4px 0; padding: 3px 6px;
+  border: 1px solid var(--border); background: var(--field); }
+.asset-review .row-note > span { flex: 1; min-width: 0; }
+.asset-review .row-note.warn { border-color: var(--stale-line); background: var(--stale); }
 .view .label { position: absolute; left: 2px; bottom: 2px; padding: 0 3px; background: var(--field); border: 1px solid var(--border); }
 .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
 .result { border: 1px solid var(--border); padding: 6px; display: grid; gap: 4px; }

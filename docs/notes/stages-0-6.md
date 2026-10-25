@@ -111,3 +111,15 @@ Findings for the scene-mode stages: style anchor, reference sheets, views, hero 
 - TRELLIS output faces glTF +Z (Blender -Y) and is ~1 unit tall; it can come out as a flat
   card (a barrel 4 mm deep) and with proportions far from the plan (house 2.3x deeper):
   the cleanup report warns about both.
+
+## Make 3D repeats, reroll reports (2026-10-24)
+- Make 3D with the same view (not cut again since), mode and seed only overwrote that version's
+  files after ~3 min of GPU, with no message. `s5_3d.same_as` now catches it before queuing: the
+  endpoint returns `{duplicate: n, message}` and the row shows "Same as vN — tick New seed…".
+  New seed shows on every row (procedural ones too: Make 3D is always TRELLIS).
+- A three-quarter view whose plain side face is wider than its arch face can come back from
+  TRELLIS as a deep box with the arch on the short end (it reads the big face as the front).
+  The cut is not at fault; pick the front view, or use New seed.
+- A reroll with guidance returns `guidance_report` (applied, not_possible, small, suggest); the
+  row shows it until dismissed. "Small change": only measurements moved, each by ≤ 20 %. When
+  the builder can't do most of the guidance, it suggests a sheet reroll plus Make 3D.

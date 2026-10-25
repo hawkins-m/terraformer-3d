@@ -79,6 +79,23 @@ def _stop(proc: subprocess.Popen, gpu: int) -> None:
     (config.ap_root() / "logs" / f"trellis-gpu{gpu}-{proc.pid}.lock").unlink(missing_ok=True)
 
 
+def same_as(store: ProjectStore, plan: str, asset_id: str, mode: str, seed: int, view: str | None = None) -> int | None:
+    """The version a TRELLIS run would only overwrite: one built from the same view (not cut again
+    since), mode and seed. Make 3D says so instead of spending minutes of GPU on the same result."""
+    from .. import versions
+    key = review.rel(store, view) if view else review.chosen(store, plan, asset_id)
+    if not key:
+        return None
+    glb = f"{OUT}/{plan}/{asset_id}/{Path(key).stem[:24]}_{mode}_s{seed}.glb"
+    stats = store.root / Path(glb).with_suffix(".json")
+    if not (store.root / glb).is_file() or not stats.is_file() or not (store.root / key).is_file():
+        return None
+    if (store.root / key).stat().st_mtime > stats.stat().st_mtime:      # the view was cut again since
+        return None
+    return next((r["n"] for r in versions.load(store, asset_id, plan)
+                 if r["kind"] == "trellis" and r["files"][:1] == [glb]), None)
+
+
 def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
         mode: str = "1024_cascade", seed: int | None = 42, gpu: int | None = None) -> dict:
     """TRELLIS.2 on the asset's chosen view (or `view`). Returns the run's stats. seed=None draws a
