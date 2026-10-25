@@ -10,6 +10,10 @@ prop and kit-slot placements, split evenly and the same between builds.
 Which builds: Approved in library review (default), or every built asset's Active build
 (`use_active`, for previews).
 
+Slots assigned to a facade kit (kit_assembly: corner, bay, end and filler modules around the slot's
+footprint outline) are assembled from the kit's modules: every module placement, each its own
+library actor, when all the kit's modules are approved; the slot is then replaced whole.
+
 Mixed slots (no partial slots):
   - a kit slot whose build is placed is replaced whole (its greybox goes);
   - a typed slot (a block of several buildings) is replaced only when every planned building in
@@ -68,6 +72,18 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
             continue
         by_slot.setdefault(p["slot"], []).append(p)
     for sid, ps in sorted(by_slot.items()):
+        kit = [p for p in ps if p.get("kit")]             # a kit assembly: all its modules, or none
+        if kit:
+            bad = sorted({p["entry"] for p in kit if not ok(p["entry"])})
+            if not bad:
+                placed += kit
+                replaced[sid] = "whole"
+                held += [p | {"why": "a kit assembly stands in this slot"} for p in ps if not p.get("kit")]
+                continue
+            held += [p | {"why": f"not approved: {', '.join(bad)}"} for p in kit]
+            ps = [p for p in ps if not p.get("kit")]
+            if not ps:
+                continue
         typed = ps[0].get("typed", False)
         good = [p for p in ps if ok(p["entry"])]
         if not typed:
@@ -90,10 +106,10 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
 
 def footprint_of(W: np.ndarray, lo, hi) -> dict:
     """A placed model's outline on the ground: {x, y (world centre), w, d, yaw} from its world
-    matrix (a turn about Z, uniform scale) and its own bounds (lo, hi; Blender frame)."""
-    k = float(np.linalg.norm(W[:3, 0]))
+    matrix (a turn about Z, a scale per axis) and its own bounds (lo, hi; Blender frame)."""
+    kx, ky = float(np.linalg.norm(W[:3, 0])), float(np.linalg.norm(W[:3, 1]))   # (kit bays scale along x)
     c = W @ np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2], 1.0])
-    return {"x": float(c[0]), "y": float(c[1]), "w": float(hi[0] - lo[0]) * k, "d": float(hi[1] - lo[1]) * k,
+    return {"x": float(c[0]), "y": float(c[1]), "w": float(hi[0] - lo[0]) * kx, "d": float(hi[1] - lo[1]) * ky,
             "yaw": math.degrees(math.atan2(W[1, 0], W[0, 0])), "base": float(c[2])}
 
 
@@ -416,13 +432,19 @@ def settings(store: ProjectStore):
 
 def ground_all(store: ProjectStore, placements: list[dict], ground, rule: str, bounds: dict) -> None:
     """Every placement on the ground under its model's outline (in place): its z (or matrix) and
-    its outline ("foot")."""
+    its outline ("foot"). A stacked kit module (base, lift) stands `lift` m above its base's
+    grounded place instead."""
     from .assembly import glb_bounds
-    for p in placements:
+    by_key = {p["key"]: p for p in placements}
+    for p in sorted(placements, key=lambda p: "base" in p):     # bases first
         if p["glb"] not in bounds:
             bounds[p["glb"]] = [v.tolist() for v in glb_bounds(store.root / p["glb"])]
         lo, hi = bounds[p["glb"]]
-        W = grounded(world_matrix(p), lo, hi, ground, rule)
+        if "base" in p:
+            W = world_matrix(p)
+            W[2, 3] = world_matrix(by_key[p["base"]])[2, 3] + p["lift"]
+        else:
+            W = grounded(world_matrix(p), lo, hi, ground, rule)
         if "matrix" in p:
             p["matrix"] = W.tolist()
         else:
@@ -430,10 +452,11 @@ def ground_all(store: ProjectStore, placements: list[dict], ground, rule: str, b
         p["foot"] = footprint_of(W, lo, hi)
 
 
-def plan(store: ProjectStore, gb: dict, use_active: bool = False) -> dict:
+def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | None = None) -> dict:
     """{placed (with attached pieces), replaced, held, entries (materials), missing_children,
-    bounds {glb: [lo, hi]}}. Everything placed stands on the ground (ground.Ground, the project's
-    ground rule)."""
+    bounds {glb: [lo, hi]}, kits (kit_assembly reports)}. Everything placed stands on the ground
+    (ground.Ground, the project's ground rule). index: the mesh export index (the kit slots'
+    footprint outlines; without it, their bboxes)."""
     from . import assembly
     from .ground import Ground
     from .look import _candidates
@@ -450,9 +473,14 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False) -> dict:
     from . import variants
     assign = variants.assignments(store, gb)        # duplicates used as variants share the placements
     apply_variants(store, cands + reps, assign, entries)
+    from . import kit_assembly
+    bounds: dict = {}
+    kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds)
+    for p in kit_pl:
+        entries[p["entry"]] = (Path("3d/library") / p["entry"] / "procedural" / "job.json").as_posix()
     ok = ok_entries(store, use_active)
-    placed, replaced, held = choose(cands + reps, {sid: len(v) for sid, v in buildings.items()}, ok)
-    ground, rule, bounds = Ground.from_project(store), settings(store).ground_rule, {}
+    placed, replaced, held = choose(cands + reps + kit_pl, {sid: len(v) for sid, v in buildings.items()}, ok)
+    ground, rule = Ground.from_project(store), settings(store).ground_rule
     ground_all(store, placed, ground, rule, bounds)          # parents first: their pieces follow them
     kids, kid_entries, missing = assembly.child_placements(store, placed)
     by_key = {p["key"]: p for p in placed}
@@ -472,7 +500,7 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False) -> dict:
     parents = [p for p in placed if not p.get("prop")]
     return {"placed": placed + kids, "parents": len(parents), "props": len(placed) - len(parents),
             "replaced": replaced, "held": held, "entries": entries, "missing_children": missing,
-            "drop_pieces": drop, "no_model": no_model, "bounds": bounds, "ground_rule": rule}
+            "drop_pieces": drop, "no_model": no_model, "bounds": bounds, "ground_rule": rule, "kits": kit_reps}
 
 
 OUTER_RING = "/Game/AP/Terrain/SM_OuterRing"            # ap terrain ue (terrain_build.ue_assets)
@@ -494,9 +522,9 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
                     log=print) -> dict:
     """Put the library layer into a stand-in manifest (in place): the placed builds' GLBs under
     export/library/, their assets, each replaced slot's remaining greybox and its builds."""
-    from . import ue
+    from . import kit_assembly, ue
     from .stages.s7_export import manifest_components
-    pl = plan(store, gb, use_active)
+    pl = plan(store, gb, use_active, index)
     slots = {s["id"]: s for s in gb["slots"]}
     feet: dict[str, list[dict]] = {}
     for p in pl["placed"]:
@@ -546,7 +574,11 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     m["library"] = {"use_active": use_active, "ground_rule": pl["ground_rule"], "placed": len(pl["placed"]), "parents": pl["parents"],
                     "props": pl["props"], "no_model": pl["no_model"],
                     "slots_replaced": len(pl["replaced"]), "held": len(pl["held"]), "held_entries": held_entries,
-                    "missing_children": pl["missing_children"]}
+                    "missing_children": pl["missing_children"],
+                    "kit_modules": sum(1 for p in pl["placed"] if p.get("kit")),
+                    "kit_notes": kit_assembly.report_lines(pl["kits"])}
+    for line in m["library"]["kit_notes"]:
+        log(line)
     log(f"library: {pl['parents']} builds + {pl['props']} props + {len(pl['placed']) - pl['parents'] - pl['props']} attached pieces in "
         f"{len(pl['replaced'])} slots; {len(pl['held'])} held back as greybox")
     return m["library"]

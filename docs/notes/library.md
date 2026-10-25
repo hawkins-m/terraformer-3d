@@ -289,3 +289,17 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   material tile sizes (UVs) and with code changes since the old build.
 - A scratch AP_ROOT's VLM needs its own ports (`[local.models.*] url` in its backends.local.toml), or it
   takes the main root's 8711 and that app can't start its own.
+
+## Kit assembly (2026-10-25)
+- `asset_pipeline/kit_assembly.py`: a block slot assigned to a facade kit (an entry decided "kit",
+  or standalone entries with a role grouped by kit id) is built from its modules in the city
+  manifest. Roles: bay, corner, end, filler; stored per asset as `kit_role` in
+  site/library_review.json (Manage entry… › Kit modules), else detected from the id, the brief
+  (arcade on two adjacent faces = corner) and the piece description.
+- Footprint: union of the slot's greybox masses (>= 2 m high, >= 4 m2; mesh bounds from the
+  export index), one assembly per block. Corners at outer corners facing out (front -Y, left -X),
+  bays scaled along x by at most 10% per edge, then fillers, else a gap in the export log and
+  `library.kit_notes`. Inner corners take end modules or the runs meet. Courses stack by the bay
+  height; course 0 is grounded, the rest stand on it.
+- All modules approved, or the slot stays greybox. Written 2026-10-25 in a cloud session on
+  synthetic footprints only: NOT yet run in Unreal.

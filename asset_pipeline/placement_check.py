@@ -27,7 +27,7 @@ def ue_to_blender(loc, rot, scale) -> np.ndarray:
     a = math.radians(-rot[2])                     # Y is mirrored: a turn flips its sign
     W = np.eye(4)
     W[:2, :2] = [[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]
-    W[:3, :3] *= float(scale[0])
+    W[:3, :3] = W[:3, :3] @ np.diag([float(v) for v in scale])     # kit bays scale along x only
     W[:3, 3] = [loc[0] / 100, -loc[1] / 100, loc[2] / 100]
     return W
 
@@ -60,7 +60,7 @@ def check(man: dict, actors: list[dict], slot_instances: dict, slot_bounds: dict
         m = cfg.slot_margin_m
         if not row.get("parent") and not (x0 - m <= f["x"] <= x1 + m and y0 - m <= f["y"] <= y1 + m):
             found.append("off_slot")
-        inv, k = np.linalg.inv(W), float(np.linalg.norm(W[:3, 0])) or 1.0
+        inv, k = np.linalg.inv(W), min(float(np.linalg.norm(W[:3, i])) for i in range(2)) or 1.0
         e = cfg.overlap_margin_m / k
         for p in slot_instances.get(sid, []):
             q = inv @ np.array([p[0] / 100, -p[1] / 100, p[2] / 100, 1.0])
