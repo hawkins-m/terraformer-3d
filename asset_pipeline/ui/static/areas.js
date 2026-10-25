@@ -36,7 +36,7 @@ const AREA_BUILDS = {fresh: "Built from the current brief: nothing to rebuild.",
 const AREA_REVIEWS = {approved: "Approved: done; Unreal look scenes place it.", needs_changes: "Needs changes: a reviewer asked for another build (the note is in Asset review).",
   needs_feature: "Needs new feature: the builder lacks a part this asset needs.", ready: "Ready for review: built and waiting for a review.",
   needs_review: "Needs review: changed after it was approved; review it again.", "not reviewed": "Not reviewed yet."};
-const areaState = {sel: null, data: null, rows: [], gaps: []};
+const areaState = {sel: null, data: null, rows: [], gaps: [], fixed: null};   // fixed: the last form-gap fix {asset, text, undo}
 // the area picked here is the "current area" (Asset review's Show filter defaults to it)
 function rememberArea() {
   if (areaState.sel && areaState.sel.startsWith("a:")) {
@@ -121,7 +121,7 @@ async function areasPanel(host) {
             title="${esc(r.next)}" ${st.kind === "done" ? "disabled" : ""}>${esc(st.label)}</button></td></tr>`; }).join("")}</tbody></table>`;
     box.querySelectorAll(".area-step").forEach(b => b.onclick = () => areaDoStep(areaState.rows[+b.dataset.i], d, table));
   };
-  $("#area-select", d.win).onchange = e => { areaState.sel = e.target.value || null; rememberArea(); table(); };
+  $("#area-select", d.win).onchange = e => { areaState.sel = e.target.value || null; areaState.fixed = null; rememberArea(); table(); };
   $("#area-refresh", d.win).onclick = () => reload();
   $("#area-new", d.win).onclick = () => areaDefineForm(d, reload);
   $("#area-checklist", d.win).onclick = async () => {
@@ -160,11 +160,13 @@ function areaDefineForm(d, reload) {
 // buttons (the first is the recommended one). A form fix sets the entry's form and size, a route
 // fix moves it to TRELLIS, "Set size…" opens Manage entry.
 function areaGaps(d, table) {
-  const box = $("#area-gaps", d.win), gaps = areaState.gaps;
-  box.hidden = !gaps.length;
-  if (!gaps.length) { box.replaceChildren(); return; }
-  box.innerHTML = `<fieldset id="area-gap-list"><legend>Form gaps (${gaps.length})</legend>
-    <p class="hint" style="margin-top:0">Can't be briefed yet. ${helpQ("These can't be briefed yet. The first button is the suggested fix.", "form gaps")}</p>
+  const box = $("#area-gaps", d.win), gaps = areaState.gaps, fx = areaState.fixed;
+  box.hidden = !gaps.length && !fx;
+  if (!gaps.length && !fx) { box.replaceChildren(); return; }
+  // the last fix stays said here (its row has left the list), with Undo
+  const done = fx ? `<p class="area-fixed" role="status">✓ ${esc(fx.text)} <button type="button" class="link" id="area-fix-undo">Undo</button></p>` : "";
+  box.innerHTML = `<fieldset id="area-gap-list"><legend>Form gaps (${gaps.length})</legend>${done}
+    ${gaps.length ? `<p class="hint" style="margin-top:0">Can't be briefed yet. ${helpQ("These can't be briefed yet. The first button is the suggested fix.", "form gaps")}</p>` : ""}
     ${gaps.map((g, i) => `<div class="row area-gap" data-asset="${esc(g.asset)}"><b style="min-width:13em" title="${esc(g.asset)}">${esc(assetName(g.asset))}</b>
       <span class="error" style="min-width:6em">no ${esc(g.missing.join(", no "))}</span>
       ${g.fixes.map((f, k) => `<button type="button" class="small${k === 0 ? " default" : ""} area-fix" data-g="${i}" data-f="${k}"
@@ -172,20 +174,47 @@ function areaGaps(d, table) {
       <button type="button" class="small area-fix-manage" data-g="${i}">Manage entry…</button></div>`).join("")}</fieldset>`;
   box.querySelectorAll(".area-fix").forEach(b => b.onclick = () => areaFix(gaps[+b.dataset.g], gaps[+b.dataset.g].fixes[+b.dataset.f], d, table));
   box.querySelectorAll(".area-fix-manage").forEach(b => b.onclick = () => areaFix(gaps[+b.dataset.g], {kind: "manage"}, d, table));
+  if (fx) $("#area-fix-undo", box).onclick = async () => {
+    try { await fx.undo(); } catch (err) { alert(errorText(err)); return; }
+    areaState.fixed = null; await load(); await table(); areaFlash(d, fx.asset);
+  };
+}
+
+// a fixed asset's row in the table: brought into view and briefly highlighted, its Brief cell too
+function areaFlash(d, asset) {
+  const tr = d.win.querySelector(`#area-table tr[data-asset="${CSS.escape(asset)}"]`);
+  if (!tr) return;
+  tr.scrollIntoView({block: "nearest"});
+  const brief = tr.children[[...tr.closest("table").querySelectorAll("th")].findIndex(th => th.textContent === "Brief")];
+  for (const el of [tr, brief]) if (el) { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+  setTimeout(() => [tr, brief].forEach(el => el && el.classList.remove("flash")), 2500);
 }
 
 async function areaFix(g, f, d, table) {
+  const name = assetName(g.asset);
   try {
-    if (f.kind === "form") await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(g.asset)}/form`, {form: f.form, size_m: f.size_m || null});
-    else if (f.kind === "route") await api(`/api/projects/${slug}/library/route`, {entry: g.entry, route: f.route});
-    else {
+    if (f.kind === "form") {
+      const url = `/api/projects/${slug}/library/entries/${encodeURIComponent(g.asset)}/form`;
+      const was = await api(url, undefined, "GET");     // Undo puts back only what was the user's own
+      const prev = {form: was.source === "yours" ? was.form : null, size_m: was.size_source === "yours" ? was.size_m : null};
+      await api(url, {form: f.form, size_m: f.size_m || null});
+      areaState.fixed = {asset: g.asset, text: `${name}: form set to ${f.label.replace(/^Form: /, "")}.`, undo: () => api(url, prev)};
+    } else if (f.kind === "route") {
+      const prev = ((libraryData && libraryData.decisions[g.entry]) || {}).route || null;
+      await api(`/api/projects/${slug}/library/route`, {entry: g.entry, route: f.route});
+      areaState.fixed = {asset: g.asset, text: `${name}: build method set to TRELLIS.`,
+        undo: () => api(`/api/projects/${slug}/library/route`, {entry: g.entry, route: prev})};
+    } else {
       const row = areaState.rows.find(r => r.asset === g.asset) || {asset: g.asset, entry: g.entry};
       d.close(); showTab("library");
       if (row.asset === row.entry) { showSub("assets"); await manageEntry(row.asset); return; }
       showSub("refs"); return;
     }
   } catch (err) { alert(errorText(err)); return; }
-  await load(); table();
+  await load(); await table();
+  const row = areaState.rows.find(r => r.asset === g.asset);
+  if (row && areaState.fixed) { areaState.fixed.text += ` Next: ${areaStep(row).label.replace(/…$/, "")}`; areaGaps(d, table); }
+  areaFlash(d, g.asset);
 }
 
 // The batch buttons show how many assets each would run now and, on hover, which and what is skipped.

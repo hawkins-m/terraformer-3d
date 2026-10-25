@@ -700,3 +700,10 @@ details summary { cursor: default; }
 .doctor-window .wbody { max-height: 70vh; overflow: auto; }
 .doctor-window code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .su-info { flex: 1; margin: 0; }
+/* Library › Areas: a fixed form gap's row and Brief cell, briefly (areaFlash) */
+#area-table tr.flash, #area-table td.flash { animation: area-flash 2.4s ease-out; }
+#area-table td.flash { outline: 2px solid var(--ready); outline-offset: -2px; }
+@keyframes area-flash { from { background: var(--stale); } to { background: transparent; } }
+.area-fixed { margin: 0 0 4px; color: var(--ready); }
+.area-fixed button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { #area-table tr.flash, #area-table td.flash { animation: none; } }
