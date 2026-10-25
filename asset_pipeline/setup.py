@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field  # noqa: F401
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import config, gpu
+from . import config, gpu, wsl
 
 
 @dataclass
@@ -37,7 +37,7 @@ def _profile_item() -> "Item":
     return Item("hardware_profile", "Hardware profile", "hardware.profile",
                 "Detected from rocm-smi / nvidia-smi; pick another to override. It sets the PyTorch build for the "
                 "model environments and the GPU for each job lane (below). NVIDIA is untested: the CUDA paths "
-                "have never run.", "choice", list(profiles.PROFILES),
+                "have never run; Windows (WSL2) + NVIDIA is beta.", "choice", list(profiles.PROFILES),
                 labels={k: p.title for k, p in profiles.PROFILES.items()})
 
 
@@ -94,6 +94,19 @@ ITEMS = [
          "jobs then wait for each other.", "gpu"),
 ]
 BY_ID = {i.id: i for i in ITEMS}
+
+
+# Inside WSL (Windows (WSL2) + NVIDIA, beta): what each item means there
+WSL_HELP = {
+    "storage": "On Windows (WSL2): keep it inside WSL (the default, ~/.local/share/terraformer). The Windows drives "
+               "(C:\\ and the rest) are slow from WSL and break the hard links the file store and backups use.",
+    "blender": "On Windows (WSL2): a Blender installed inside WSL is used when there is one; a Windows install works "
+               "too: paste its path (C:\\Program Files\\Blender Foundation\\Blender 4.2\\blender.exe).",
+    "unreal": "On Windows (WSL2): Unreal stays a Windows install; paste its path "
+              "(C:\\Program Files\\Epic Games\\UE_5.8\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe). Beta, untested.",
+    "unreal_projects": "On Windows (WSL2) with a Windows Unreal: a folder on a Windows drive (C:\\...) is faster for it.",
+    "hardware_profile": "This is WSL: Windows (WSL2) + NVIDIA, beta.",
+}
 
 
 def first_run() -> bool:
@@ -154,11 +167,15 @@ def _blender_candidates() -> list[str]:
     out = [config.get("tools.blender") or "", shutil.which("blender") or "", "/snap/bin/blender"]
     for pat in ("~/blender*/blender", "~/Applications/blender*/blender", "/opt/blender*/blender", "/usr/local/blender*/blender"):
         out += sorted(glob.glob(os.path.expanduser(pat)), reverse=True)
+    if wsl.is_wsl():                                  # after any Blender inside WSL: a Windows install
+        out += sorted(glob.glob(wsl.drive_root() + "/*/Program Files/Blender Foundation/Blender*/blender.exe"), reverse=True)
     found = [shutil.which(os.path.expanduser(p)) for p in out if p]
-    return list(dict.fromkeys(f for f in found if f))
+    found = list(dict.fromkeys(f for f in found if f))
+    return sorted(found, key=wsl.is_windows_exe)      # a Blender inside WSL first, even over a configured .exe
 
 
 UE_TAIL = "Engine/Binaries/Linux/UnrealEditor-Cmd"
+UE_TAIL_WIN = "Engine/Binaries/Win64/UnrealEditor-Cmd.exe"     # a Windows Unreal, called from WSL (beta)
 UE_GLOBS = ("~/UnrealEngine*/", "~/*/UnrealEngine*/", "~/*/UnrealEngine/*/", "~/UnrealEngine/*/", "/opt/UnrealEngine*/",
             "/opt/unreal*/", "/opt/UnrealEngine/*/", "/mnt/*/UnrealEngine/*/", "/mnt/*/UnrealEngine*/",
             "/media/*/*/UnrealEngine*/", "~/Epic Games/UE_*/")
@@ -168,6 +185,8 @@ def _unreal_candidates() -> list[str]:
     out = [config.get("unreal.editor_cmd") or ""]
     for pat in UE_GLOBS:
         out += sorted(glob.glob(os.path.expanduser(pat) + UE_TAIL), reverse=True)
+    if wsl.is_wsl():
+        out += sorted(glob.glob(wsl.drive_root() + "/*/Program Files/Epic Games/UE_*/" + UE_TAIL_WIN), reverse=True)
     return [p for p in dict.fromkeys(out) if p and Path(p).is_file()]
 
 
@@ -249,14 +268,16 @@ def state() -> dict:
                 and not i.key.startswith("secret:"):
             values[i.id] = ""
     items = []
+    on_wsl = wsl.is_wsl()
     for i in ITEMS:
-        items.append(asdict(i) | {"value": values[i.id], "detected": det.get(i.id, ""),
+        extra = {"help": i.help + " " + WSL_HELP[i.id]} if on_wsl and i.id in WSL_HELP else {}
+        items.append(asdict(i) | extra | {"value": values[i.id], "detected": det.get(i.id, ""),
                                    "has_value": _has_secret(i) if i.kind == "secret" else bool(values[i.id]),
                                    "shown": _shown(i, values | {k: v for k, v in det.items() if not values.get(k)})})
     from . import profiles
     n = len(gpu.list_gpus())
     return {"first_run": first_run(), "config": str(config.user_toml()), "secrets": str(config.secrets_toml()),
-            "gpus": gpu.list_gpus(), "items": items,
+            "gpus": gpu.list_gpus(), "items": items, "wsl": wsl.status(),
             "profiles": {k: {"title": p.title, "tested": p.tested, "note": p.note, "lanes": profiles.lanes(k, n)}
                          for k, p in profiles.PROFILES.items()}}
 
@@ -279,6 +300,9 @@ def _test_storage(v: str, _all: dict) -> dict:
     if not os.access(probe, os.W_OK):
         return _res(False, f"You can't write to {probe}. Pick a folder you own.")
     free = shutil.disk_usage(probe).free / 1e9
+    if wsl.is_wsl() and wsl.on_windows_drive(p):
+        return _res(True, f"{p} is on a Windows drive: from WSL it is slow, and hard links (the file store, backups) "
+                          "don't work there. Use a folder inside WSL, e.g. ~/.local/share/terraformer.", warn=True)
     what = "exists" if p.exists() else "will be created"
     projects = len(list((p / "projects").glob("*/project.json"))) if (p / "projects").is_dir() else 0
     msg = f"Works: {p} {what}, {free:.0f} GB free" + (f", {projects} project(s) in it." if projects else ".")
@@ -420,6 +444,9 @@ def _test_blender(v: str, _all: dict) -> dict:
             return _res(False, f"{line} is too old: Blender 4.2 or newer.")
     except ValueError:
         pass
+    if wsl.is_windows_exe(exe):
+        return _res(True, f"Works: {line} on Windows ({exe}), through WSL interop (beta). A Blender installed inside "
+                          "WSL is faster and preferred when there is one.", warn=True)
     return _res(True, f"Works: {line} ({exe}).")
 
 
@@ -440,15 +467,21 @@ def _test_unreal(v: str, _all: dict) -> dict:
     if not v:
         return _res(True, "Not set: the Unreal tab stays off; everything else works.", warn=True)
     p = Path(v).expanduser()
-    if p.is_dir() and (p / UE_TAIL).is_file():
-        p = p / UE_TAIL
+    for tail in (UE_TAIL, UE_TAIL_WIN):
+        if p.is_dir() and (p / tail).is_file():
+            p = p / tail
     if not p.is_file():
-        return _res(False, f"{p} doesn't exist. Point it at {UE_TAIL} inside your Unreal Engine folder.")
+        where = UE_TAIL + (f" (or {UE_TAIL_WIN} of a Windows install)" if wsl.is_wsl() else "")
+        return _res(False, f"{p} doesn't exist. Point it at {where} inside your Unreal Engine folder.")
     if not os.access(p, os.X_OK):
         return _res(False, f"{p} isn't executable (chmod +x, or a different file).")
     ver = ue_version(p)
     if ver and not ver.startswith("5."):
         return _res(False, f"Unreal Engine {ver} found; the pipeline needs UE 5 (5.8 tested).")
+    if wsl.is_windows_exe(p):
+        return _res(True, f"Found Unreal Engine {ver or '(version unknown)'} on Windows at {p}: it runs through WSL "
+                          "interop (beta, untested). Keep the Unreal projects folder on a Windows drive. Not started by "
+                          "this test.", warn=True)
     return _res(True, f"Found Unreal Engine {ver or '(version unknown)'} at {p}. Not started by this test.",
                 warn=bool(ver) and not ver.startswith("5.8"))
 
@@ -460,6 +493,11 @@ def _test_ue_projects(v: str, _all: dict) -> dict:
         probe = probe.parent
     if not os.access(probe, os.W_OK):
         return _res(False, f"You can't write to {probe}.")
+    ue = str(_all.get("unreal") or config.get("unreal.editor_cmd") or "")
+    if wsl.is_windows_exe(wsl.to_linux(ue)) and not wsl.on_windows_drive(p):
+        return _res(True, f"{p} is inside WSL, but your Unreal is a Windows install: it reads projects from a Windows "
+                          "drive much faster (e.g. C:\\Users\\you\\Documents\\Unreal Projects). Beta, untested.",
+                    warn=True)
     return _res(True, f"Works: {p} {'exists' if p.exists() else 'will be created'}.")
 
 
@@ -516,6 +554,10 @@ def _test_profile(v: str, all_: dict) -> dict:
     seen = f"{hw['count']} {hw['vendor'] or 'unknown'} GPU(s) found"
     if hw["vendor"] and hw["vendor"] != p.vendor:
         return _res(False, f"{p.title} doesn't match this machine ({seen}).")
+    if v == "wsl-nvidia" and not wsl.is_wsl():
+        return _res(False, f"{p.title} is for WSL2 on Windows; this is not WSL. Pick Ubuntu + NVIDIA.")
+    if v == "nvidia" and wsl.is_wsl():
+        return _res(True, f"This is WSL: pick {profiles.PROFILES['wsl-nvidia'].title} (same PyTorch build).", warn=True)
     msg = f"{p.title}: {seen}. PyTorch {p.torch}. {p.note}"
     if p.gpus and hw["count"] and p.gpus != hw["count"] and not (p.gpus == 1 and hw["count"] >= 1):
         return _res(True, msg + f" It plans for {p.gpus} GPU(s).", warn=True)
@@ -567,6 +609,8 @@ def test(item_id: str, value: str | None = None, values: dict | None = None) -> 
         raise ValueError(f"no setup item {item_id!r}")
     values = dict(values or {})
     v = current(item) if value is None else str(value).strip()
+    if item.kind == "path" and wsl.is_wsl() and wsl.is_windows_path(v):
+        v = wsl.to_linux(v)                          # C:\\... typed on Windows: its WSL path
     values["_id"] = item_id
     return TESTS[item_id](v, values) | {"id": item_id}
 
@@ -576,6 +620,8 @@ def test(item_id: str, value: str | None = None, values: dict | None = None) -> 
 def _typed(item: Item, v: str):
     if item.kind == "gpu":
         return int(v)
+    if item.kind == "path" and v and wsl.is_wsl() and wsl.is_windows_path(v):
+        return wsl.to_linux(v)
     if item.kind == "path" and v:
         return v if v.startswith("~") else str(Path(v).expanduser())
     return v

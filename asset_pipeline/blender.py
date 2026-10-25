@@ -3,6 +3,8 @@
 Blender runs on the CPU here, so it never competes with GPU jobs. Its output goes through a
 pipe into the log: the snap Blender silently does nothing (exit 0, no output) when its
 stdout is a regular file. A running job's Stop kills the whole process group.
+Inside WSL a Windows Blender or Unreal (.exe) gets Windows paths (wsl.windows_cmd) and its JSON
+outputs are read back with Linux paths (wsl.read_back).
 """
 import os
 import signal
@@ -11,7 +13,7 @@ import threading
 import time
 from pathlib import Path
 
-from . import config
+from . import config, wsl
 from .jobs import Canceled, current_job
 
 
@@ -37,11 +39,13 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
     """Run any command with its output piped into log_path (appended), cancellable from a
     job's Stop (the whole process group is killed)."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    started = time.time()
+    cmd, env, watch, copies = wsl.windows_cmd(cmd)
     log = log_path.open("a")
     log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n")
     log.flush()
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            start_new_session=True, cwd=cwd, errors="replace")
+                            start_new_session=True, cwd=cwd, errors="replace", env=env)
     def pump_lines():
         for line in proc.stdout:   # flushed per line: the UI reads progress from the log
             log.write(line)
@@ -60,6 +64,7 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
         release()
         pump.join(timeout=5)
         log.close()
+        wsl.read_back(watch, started, copies)
     if job and job.cancel_event.is_set():
         raise Canceled(f"{what} canceled")
     if proc.returncode != 0:

@@ -27,7 +27,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageDraw
 
-from .. import blender, config, review
+from .. import blender, config, review, wsl
 from ..comfy import workflow
 from ..comfy.client import ComfyClient, connect
 from ..project import ProjectStore, read_json, write_json
@@ -314,11 +314,10 @@ def multiview_mesh(views: dict[str, Path], out: Path, seed: int = 0, steps: int 
 def render_turntable(glb: Path, out: Path, step: int = 5, elevations: str = "0,10,20,30",
                      size: int = 192) -> Path:
     """Blender headless (CPU-light Workbench): the asset's mesh at known azimuths."""
-    import subprocess
     cmd = [blender.blender_bin(), "-b", "--factory-startup", "--python",
            str(config.REPO_ROOT / "scripts" / "blender_turntable.py"), "--", str(glb), str(out),
            "--step", str(step), "--elevations", elevations, "--size", str(size)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = wsl.run(cmd, capture_output=True, text=True)          # a Windows Blender in WSL: paths translated
     if r.returncode != 0 or not (out / "renders.json").is_file():
         raise RuntimeError(f"blender turntable failed: {r.stdout[-800:]}{r.stderr[-800:]}")
     return out

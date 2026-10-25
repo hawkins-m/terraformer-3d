@@ -120,7 +120,8 @@ def test_ue_gpu_vram_delegates(monkeypatch):
 def test_shell_scripts_parse():
     changed = ["ap", "ap_root.sh", "build_env_common.sh", "torch_index.sh", "rocm_build_env.sh", "trellis",
                "install_qwen_vl.sh", "install_segdepth.sh", "install_trellis2.sh", "install_llamacpp_vlm.sh",
-               "llamacpp_vlm_server.sh", "comfy_api_proxy.sh", "setup_rocm_toolchain.sh", "git-hooks/pre-commit"]
+               "llamacpp_vlm_server.sh", "comfy_api_proxy.sh", "setup_rocm_toolchain.sh", "git-hooks/pre-commit",
+               "install.sh", "wsl_ui.sh"]
     for name in changed:
         r = subprocess.run(["bash", "-n", str(REPO / "scripts" / name)], capture_output=True, text=True)
         assert r.returncode == 0, f"{name}: {r.stderr}"

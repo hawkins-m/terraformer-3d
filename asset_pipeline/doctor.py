@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 
 import httpx
 
-from . import config, gpu, preflight, setup
+from . import config, gpu, preflight, setup, wsl
 
 # feature -> what it is in plain words (the UI says "<what> needs <check>")
 FEATURES = {
@@ -76,6 +76,27 @@ def check_gpus() -> Check:
         return _c("gpus", "GPUs", False, f"{'; '.join(bad)}, which doesn't exist ({names})",
                   "Choose existing GPUs in `ap setup` (one GPU: the same index for both roles).", ["vlm", "trellis"])
     return _c("gpus", "GPUs", True, f"{names}; TRELLIS/vision on {roles['TRELLIS and vision']}, ComfyUI on {roles['ComfyUI']}")
+
+
+def check_wsl() -> list[Check]:
+    """Inside WSL: WSL 2, interop (Windows Blender/Unreal), storage on the WSL filesystem, the beta label."""
+    st = wsl.status()
+    if not st["wsl"]:
+        return []
+    out = [_c("wsl", "Windows (WSL2)", st["wsl2"], f"{wsl.LABEL}: WSL {'2' if st['wsl2'] else '1'}, distro "
+              f"{st['distro']}. Untested: " + "; ".join(wsl.UNTESTED),
+              "WSL 1 has no GPU: `wsl --set-version " + st["distro"] + " 2` in Windows PowerShell" if not st["wsl2"]
+              else "Report what breaks; the Windows path is beta.", warn=True)]
+    if not st["interop"]:
+        out.append(_c("wsl_interop", "Windows programs from WSL", True, "WSL interop is off: a Windows Blender or "
+                      "Unreal can't be started", "Enable [interop] in /etc/wsl.conf, or install Blender inside WSL.",
+                      warn=True))
+    root = config.ap_root()
+    if wsl.on_windows_drive(root):
+        out.append(_c("wsl_storage", "Storage on the WSL filesystem", True, f"{root} is on a Windows drive: slow from "
+                      "WSL, and hard links (file store, backups) don't work there",
+                      "Move it into WSL, e.g. ~/.local/share/terraformer (`ap setup`, Storage folder).", warn=True))
+    return out
 
 
 def check_profile() -> Check:
@@ -219,12 +240,14 @@ def check_unreal() -> Check:
     r = setup._test_unreal(path, {})
     if r["ok"]:
         from pathlib import Path
-        full = Path(path).expanduser().parent / "UnrealEditor"
+        from .ue import full_editor
+        full = full_editor(Path(path).expanduser())
         if not full.exists():
             return _c("unreal", "Unreal Engine (optional)", False, f"{full} not found (renders need the full editor)",
                       "Point `ap setup` at a full UE install (built or from Epic).", ["unreal"], optional=True)
     return _c("unreal", "Unreal Engine (optional)", r["ok"], r["message"].removeprefix("Found ").replace(" Not started by this test.", ""),
-              "Fix the path in `ap setup` (…/Engine/Binaries/Linux/UnrealEditor-Cmd).", ["unreal"], optional=True)
+              "Fix the path in `ap setup` (…/Engine/Binaries/Linux/UnrealEditor-Cmd"
+              + (", or a Windows install's …\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe" if wsl.is_wsl() else "") + ").", ["unreal"], optional=True)
 
 
 def _model_check(id_, name, feature, required_only, env_paths, env_fix, optional=False) -> Check:
@@ -271,7 +294,7 @@ def check_paid_keys() -> list[Check]:
 
 
 def run() -> list[Check]:
-    checks = [check_config(), check_storage(), check_gpus(), check_profile(), *check_fit(), *check_comfy(),
+    checks = [check_config(), check_storage(), *check_wsl(), check_gpus(), check_profile(), *check_fit(), *check_comfy(),
               check_blender(), check_unreal(),
               *check_local(), *check_paid_keys()]
     return checks

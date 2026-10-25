@@ -9,17 +9,27 @@ import shutil
 import subprocess
 
 ROCM_SMI = "/opt/rocm/bin/rocm-smi"
+WSL_NVIDIA_SMI = "/usr/lib/wsl/lib/nvidia-smi"   # WSL2: the Windows driver's tools, not always on PATH
 
 
 def _rocm_smi() -> str | None:
     return ROCM_SMI if shutil.which(ROCM_SMI) else shutil.which("rocm-smi")
 
 
+def _wsl_nvidia_smi() -> bool:
+    return os.path.isfile(WSL_NVIDIA_SMI) and os.access(WSL_NVIDIA_SMI, os.X_OK)
+
+
+def _nvidia_smi() -> str:
+    """nvidia-smi on PATH, else WSL2's copy (untested)."""
+    return "nvidia-smi" if shutil.which("nvidia-smi") or not _wsl_nvidia_smi() else WSL_NVIDIA_SMI
+
+
 def vendor() -> str | None:
-    """"amd" if rocm-smi exists, else "nvidia" if nvidia-smi is on PATH, else None."""
+    """"amd" if rocm-smi exists, else "nvidia" if nvidia-smi is on PATH (or WSL2's), else None."""
     if _rocm_smi():
         return "amd"
-    if shutil.which("nvidia-smi"):   # untested
+    if shutil.which("nvidia-smi") or _wsl_nvidia_smi():   # untested
         return "nvidia"
     return None
 
@@ -27,7 +37,7 @@ def vendor() -> str | None:
 def vram_used_gb() -> dict[int, float]:
     """VRAM in use per GPU (GB, 1e9 bytes): card N = GPU N (AMD), index N (NVIDIA)."""
     if vendor() == "nvidia":   # untested
-        r = subprocess.run(["nvidia-smi", "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"],
+        r = subprocess.run([_nvidia_smi(), "--query-gpu=index,memory.used", "--format=csv,noheader,nounits"],
                            capture_output=True, text=True, timeout=30)
         out = {}
         for line in r.stdout.splitlines():
@@ -44,7 +54,7 @@ def vram_used_gb() -> dict[int, float]:
 def vram_total_gb() -> dict[int, float]:
     """VRAM size per GPU (GB)."""
     if vendor() == "nvidia":   # untested
-        r = subprocess.run(["nvidia-smi", "--query-gpu=index,memory.total", "--format=csv,noheader,nounits"],
+        r = subprocess.run([_nvidia_smi(), "--query-gpu=index,memory.total", "--format=csv,noheader,nounits"],
                            capture_output=True, text=True, timeout=30)
         return {int(i): int(m) * 1048576 / 1e9 for i, _, m in
                 (ln.partition(",") for ln in r.stdout.splitlines()) if i.strip().isdigit() and m.strip().isdigit()}
@@ -58,7 +68,7 @@ def names() -> dict[int, str]:
     """Each GPU's product name. Empty when no GPU tool answers."""
     try:
         if vendor() == "nvidia":   # untested
-            r = subprocess.run(["nvidia-smi", "--query-gpu=index,name", "--format=csv,noheader"],
+            r = subprocess.run([_nvidia_smi(), "--query-gpu=index,name", "--format=csv,noheader"],
                                capture_output=True, text=True, timeout=30)
             return {int(i): n.strip() for i, _, n in (ln.partition(",") for ln in r.stdout.splitlines()) if i.strip().isdigit()}
         if not _rocm_smi():
@@ -86,10 +96,10 @@ def vram_by_process() -> dict[int, dict[int, float]]:
     them. (amd-smi's per-process vram_mem read ~0 for a ComfyUI holding 3 GB, 2026-10-18.)"""
     out: dict[int, dict[int, float]] = {}
     if vendor() == "nvidia":   # untested
-        idx = subprocess.run(["nvidia-smi", "--query-gpu=index,pci.bus_id", "--format=csv,noheader"],
+        idx = subprocess.run([_nvidia_smi(), "--query-gpu=index,pci.bus_id", "--format=csv,noheader"],
                              capture_output=True, text=True, timeout=30).stdout
         bus = {b.strip(): int(i) for i, _, b in (ln.partition(",") for ln in idx.splitlines()) if i.strip().isdigit()}
-        apps = subprocess.run(["nvidia-smi", "--query-compute-apps=pid,used_memory,gpu_bus_id", "--format=csv,noheader,nounits"],
+        apps = subprocess.run([_nvidia_smi(), "--query-compute-apps=pid,used_memory,gpu_bus_id", "--format=csv,noheader,nounits"],
                               capture_output=True, text=True, timeout=30).stdout
         for ln in apps.splitlines():
             parts = [x.strip() for x in ln.split(",")]

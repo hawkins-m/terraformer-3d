@@ -88,7 +88,8 @@ FLUX frame generation, the city planner and the first browser UI. Added during i
 
 ## Requirements
 
-- Linux (verified on Ubuntu 26.04). Windows and macOS are not supported.
+- Linux (verified on Ubuntu 26.04). Windows through WSL2 with an NVIDIA GPU is **beta**
+  ([below](#windows-wsl2--nvidia-beta)); macOS is not supported.
 - Python 3.12 (`python3.12`; the default `python3` may be newer, and every venv here uses 3.12).
 - ComfyUI 0.24 or newer (the tested version). The workflows use only core nodes (SAM 3.1
   included).
@@ -136,6 +137,7 @@ build the model environments install, which GPU each job lane uses, and the sche
 | Ubuntu + ROCm, 2 GPUs (`rocm-2gpu`) | ROCm 7.2 | TRELLIS and the vision model on GPU 0, ComfyUI on GPU 1 | the tested setup |
 | Ubuntu + ROCm, 1 GPU (`rocm-1gpu`) | ROCm 7.2 | everything on GPU 0, one job at a time | scheduling tested by simulation only |
 | Ubuntu + NVIDIA (`nvidia`) | CUDA 12.8 | as above, by GPU count | **untested**: the CUDA paths have never run |
+| Windows (WSL2) + NVIDIA, beta (`wsl-nvidia`) | CUDA 12.8 | as above, by GPU count | **beta, untested**: the `nvidia` profile inside WSL2 |
 
 What differs per profile (the steps below are otherwise the same):
 
@@ -237,6 +239,68 @@ storage folder on a big drive, set it before downloading:
 
 8. **Desktop launcher** (optional): `ap launcher install` adds **Terraformer** to the Linux
    applications menu, so day-to-day work needs no terminal.
+
+### Windows (WSL2) + NVIDIA, beta
+
+The pipeline runs inside WSL2 (Ubuntu) as the normal Linux install with the `wsl-nvidia` profile;
+a Windows launcher starts it and opens your browser. **Beta: none of this has run on a Windows
+machine yet** (the tests mock `wslpath` and the Windows programs).
+
+Needs Windows 11, or Windows 10 21H2 (build 19044) or newer, and a current NVIDIA driver for
+Windows (Game Ready or Studio). Do not install a Linux NVIDIA driver inside Ubuntu: WSL uses the
+Windows one.
+
+1. Download the repo (Code › Download ZIP, or `git clone`) anywhere on Windows and double-click
+   `windows\install.bat` (or run `windows\install.bat -NoDesktopShortcut`, `-Distro NAME`, `-Yes`).
+   It
+   - checks the Windows version and WSL; if WSL is missing it asks, installs it (admin prompt)
+     and asks you to restart Windows and run `install.bat` again;
+   - installs `Ubuntu-24.04` in WSL if it is missing (it asks first; Ubuntu then asks for a Linux
+     user name and password), and converts it to WSL 2 if needed;
+   - checks that `nvidia-smi` works inside WSL;
+   - clones the repo inside WSL at `~/terraformer-3d` and runs the Linux install there:
+     `scripts/install.sh --profile wsl-nvidia` (venv, `ap`, the profile, then `ap setup`);
+   - writes the launcher `%LOCALAPPDATA%\Terraformer\Terraformer.bat` and a **Terraformer**
+     shortcut in the Start Menu and on the desktop.
+2. Inside WSL (Start Menu › Ubuntu), do the rest of the [Steps](#steps) as on Linux: ComfyUI
+   (installed inside WSL), models, model runtimes, `ap doctor`. Skip
+   `scripts/setup_rocm_toolchain.sh` and `ap launcher install`.
+3. Start **Terraformer** from the Start Menu. It runs `ap ui` inside WSL and opens your default
+   browser at <http://localhost:8700/>. Closing its window (or Ctrl+C in it) stops `ap ui`; an
+   `ap ui` that was already running is left alone.
+
+In Setup (`ap setup` or the app's Setup screen):
+
+- **Storage** stays on the WSL filesystem (the default `~/.local/share/terraformer`). The Windows
+  drives (`C:\` is `/mnt/c` in WSL) are slow from WSL and break the hard links the file store and
+  backups use; Setup and `ap doctor` warn when storage is there.
+- **Blender**: a Blender installed inside WSL (e.g. from blender.org's Linux build) is preferred
+  and found first. A Windows Blender works too: paste its Windows path
+  (`C:\Program Files\Blender Foundation\Blender 4.2\blender.exe`).
+- **Unreal** stays on Windows: paste
+  `C:\Program Files\Epic Games\UE_5.8\Engine\Binaries\Win64\UnrealEditor-Cmd.exe` (or the
+  `UE_5.8` folder). Put the Unreal projects folder on a Windows drive (e.g.
+  `C:\Users\you\Documents\Unreal Projects`); Setup warns otherwise.
+
+Windows paths are stored as WSL sees them (`wslpath -u`). A Windows `.exe` runs through WSL
+interop: the pipeline gives it Windows paths (`wslpath -w`, including the paths inside its JSON
+job files and `AP_UE_ARGS` through `WSLENV`) and turns the Windows paths in the JSON files it
+writes back into Linux paths. `ap doctor` shows the WSL check with the beta label and what is
+untested.
+
+Known limits (beta):
+
+- Untested end to end on Windows: the CUDA wheels, TRELLIS.2's extensions and the llama.cpp
+  Vulkan build on WSL's NVIDIA driver; Windows Blender and Unreal through interop.
+- Stop on a job running a Windows program ends the Linux side; the Windows process may keep
+  running (end it in Task Manager).
+- The "Unreal Editor has this project open" check can't see an editor window on Windows: close
+  it yourself before an import or backup.
+- Only paths in arguments, in the JSON files named on the command line and in `AP_UE_ARGS` are
+  translated; Unreal reading projects on `\\wsl.localhost` is slow, hence the Windows-drive
+  projects folder.
+- WSL 2 must reach `localhost` (the default `localhostForwarding`, or mirrored networking) for the
+  browser to open the app. GPU memory in WSL is shared with Windows: close GPU-heavy Windows apps.
 
 ### ROCm notes
 

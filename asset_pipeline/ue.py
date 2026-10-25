@@ -54,6 +54,11 @@ def editor_cmd() -> Path:
     return Path(path)
 
 
+def full_editor(cmd: Path) -> Path:
+    """UnrealEditor next to UnrealEditor-Cmd (UnrealEditor.exe for a Windows Unreal called from WSL)."""
+    return cmd.with_name("UnrealEditor" + (".exe" if cmd.suffix.lower() == ".exe" else ""))
+
+
 def _setting(env: str, key: str, default):
     return os.environ.get(env) or config.backends().get("unreal", {}).get(key, default)
 
@@ -290,7 +295,7 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
     args_file = work / f"{name}_args.json"
     write_json(args_file, {"map": map_, "out_dir": str(out), "report": str(report), "timeout_s": timeout_s,
                            "shots": shots})
-    editor = editor_cmd().with_name("UnrealEditor")
+    editor = full_editor(editor_cmd())
     cmd = [str(editor), str(up), "-RenderOffscreen", f"-graphicsadapter={adapter}", "-unattended", "-nosplash", "-NoTraceServer",
            # -ExecutePythonScript would quit the editor right after the script returns (before
            # its tick callbacks run); a console `py` command leaves the quitting to the script
