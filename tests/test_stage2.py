@@ -169,6 +169,11 @@ def test_ui_reroll_with_guidance_and_the_field_starts_from_the_last_one(env):
     u = client.get("/api/projects/demo/refs").json()[0]
     assert u["guidance"] == "oak staves, iron hoops"
     assert u["sheet_meta"][u["sheets"][0]]["guidance"] == "oak staves, iron hoops"
+    job = client.post("/api/projects/demo/refs/generate", json={"plan": NAME, "unit": "barrel", "n": 1, "guidance": None}).json()
+    assert "guidance" not in job["tag"] and _wait_job(client, job)["status"] == "done"
+    u = client.get("/api/projects/demo/refs").json()[0]
+    assert u["guidance"] == ""                    # the newest batch had none: the field starts empty, not from an older one
+    assert "guidance" not in u["sheet_meta"][u["sheets"][-1]]
     assert client.post("/api/projects/demo/refs/generate", json={"guidance": "x"}).status_code == 400   # needs a unit
     assert client.post("/api/projects/demo/refs/generate",
                        json={"unit": "barrel", "guidance": "x" * 600}).status_code == 400

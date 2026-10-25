@@ -1,8 +1,20 @@
 // Stage 2 (References): reference sheets per plan unit, generated in the background.
 const fmtDims = d => `${d.width}×${d.depth}×${d.height} m`;
-// Reroll guidance being typed, per unit ("plan/key"): kept across re-renders (the list redraws
-// while jobs run) until the reroll sends it; the field starts from the last batch's guidance.
-const refsGuidance = {};
+// The "guidance for the next sheets" box, per project and unit ("plan/key"): exactly what was
+// typed, cleared included, kept across re-renders (the list redraws while jobs run), job
+// completion and reloads (localStorage). A unit never typed in starts from its newest batch's guidance.
+let refsGuidanceOf = null, refsGuidanceMap = {};
+function refsGuidance() {
+  if (refsGuidanceOf !== slug) {
+    refsGuidanceOf = slug; refsGuidanceMap = {};
+    try { refsGuidanceMap = JSON.parse(localStorage.getItem(`ap.refsGuidance.${slug}`) || "{}") || {}; } catch (_) { /* ignore */ }
+  }
+  return refsGuidanceMap;
+}
+function refsGuidanceSet(ukey, text) {
+  refsGuidance()[ukey] = text;
+  try { localStorage.setItem(`ap.refsGuidance.${slug}`, JSON.stringify(refsGuidanceMap)); } catch (_) { /* private window: this page only */ }
+}
 // sheets ticked for "Delete selected", by sheet key (kept across re-renders)
 const refsSel = {};
 
@@ -56,8 +68,8 @@ function refsUnit(u) {
     </div>`;
   const ukey = `${u.plan}/${u.key}`, gIn = $(".guidance", el);
   gIn.dataset.unit = ukey;
-  gIn.value = refsGuidance[ukey] ?? u.guidance ?? "";
-  gIn.oninput = () => { refsGuidance[ukey] = gIn.value; };
+  gIn.value = refsGuidance()[ukey] ?? u.guidance ?? "";
+  gIn.oninput = () => refsGuidanceSet(ukey, gIn.value);
   gIn.onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); $(".more", el).click(); } };
   const unitJobs = activeJobs("refs.generate", {plan: u.plan, unit: u.key});
   if (unitJobs.length) {
@@ -89,8 +101,9 @@ function refsUnit(u) {
   showSel();
   el.append(g);
   $(".more", el).onclick = async () => {
+    refsGuidanceSet(ukey, gIn.value);          // the box keeps what it sent, empty included
     const guidance = gIn.value.trim();
-    if (await generateRefs({plan: u.plan, unit: u.key, guidance: guidance || null})) delete refsGuidance[ukey];
+    await generateRefs({plan: u.plan, unit: u.key, guidance: guidance || null});
   };
   return el;
 }

@@ -886,8 +886,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                             for a in u.assets],
                  "sheets": s2_refs.sheets(store, u), "sheet_meta": (sm := s2_refs.sheet_meta(store, u)),
                  "next": library_entries.next_step(store, u.plan, u.key),
-                 # the guidance of the newest batch that had one: the reroll field starts from it
-                 "guidance": next((m["guidance"] for m in reversed(list(sm.values())) if m.get("guidance")), "")}
+                 # the newest batch's guidance ("" when it had none): the reroll field starts from it
+                 "guidance": next(reversed(sm.values()), {}).get("guidance") or ""}
                 for u in s2_refs.units(store)]
 
     @app.post("/api/projects/{slug}/refs/sheets/uses")
