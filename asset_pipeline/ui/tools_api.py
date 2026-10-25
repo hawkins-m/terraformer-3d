@@ -8,7 +8,7 @@ anything slow is a job (kinds and lanes below).
     POST      /api/preflight                                          quick request
     POST      /api/projects/{slug}/library/{pending,silhouette,review/done}, GET review/tasks
     POST      /api/projects/{slug}/frames/lock, /shots/add, /site/vegetation, /site/overlap
-    GET/POST  /api/projects/{slug}/ue/...                             jobs ue.* (cpu)
+    GET/POST  /api/projects/{slug}/ue/...                             jobs ue.* (cpu); ue/build = `ap ue build`
     POST      /api/projects/{slug}/terrain/{action}                   job terrain.* (cpu)
     POST      /api/demo                                               job demo (cpu, script log -> note)
     POST      /api/vlm/up, /api/vlm/down                              jobs vlm.up / vlm.down (gpu0)
@@ -27,7 +27,7 @@ from pydantic import BaseModel
 
 from .. import areas, config, kit_proc, launcher, preflight, review, ue, vlm
 from ..jobs import check_canceled, current_job
-from ..project import ProjectStore, read_json
+from ..project import ProjectStore, read_json, write_json
 from ..stages import s0_frames, s2_refs, s5_3d, sw_library, sw_shots, sw_site
 
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -121,6 +121,12 @@ class UeImportReq(BaseModel):
     expect: int | None = None
     vegetation: bool = False
     no_backup_ok: bool = False           # reset / prune with no snapshot yet: the user said so
+
+
+class UeBuildReq(BaseModel):
+    use_active: bool = False             # Active versions, approved or not (previews)
+    keep_hand_moves: bool = True         # False: reset layout (every actor back to the manifest)
+    render: bool = False
 
 
 class UeRenderReq(BaseModel):
@@ -546,6 +552,34 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
                     "seconds": rep["seconds"]}
         return jobs.submit("ue.import", slug, run, lane="cpu",
                            tag={"reset": req.reset_layout, "prune": req.prune}).public()
+
+    @app.post("/api/projects/{slug}/ue/build")
+    def ue_build_city(slug: str, req: UeBuildReq):
+        """`ap ue build` as a job: the whole city headless; the report lands in build_report_path()."""
+        from .. import placement_check, ue_build
+        store = store_of(slug)
+        up = ue.uproject(store)
+        if up.is_file() and ue.editor_running(up):
+            raise HTTPException(409, f"the Unreal editor has {up.name} open: close it, then build")
+        stages = ue_build.STAGES + ["render"] * req.render
+
+        def run():
+            job = current_job()
+
+            def on_step(name):
+                if job:
+                    job.tag["stage"] = stages.index(ue_build.STAGE_OF[name])
+            log = (lambda s: setattr(job, "note", str(s)[:200])) if job else print
+            r = ue_build.build(store, use_active=req.use_active, reset_layout=not req.keep_hand_moves,
+                               render=req.render, log=log, on_step=on_step)
+            out = r | {"keep_hand_moves": req.keep_hand_moves, "finished": time.time(),
+                       "placement_lines": None if r["placement"] is None else placement_check.lines(r["placement"]),
+                       "lines": ue_build.report_lines(r)}
+            write_json(ue_build.report_path(store), out)
+            return out
+        return jobs.submit("ue.build", slug, run, lane="cpu",
+                           tag={"stages": stages, "stage": 0, "use_active": req.use_active,
+                                "reset": not req.keep_hand_moves, "render": req.render}).public()
 
     @app.post("/api/projects/{slug}/ue/render")
     def ue_render(slug: str, req: UeRenderReq):

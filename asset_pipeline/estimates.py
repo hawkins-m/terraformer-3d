@@ -34,7 +34,7 @@ DEFAULTS = {
     "site.build": 20, "site.extract": 20, "site.preview": 60, "site.plan": 10, "shots.add": 30,
     "site.vegetation": 30, "site.overlap": 30,
     "style.explore": 150, "style.derive": 60, "style.draft": 60, "plan.analyze": 80, "plan.refine": 20,
-    "ue.export": 60, "ue.backup": 30, "ue.init": 300, "ue.import": 120, "ue.render": 45, "ue.pull": 60,
+    "ue.build": 900, "ue.export": 60, "ue.backup": 30, "ue.init": 300, "ue.import": 120, "ue.render": 45, "ue.pull": 60,
     "ue.look": 300, "terrain.analyse": 60, "terrain.build": 180, "terrain.outer": 120, "terrain.apply": 60,
     "terrain.landscape": 300, "terrain.ue": 300, "demo": 1800, "vlm.up": 60, "vlm.down": 5,
 }
@@ -47,7 +47,7 @@ RUN_STAGES = {
     "library.sheets": ("refs.generate", lambda r: 1),                  # a batch item: one unit's sheets
     "shots.render": ("shots.render", lambda r: max(1, _count(r.get("shots")))),
     "views.cut": ("views.cut", lambda r: 1), "site.build": ("site.build", lambda r: 1),
-    "ue.export": ("export", lambda r: 1), "ue.import": ("ue.import", lambda r: 1),
+    "ue.export": ("export", lambda r: 1), "ue.import": ("ue.import", lambda r: 1), "ue.build": ("ue.build", lambda r: 1),
     "ue.render": ("ue.render", lambda r: max(1, r.get("shots") if isinstance(r.get("shots"), int) else _count(r.get("shots")))),
 }
 # a job's lanes in the order it uses them (jobs.hop): the first is where it is submitted

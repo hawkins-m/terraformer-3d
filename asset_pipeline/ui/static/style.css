@@ -640,6 +640,10 @@ details summary { cursor: default; }
 .ue-steps li.done .n { color: var(--ready); }
 .ue-steps li.done .n::after { content: " ✓"; font-size: 11px; }
 .ue-why { color: var(--muted); font-style: italic; }
+#ue-build-box label.check { display: block; margin: 4px 0; }
+.ue-report { margin-top: 8px; padding: 6px 8px; border: 1px solid var(--border); background: var(--field); }
+.ue-report ul { margin: 4px 0 0; padding-left: 18px; }
+#ue-advanced > summary { margin: 8px 0; font-weight: 600; }
 .ue-why:not(:first-child) { margin-left: 8px; }
 
 /* Guide (Help › Show guide): a small floating window over the page, only while it is on */

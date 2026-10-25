@@ -116,3 +116,129 @@ def test_baked_materials_read_the_maps_metallic_roughness_and_base_colour():
 def test_a_glb_without_maps_reports_its_factors():
     out = cl.baked_materials(_glb(with_image=False))
     assert out == [{"maps": [], "metallic": 1.0, "roughness": 1.0, "base_mean": [1.0, 1.0, 1.0]}]
+
+
+# --- the Unreal tab's "Build city in Unreal": `ap ue build` as a UI job, Unreal stubbed ----------
+
+import time  # noqa: E402
+from pathlib import Path  # noqa: E402
+from types import SimpleNamespace  # noqa: E402
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture
+def stub_build(tmp_path, monkeypatch):
+    """A synthetic project whose Unreal, Blender and export runs are stubs: build() runs its real
+    step order, warnings, placement check call and report on canned results."""
+    from asset_pipeline import city_library, ground, look, placement_check, ue
+    from asset_pipeline.project import ProjectStore
+    from asset_pipeline.stages import s7_export, sw_site
+    monkeypatch.setenv("AP_ROOT", str(tmp_path / "root"))
+    monkeypatch.setenv("AP_UE_PROJECTS", str(tmp_path / "ue"))
+    monkeypatch.setenv("AP_UE_BACKUPS", str(tmp_path / "backups"))
+    store = ProjectStore.create("demo-build")
+    (ue.project_dir(store)).mkdir(parents=True)
+    calls = []
+    man = {"map": "/Game/AP/Maps/City", "slots": [{"id": "a", "replaced": True}, {"id": "b"}], "shots": [],
+           "library": {"placed": 3, "parents": 3, "props": 0, "slots_replaced": 1, "held": 1}}
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
+    monkeypatch.setattr(ue, "backup", lambda st: calls.append("backup") or {})
+    monkeypatch.setattr(s7_export, "export", lambda st, **kw: calls.append(("export", kw)) or {"instances": 7})
+    monkeypatch.setattr(s7_export, "load_manifest", lambda st: man)
+    monkeypatch.setattr(ue_build, "_level_actors", lambda st, m: calls.append("level read") or ({}, set()))
+    monkeypatch.setattr(look, "city_lighting", lambda st: {"sun_pitch": -40})
+    monkeypatch.setattr(ue, "import_", lambda st, **kw: calls.append(("import", kw)) or {
+        "ok": True, "library": {"placed": 3}, "assets": {"imported": [1], "skipped": [2, 3]},
+        "actors": {"reset": []}, "landscape": True, "warnings": [], "library_actors": [{"id": "x"}]})
+    monkeypatch.setattr(sw_site, "load_greybox", lambda st: {"slots": [{"id": "a", "bbox": [[0] * 3, [1] * 3]}]})
+    monkeypatch.setattr(ground.Ground, "from_project", classmethod(lambda cls, st: None))
+    monkeypatch.setattr(city_library, "settings", lambda st: {})
+    monkeypatch.setattr(placement_check, "check", lambda *a: {"ok": False, "checked": 3, "issues": {"floating": ["x"]},
+                                                                "per_entry": {"tower": {"floating": 1}}})
+    return SimpleNamespace(store=store, calls=calls, ue=ue)
+
+
+def _client():
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.ui import app as ui_app
+    return TestClient(ui_app.create_app(JobQueue()))
+
+
+def _wait(client, job):
+    for _ in range(500):
+        j = client.get(f"/api/jobs/{job['id']}").json()
+        if j["status"] not in ("queued", "running"):
+            return j
+        time.sleep(0.01)
+    raise AssertionError("job did not finish")
+
+
+def test_build_steps_run_in_order_and_report_their_stages(stub_build):
+    seen = []
+    r = ue_build.build(stub_build.store, log=lambda *a: None, on_step=seen.append)
+    assert seen == ["backup", "export", "lighting", "level read", "import", "check"]   # no outer ring: no terrain step
+    idx = [ue_build.STAGES.index(ue_build.STAGE_OF[s]) for s in seen]
+    assert idx == sorted(idx)                                       # the Jobs panel's stages never go back
+    imp = next(c for c in stub_build.calls if c[0] == "import")[1]
+    assert imp["lighting"] == {"sun_pitch": -40} and imp["prune"] and not imp["reset_layout"]
+    assert r["placed"] == 3 and r["greybox_slots"] == 1 and not r["placement"]["ok"]
+    assert any("no outer ring" in w for w in r["warnings"])
+
+
+def test_ui_build_is_a_staged_cpu_job_with_the_report_on_the_tab(stub_build, monkeypatch):
+    client = _client()
+    U = "/api/projects/demo-build"
+    est = client.post(f"{U}/ue/build", json={}, headers={"X-AP-Estimate": "1"}).json()["estimate"]
+    assert est["kind"] == "ue.build" and est["long"]                # the long-job dialog asks first
+    assert not stub_build.calls                                     # an estimate starts nothing
+    j = _wait(client, client.post(f"{U}/ue/build", json={"use_active": True, "keep_hand_moves": False}).json())
+    assert j["status"] == "done" and j["lane"] == "cpu" and j["kind"] == "ue.build", j
+    assert j["tag"]["stages"] == ue_build.STAGES and j["tag"]["stage"] == ue_build.STAGES.index("check")
+    assert ("export", {"assets": True, "use_active": True, "log": stub_build.calls[1][1]["log"]}) == stub_build.calls[1]
+    assert next(c for c in stub_build.calls if c[0] == "import")[1]["reset_layout"] is True     # hand moves off: reset
+    b = client.get(f"{U}/unreal").json()["build"]
+    assert b["placed"] == 3 and b["greybox_slots"] == 1 and b["use_active"] and b["keep_hand_moves"] is False
+    assert b["placement_lines"][0].startswith("placement: 1 floating of 3") and "tower" in b["placement_lines"][1]
+    assert b["lines"][0].startswith("OK: 3 library actors placed") and b["seconds"] >= 0
+    j = _wait(client, client.post(f"{U}/ue/build", json={"render": True}).json())
+    assert j["tag"]["stages"] == ue_build.STAGES + ["render"]
+
+
+def test_ui_build_refuses_while_the_editor_is_open_and_stop_ends_it_between_steps(stub_build, monkeypatch):
+    from asset_pipeline.jobs import current_job
+    client = _client()
+    U = "/api/projects/demo-build"
+    ue = stub_build.ue
+    monkeypatch.setattr(ue, "uproject", lambda st: Path(__file__))      # an existing .uproject
+    monkeypatch.setattr(ue, "editor_running", lambda up: True)
+    r = client.post(f"{U}/ue/build", json={})
+    assert r.status_code == 409 and "close it" in r.json()["detail"] and not stub_build.calls
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
+
+    def stop_during_backup(st):                                      # Stop pressed while the backup runs
+        job = current_job()
+        job._queue.cancel(job.id)
+        stub_build.calls.append("backup")
+    monkeypatch.setattr(ue, "backup", stop_during_backup)
+    j = _wait(client, client.post(f"{U}/ue/build", json={}).json())
+    assert j["status"] == "canceled" and stub_build.calls == ["backup"]          # export never started
+    assert client.get(f"{U}/unreal").json()["build"] is None
+
+
+def test_progress_shows_build_stages_and_counts_the_export_meshes(stub_build):
+    from asset_pipeline.stages import s7_export
+    from asset_pipeline.ui import app as ui_app
+    t0 = time.time()
+    job = SimpleNamespace(kind="ue.build", tag={"stages": ue_build.STAGES, "stage": 1}, created=t0, note="export…")
+    out = s7_export.export_dir(stub_build.store)
+    (out / "assets" / "a").mkdir(parents=True)
+    (out / "assets" / "a" / "SM_a.glb").write_bytes(b"x")
+    (out / "blender.log").write_text("\n=== blender\nEXPORT_TOTAL 4\n")
+    p = ui_app._progress(stub_build.store, job, t0, t0 + 5)
+    assert p["stages"][:2] == ["Backup", "Export"] and p["stage"] == 1 and p["stage_label"] == "Export"
+    assert (p["done"], p["total"]) == (1, 4) and p["line"] == "export…"
+    job.tag["stage"] = 4
+    p = ui_app._progress(stub_build.store, job, t0, t0 + 5)
+    assert p["stage_label"] == "Import" and p["done"] is None

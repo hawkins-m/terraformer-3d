@@ -287,6 +287,17 @@
       <section class="tabpanel" data-tab="unreal" id="unreal-tab" hidden>
         <div class="applybar-slot"></div>
         <p class="needs-note" id="unreal-missing" role="status" hidden></p>
+        <fieldset id="ue-build-box"><legend>Build city in Unreal</legend>
+          <p class="hint tab-help">The whole city in Unreal, headless, in one job. <button type="button" class="help-q" title="Backs up the UE project, exports the greybox with the library builds, adds terrain, imports with the project light, then checks placement." aria-label="More about the build">?</button></p>
+          <div class="row">
+            <button type="button" id="ue-build" data-needs="unreal" title="Back up, export, import, light and check the whole city in Unreal.">Build city in Unreal</button><span id="ue-build-stop"></span>
+            <span id="ue-build-state" class="hint" style="margin:0"></span></div>
+          <label class="check" title="Place each asset's Active version, approved or not."><input type="checkbox" id="ueb-active"> Use Active versions (preview, not only approved)</label>
+          <label class="check" title="Off: every actor goes back to the plan's spot (reset layout)."><input type="checkbox" id="ueb-keep" checked> Keep my hand moves in Unreal</label>
+          <label class="check" title="Render each shot camera when the build is done."><input type="checkbox" id="ueb-render"> Render shots after</label>
+          <div id="ue-build-report" class="ue-report" aria-live="polite" hidden></div>
+        </fieldset>
+        <details id="ue-advanced"><summary title="The single steps the build runs for you.">Advanced steps</summary>
         <fieldset><legend>Steps</legend>
           <ol class="ue-steps" id="ue-steps">
             <li data-step="init"><span class="n">1</span><b>Create UE project</b>
@@ -307,6 +318,7 @@
               <span class="ue-do"><button type="button" id="ue-look" data-needs="unreal">Match look…</button></span><span class="ue-state" id="ue-look-state"></span></li>
           </ol>
         </fieldset>
+        </details>
         <fieldset><legend>Back up the UE project</legend>
           <p class="hint tab-help">Snapshots <code id="ue-project"></code>, 10 kept. <button type="button" class="help-q" title="Snapshots the UE project without its caches; unchanged files are hard-linked, 10 kept." aria-label="More about backups">?</button></p>
           <div class="row"><button type="button" id="ue-backup">Back up now</button><span id="ue-backup-stop"></span>

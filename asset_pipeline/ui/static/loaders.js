@@ -82,7 +82,7 @@ const LOADERS = {
   "plan.refine": ["Refining boxes…", "scene", ""], "style.draft": ["Drafting style text…", "scene", ""],
   "refs.generate": ["Drawing reference sheets…", "sheet", "sheets"], "views.cut": ["Cutting views…", "cut", "sheets"],
   "3d.trellis": ["Building 3D model…", "model", ""], "cleanup": ["Cleaning up mesh…", "mesh", ""],
-  "ue.export": ["Exporting to Unreal…", "export", "meshes"], "ue.backup": ["Backing up the UE project…", "backup", "files"],
+  "ue.build": ["Building the city in Unreal…", "export", ""], "ue.export": ["Exporting to Unreal…", "export", "meshes"], "ue.backup": ["Backing up the UE project…", "backup", "files"],
   "library.plan": ["Planning the asset library…", "plan", ""], "library.check": ["Checking the crops…", "scene", ""],
   "library.rebuild": ["Rebuilding the asset…", "greybox", "steps"],
   "library.guide": ["Reading the guidance…", "scene", ""],

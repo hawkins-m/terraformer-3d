@@ -1,7 +1,8 @@
-// Unreal tab: numbered steps (create the UE project, export, import, render shots, match look),
-// each enabled only when it can run, and the UE project backup. Import, renders and look scenes
-// open the Unreal menu's dialogs (world.js); all run as CPU-lane jobs.
-const UE_JOBS = ["ue.export", "ue.backup"];
+// Unreal tab: "Build city in Unreal" on top (`ap ue build` as one CPU job, its last report below
+// it); under "Advanced steps" the numbered single steps (create the UE project, export, import,
+// render shots, match look), each enabled only when it can run; then the UE project backup.
+// Import, renders and look scenes open the Unreal menu's dialogs (world.js); all run as CPU-lane jobs.
+const UE_JOBS = ["ue.build", "ue.export", "ue.backup"];
 let unrealData = null;
 const ueExportStale = () => !!(unrealData && unrealData.export && statusData &&
   unrealData.export.mtime + 1 < (statusData.greybox_mtime || 0));
@@ -26,9 +27,38 @@ function ueSteps(u) {
   };
 }
 
+// Why the build can't start ("" = it can): the editor holding the project comes first.
+const ueBuildWhy = u => u.editor_open ? "The Unreal editor has the project open: close it to build."
+  : !u.greybox ? "Build the greybox first (Greybox)." : "";
+
+// The last build's report: placed, stand-ins left, time, placement check, warnings.
+function ueBuildReport(r) {
+  if (!r) return "";
+  const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+  const head = `<b>${r.ok ? "Built" : "Built with problems"}</b> ${esc(new Date(r.finished * 1000).toLocaleString())}` +
+    (r.use_active ? " · Active versions (preview)" : "") + (r.keep_hand_moves === false ? " · layout reset" : "");
+  const facts = [n(r.placed, "asset placed", "assets placed"), n(r.greybox_slots, "stand-in left", "stand-ins left"),
+    `${fmtDur(r.seconds)}`].concat(r.held ? [`${r.held} held back (not approved or not fully built)`] : [])
+    .concat(r.shots != null ? [n(r.shots, "shot rendered", "shots rendered")] : []);
+  const place = r.placement_lines || ["placement not checked (no library actors read back)"];
+  const placeOk = r.placement && r.placement.ok;
+  return `<div>${head}</div><div>${esc(facts.join(" · "))}</div>` +
+    `<div class="${placeOk ? "" : "error"}">${esc(place[0])}</div>` +
+    (place.length > 1 ? `<ul>${place.slice(1).map(l => `<li>${esc(l.trim())}</li>`).join("")}</ul>` : "") +
+    (r.warnings.length ? `<div>${n(r.warnings.length, "warning", "warnings")}:</div><ul>${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
+}
+
 function renderUnreal() {
   const u = unrealData;
   if (!u) return;
+  const building = activeJobs("ue.build"), buildWhy = ueBuildWhy(u);
+  $("#ue-build").disabled = !!buildWhy || !!building.length;
+  $("#ue-build").textContent = building.length ? "Building…" : "Build city in Unreal";
+  $("#ue-build-state").innerHTML = buildWhy ? `<span class="${u.editor_open ? "error" : "ue-why"}">${esc(buildWhy)}</span>`
+    : building.length ? "Progress and Stop: Jobs panel." : "";
+  setStop("#ue-build-stop", building);
+  $("#ue-build-report").hidden = !u.build;
+  $("#ue-build-report").innerHTML = ueBuildReport(u.build);
   const steps = ueSteps(u), running = k => activeJobs(k).length > 0;
   for (const [k, [state, done, why]] of Object.entries(steps)) {
     const li = $(`#ue-steps [data-step="${k}"]`), btn = $(".ue-do button", li);
@@ -76,6 +106,19 @@ async function ueBackup(force = false) {
   await load();
 }
 
+// `ap ue build` as a job (api() asks first when the estimate is long); the report shows on the tab.
+async function ueBuild() {
+  const body = {use_active: $("#ueb-active").checked, keep_hand_moves: $("#ueb-keep").checked, render: $("#ueb-render").checked};
+  if (!body.keep_hand_moves && !(await confirmDialog({title: "Reset layout", button: "Build and reset", danger: true, id: "ue-build-reset",
+    body: "<p>Every actor goes back to the plan's spot: moves you made in Unreal are lost (the build backs up the UE project first).</p>"}))) return;
+  let j;
+  try { j = await api(`/api/projects/${slug}/ue/build`, body); await load(); j = await jobDone(j); }
+  catch (err) { alert(errorText(err)); await load(); return; }
+  await load();
+  if (j.status === "error") alert(errorText(j.error));
+}
+
+$("#ue-build").onclick = () => ueBuild();
 $("#ue-export").onclick = () => ueExport();
 $("#ue-init").onclick = () => ACTIONS.ueInit.run();
 $("#ue-import").onclick = () => ueImportDialog();

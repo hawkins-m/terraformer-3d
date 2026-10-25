@@ -140,7 +140,13 @@ desktop app:
   (`ap export`, Ctrl+E) and *Back up Unreal project* (`ap ue backup`; it asks before
   backing up while an editor has the project open). Both are CPU jobs with a progress
   dialog counting meshes or files, and also have buttons in the *Unreal* tab.
-- **Unreal tab:** numbered steps, each enabled only when it can run and saying why not beside
+- **Unreal tab:** *Build city in Unreal* on top runs `ap ue build` as a CPU job (stages and Stop
+  in the Jobs panel; it asks first when the estimate is long). Options: *Use Active versions*
+  (`--use-active`), *Keep my hand moves in Unreal* (on by default; off is `--reset-layout` and
+  asks first), *Render shots after* (`--render`). It won't start while the editor has the
+  project open. The last build's report stays on the tab: assets placed, stand-ins left, time,
+  the placement check and warnings. Under *Advanced steps* (collapsed) are the single
+  numbered steps, each enabled only when it can run and saying why not beside
   it: 1 *Create UE project*, 2 *Export*, 3 *Import…* (needs the project and an export, and the
   editor closed), 4 *Render shots…* (needs an import), 5 *Match look…* (needs an import and a
   shot locked on its approved frame). With no look preset yet, step 5 is *Create look preset…*:

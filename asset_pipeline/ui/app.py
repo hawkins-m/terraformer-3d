@@ -492,14 +492,15 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
         done, total = tag.get("step", 0), 3
         line = f"{tag['asset']} · {job.note or 'starting'}"
     elif job.kind == "ue.export":
-        out_dir = s7_export.export_dir(store)
-        m = re.findall(r"EXPORT_TOTAL (\d+)", _run_tail(out_dir / "blender.log", since) or "")
-        if m:
-            total = int(m[-1])
-            done = min(_newer(out_dir.glob("assets/*/*.glb"), since), total)
-            line = f"Blender on the CPU · mesh {done + 1} of {total}" if done < total else "writing the manifest"
-        else:
-            line = "Blender on the CPU · opening the greybox"
+        done, total, line = _export_progress(store, since)
+    elif job.kind == "ue.build" and tag.get("stages"):
+        # `ap ue build`: one segment per stage; the export stage counts its meshes
+        stages, at = tag["stages"], tag.get("stage", 0)
+        if stages[at] == "export":
+            done, total, _ = _export_progress(store, since)
+        out = {"done": done, "total": total, "line": job.note or "starting", "elapsed_s": round(now - t0),
+               "stages": [s.capitalize() for s in stages], "stage": at, "stage_label": stages[at].capitalize()}
+        return _with_estimate(out, job, now - t0)
     elif job.kind == "3d.trellis" and tag.get("asset"):
         # real TRELLIS stages from its log; uncounted stages stay indeterminate (done None)
         from .. import trellis_progress
@@ -523,6 +524,17 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
     return _with_estimate(out, job, now - t0)
 
 
+def _export_progress(store: ProjectStore, since: float) -> tuple[int | None, int | None, str]:
+    """(meshes written, meshes to write, line) of a running export, from its Blender log."""
+    out_dir = s7_export.export_dir(store)
+    m = re.findall(r"EXPORT_TOTAL (\d+)", _run_tail(out_dir / "blender.log", since) or "")
+    if not m:
+        return None, None, "Blender on the CPU · opening the greybox"
+    total = int(m[-1])
+    done = min(_newer(out_dir.glob("assets/*/*.glb"), since), total)
+    return done, total, f"Blender on the CPU · mesh {done + 1} of {total}" if done < total else "writing the manifest"
+
+
 def _with_estimate(out: dict, job, elapsed: float) -> dict:
     """A job it can't count yet gets its time left from its estimate (estimates.py); past the
     estimate it says so instead of counting below zero."""
@@ -544,7 +556,7 @@ ESTIMATE_ROUTES = [f"/api/projects/{{slug}}/{r}" for r in (
     "shots/{shot}/regenerate", "site/plan", "library/plan", "library/check", "library/asset/{asset}/brief_build",
     "library/asset/{asset}/reroll", "library/asset/{asset}/guide", "export", "ue/backup", "areas/batch",
     "library/asset/{asset}/brief-build", "library/pending", "library/silhouette", "shots/add", "site/vegetation",
-    "site/overlap", "ue/init", "ue/import", "ue/render", "ue/pull-layout", "ue/look", "terrain/{action}")] + [
+    "site/overlap", "ue/init", "ue/build", "ue/import", "ue/render", "ue/pull-layout", "ue/look", "terrain/{action}")] + [
     "/api/demo", "/api/vlm/up", "/api/vlm/down"]
 
 
@@ -1732,7 +1744,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         return jobs.submit("library.rebuild", slug, lambda: lr.rebuild(store, asset), lane="cpu",
                            tag={"asset": asset, "round": lr.current_round(store)}).public()
 
-    # --- Unreal delivery: export and backup (import and renders stay on the command line) ---
+    # --- Unreal delivery: export and backup (build, import, renders, looks: tools_api.py) ---
 
     @app.get("/api/projects/{slug}/unreal")
     def unreal(slug: str):
@@ -1755,6 +1767,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         renders = sorted((ue.work_dir(store) / "shots").glob("*.png"))
         out["renders"] = {"count": len(renders), "mtime": max(p.stat().st_mtime for p in renders)} if renders else None
         out["looks"] = look.presets(store)
+        from .. import ue_build
+        out["build"] = read_json(ue_build.report_path(store), default=None)    # the last `ap ue build` from the UI
         mood = s0_frames.mood_shots(store) if out["greybox"] else set()
         out["approved_shots"] = sorted(s for s, k in s0_frames.locked(store).items()
                                        if k != s0_frames.LOCK_GREYBOX and s not in mood) if out["greybox"] else []

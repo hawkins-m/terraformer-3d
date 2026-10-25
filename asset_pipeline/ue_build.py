@@ -42,6 +42,11 @@ def _level_actors(store: ProjectStore, map_: str) -> tuple[dict[str, dict], set[
             {a["tags"]["ap:shot"] for a in mine if "ap:shot" in a["tags"]})
 
 
+def report_path(store: ProjectStore):
+    """The last build's report, as the UI shows it (written by the UI's build job)."""
+    return ue.work_dir(store) / "ap_build_report.json"
+
+
 def expected_prune(ue_slots, ue_shots, man: dict) -> int:
     """How many pipeline actors the import will find missing from the manifest: the count the
     prune check needs to delete them headless."""
@@ -61,9 +66,18 @@ def render_gpu(comfy_up: bool, vram: dict[int, float]) -> tuple[int | None, str]
         f"GPU {k} {v:.1f} GB" for k, v in sorted(vram.items())) + ")"
 
 
+# the stages the UI shows (Jobs panel), in run order, and the build step each one covers
+STAGES = ["backup", "export", "terrain", "lighting", "import", "check"]
+STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "lighting": "lighting",
+            "level read": "import", "import": "import", "check": "check", "render": "render"}
+
+
 def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = False, render: bool = False,
-          log=print) -> dict:
+          log=print, on_step=None) -> dict:
+    """on_step(name): called as each step starts (the UI job's stage). Under a UI job, Stop
+    is checked between steps (the editor and Blender runs stop at once: blender.run_logged)."""
     from . import look, terrain_build
+    from .jobs import check_canceled
     t0 = time.time()
     up = ue.uproject(store)
     if ue.editor_running(up):
@@ -72,6 +86,9 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
     steps: dict[str, float] = {}
 
     def step(name, fn):
+        check_canceled()
+        if on_step:
+            on_step(name)
         t = time.time()
         log(f"{name}…")
         out = fn()
@@ -89,6 +106,7 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
         step("terrain assets", lambda: terrain_build.ue_assets(store))
     elif not glb.is_file():
         warnings.append("no outer ring built (ap terrain outer): the terrain-outer greybox stays")
+    light = step("lighting", lambda: look.city_lighting(store))
     ue_slots, ue_shots = step("level read", lambda: _level_actors(store, man["map"]))
     reset_only = None
     if not reset_layout and ue_slots:            # default: only stale slots move back; hand moves stay
@@ -99,7 +117,7 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
             log(f"kept {len(cls['hand'])} slot(s) moved by hand in Unreal")
     expect = expected_prune(ue_slots, ue_shots, man)
     rep = step("import", lambda: ue.import_(store, reset_layout=reset_layout or reset_only is not None, prune=True,
-                                            expect=expect, reset_only=reset_only, lighting=look.city_lighting(store)))
+                                            expect=expect, reset_only=reset_only, lighting=light))
     warnings += rep.get("warnings", [])
     if rep.get("prune_refused") is not None:
         warnings.append(f"prune refused: {rep['prune_refused']} orphans, expected {expect}")
@@ -115,9 +133,9 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
         from . import city_library, placement_check
         from .ground import Ground
         gb = sw_site.load_greybox(store)
-        placement = placement_check.check(s7_export.load_manifest(store), rep["library_actors"],
-                                          rep.get("slot_instances") or {}, {s["id"]: s["bbox"] for s in gb["slots"]},
-                                          Ground.from_project(store), city_library.settings(store))
+        placement = step("check", lambda: placement_check.check(
+            s7_export.load_manifest(store), rep["library_actors"], rep.get("slot_instances") or {},
+            {s["id"]: s["bbox"] for s in gb["slots"]}, Ground.from_project(store), city_library.settings(store)))
     shots = None
     if render:
         gpu, why = render_gpu(look.comfy_running(), ue.gpu_vram())
