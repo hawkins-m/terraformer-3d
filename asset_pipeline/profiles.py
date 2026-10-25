@@ -6,6 +6,7 @@ scheduled, and what each feature needs in VRAM (from the model manifest).
     rocm-1gpu  Ubuntu + ROCm, 1 GPU    one GPU for everything: ComfyUI, TRELLIS and the vision model
                                        take turns (one shared slot; the other's memory is freed first)
     nvidia     Ubuntu + NVIDIA         UNTESTED: CUDA wheels; lanes as above by GPU count
+    wsl-nvidia Windows (WSL2) + NVIDIA BETA, UNTESTED: the nvidia profile inside WSL2 (asset_pipeline/wsl.py)
 
 [hardware] profile in the user config picks one ("" = detect). The lane GPUs themselves stay
 [jobs] gpu0_gpu / comfy_gpu (Setup writes the profile's defaults there); scheduling shares one slot
@@ -13,7 +14,7 @@ whenever both lanes are the same GPU, whatever the profile says.
 """
 from dataclasses import asdict, dataclass
 
-from . import config, gpu
+from . import config, gpu, wsl
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,9 @@ PROFILES = {p.id: p for p in (
             "is tested by simulation; not run on a 1-GPU machine yet."),
     Profile("nvidia", "Ubuntu + NVIDIA (untested)", "nvidia", 0, "cu128", True, False,
             "UNTESTED: the CUDA branches exist but have never run. Expect to debug them."),
+    Profile("wsl-nvidia", wsl.LABEL, "nvidia", 0, "cu128", True, False,
+            "BETA, UNTESTED: the NVIDIA profile inside WSL2 on Windows (the Windows NVIDIA driver; no Linux "
+            "driver in WSL). Blender and Unreal may be Windows installs. Untested: " + "; ".join(wsl.UNTESTED) + "."),
 )}
 
 # Why the ROCm profiles keep PyTorch's default allocator (docs/notes/machine-and-gpu.md)
@@ -52,8 +56,8 @@ def detect() -> dict:
     if vendor == "amd" and n:
         pid = "rocm-2gpu" if n >= 2 else "rocm-1gpu"
     elif vendor == "nvidia" and n:
-        pid = "nvidia"
-    return {"vendor": vendor, "count": n, "gpus": gpus, "profile": pid}
+        pid = "wsl-nvidia" if wsl.is_wsl() else "nvidia"
+    return {"vendor": vendor, "count": n, "gpus": gpus, "profile": pid, "wsl": wsl.is_wsl()}
 
 
 def current_id() -> str | None:
@@ -155,5 +159,5 @@ def summary() -> dict:
     d = detect()
     return {"profile": asdict(p) if p else None, "configured": str(config.get("hardware.profile") or ""),
             "detected": d["profile"], "vendor": d["vendor"], "count": d["count"], "shared": shared(),
-            "torch": torch_tag(), "allocator": allocator_env() or None,
+            "torch": torch_tag(), "allocator": allocator_env() or None, "wsl": wsl.status(),
             "allocator_note": "" if allocator_env() else ROCM_ALLOCATOR_NOTE}

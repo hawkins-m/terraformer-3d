@@ -11,6 +11,6 @@ export HF_HOME="$AP_ROOT/hf"
 # amd | nvidia | unknown. Same rule as asset_pipeline/gpu.vendor(); the nvidia branch is untested.
 ap_gpu_vendor() {
   if [ -x /opt/rocm/bin/rocm-smi ] || command -v rocm-smi >/dev/null 2>&1; then echo amd
-  elif command -v nvidia-smi >/dev/null 2>&1; then echo nvidia
+  elif command -v nvidia-smi >/dev/null 2>&1 || [ -x /usr/lib/wsl/lib/nvidia-smi ]; then echo nvidia
   else echo unknown; fi
 }
