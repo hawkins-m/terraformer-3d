@@ -2,7 +2,8 @@
 // - Before api() POSTs to a route that starts a job, it asks the same route how long the job would
 //   take (X-AP-Estimate: 1: the handler runs its checks and counts, then stops short of starting).
 //   Over LONG_S (10 min) a dialog says what will run, how many items, about how long, which lanes
-//   it holds and what that blocks: Start or Cancel. A canceled start throws START_CANCELED, which
+//   it holds and what that blocks: Start or Cancel. A staged job (Build city in Unreal) adds its
+//   queued work ("~120 height variants to build, ~40 imports") and each stage's time. A canceled start throws START_CANCELED, which
 //   the callers' alert() ignores. Batches that already confirm (Library › Areas) pass
 //   {confirmed: true} and show the same lines in their own dialog.
 // - Job buttons (EST_BUTTONS) get "Estimate: about N min on GPU 0" in their tooltip on hover.
@@ -40,8 +41,13 @@ const estKindLabel = k => (typeof JOB_LABELS !== "undefined" && JOB_LABELS[k]) |
 // The dialog's lines (also used inside the Areas batch confirm)
 function longJobHtml(e) {
   const waitLine = e.wait_s >= 60 ? `<p>Starts after about ${fmtDur(e.wait_s)}: ${e.ahead} job${e.ahead === 1 ? "" : "s"} ahead on ${esc(e.lane_names[0])}.</p>` : "";
-  return `<p class="long-job"><b>About ${fmtDur(e.seconds)}</b> for ${e.items} item${e.items === 1 ? "" : "s"} (${esc(estKindLabel(e.kind))}),
-      on ${esc(e.lane_names.join(", then "))}.</p>
+  // a staged job (ue.build) says what it has queued and what each stage takes
+  const what = e.breakdown ? `(${esc(estKindLabel(e.kind))}): ${esc(e.breakdown)}`
+    : `for ${e.items} item${e.items === 1 ? "" : "s"} (${esc(estKindLabel(e.kind))})`;
+  const stages = (e.stages_est || []).filter(s => s.seconds > 0)
+    .map(s => `${esc(s.stage.charAt(0).toUpperCase() + s.stage.slice(1))} ~${fmtDur(s.seconds)}`).join(", ");
+  return `<p class="long-job"><b>About ${fmtDur(e.seconds)}</b> ${what},
+      on ${esc(e.lane_names.join(", then "))}.</p>${stages ? `<p class="hint">${stages}.</p>` : ""}
     <ul class="long-job-blocks">${e.blocks.map(b => `<li>${esc(b)}.</li>`).join("")}</ul>${waitLine}
     <p class="hint">Estimate from ${esc(e.source)}. Stop (Jobs panel) or Stop jobs cancels it cleanly.</p>`;
 }

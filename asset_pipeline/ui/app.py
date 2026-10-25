@@ -494,12 +494,29 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
     elif job.kind == "ue.export":
         done, total, line = _export_progress(store, since)
     elif job.kind == "ue.build" and tag.get("stages"):
-        # `ap ue build`: one segment per stage; the export stage counts its meshes
+        # `ap ue build`: one segment per stage; the export stage counts its meshes, then its
+        # height variants, the import its library assets; time left from the stage's own progress
         stages, at = tag["stages"], tag.get("stage", 0)
+        n_done = rate = None
         if stages[at] == "export":
             done, total, _ = _export_progress(store, since)
+            if tag.get("hv_started"):
+                n_done = tag["hv_started"] - 1
+                rate = (now - tag["hv_t0"]) / n_done if n_done else None
+                done, total = n_done, max(n_done, (tag.get("work") or {}).get("height_variants") or 0) or None
+        elif stages[at] == "import":
+            m = re.findall(r"library: imported (\d+) of (\d+) \(([\d.]+) s each\)",
+                           _run_tail(ue.work_dir(store) / "ap_import.log", since) or "")
+            if m:
+                done, total, rate = int(m[-1][0]), int(m[-1][1]), float(m[-1][2]) or None
+                n_done = done
         out = {"done": done, "total": total, "line": job.note or "starting", "elapsed_s": round(now - t0),
                "stages": [s.capitalize() for s in stages], "stage": at, "stage_label": stages[at].capitalize()}
+        if tag.get("work"):
+            from .. import estimates
+            left = estimates.stage_left(tag, now - tag.get("stage_t0", t0), n_done, rate)
+            out["eta_s"] = round(left)
+            out["over"] = left == 0 and at == len(stages) - 1
         return _with_estimate(out, job, now - t0)
     elif job.kind == "3d.trellis" and tag.get("asset"):
         # real TRELLIS stages from its log; uncounted stages stay indeterminate (done None)

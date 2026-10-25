@@ -562,6 +562,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         if up.is_file() and ue.editor_running(up):
             raise HTTPException(409, f"the Unreal editor has {up.name} open: close it, then build")
         stages = ue_build.STAGES + ["render"] * req.render
+        work = ue_build.queued_work(store, req.use_active, req.render)       # the estimate, per stage
 
         def run():
             job = current_job()
@@ -571,7 +572,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
                     job.tag["stage"] = stages.index(ue_build.STAGE_OF[name])
             log = (lambda s: setattr(job, "note", str(s)[:200])) if job else print
             r = ue_build.build(store, use_active=req.use_active, reset_layout=not req.keep_hand_moves,
-                               render=req.render, log=log, on_step=on_step)
+                               render=req.render, log=log, on_step=on_step, progress=job.tag if job else None)
             out = r | {"keep_hand_moves": req.keep_hand_moves, "finished": time.time(),
                        "placement_lines": None if r["placement"] is None else placement_check.lines(r["placement"]),
                        "lines": ue_build.report_lines(r)}
@@ -579,7 +580,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             return out
         return jobs.submit("ue.build", slug, run, lane="cpu",
                            tag={"stages": stages, "stage": 0, "use_active": req.use_active,
-                                "reset": not req.keep_hand_moves, "render": req.render}).public()
+                                "reset": not req.keep_hand_moves, "render": req.render, "work": work}).public()
 
     @app.post("/api/projects/{slug}/ue/render")
     def ue_render(slug: str, req: UeRenderReq):

@@ -496,9 +496,11 @@ def ground_all(store: ProjectStore, placements: list[dict], ground, rule: str, b
         p["foot"] = footprint_of(W, lo, hi)
 
 
-def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | None = None, fitter=None) -> dict:
+def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | None = None, fitter=None,
+         log=print) -> dict:
     """{placed (with attached pieces), replaced, held, entries (materials), missing_children,
-    bounds {glb: [lo, hi]}, kits (kit_assembly reports), height_variants (built now)}. Everything
+    bounds {glb: [lo, hi]}, kits (kit_assembly reports), height_variants (built now) and
+    height_variant_s (their Blender seconds)}. Everything
     placed stands on the ground (ground.Ground, the project's ground rule) or on the layer under
     it. index: the mesh export index (the kit slots' footprint outlines and heights; without it,
     their bboxes); fitter: vertical.Fitter (height variants, built in Blender when missing)."""
@@ -519,8 +521,8 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     assign = variants.assignments(store, gb)        # duplicates used as variants share the placements
     apply_variants(store, cands + reps, assign, entries)
     from . import kit_assembly, vertical
-    fitter = fitter or vertical.Fitter(store)
-    bounds: dict = {}
+    fitter = fitter or vertical.Fitter(store, log=log)
+    bounds: dict = fitter.bounds                     # (a dry fitter's variants: bounds from their parts)
     singles = fit_heights(store, gb, index, cands + reps, fitter, bounds)    # after the split: it keeps its keys
     kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds, fitter)
     for p in kit_pl:
@@ -548,7 +550,7 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     return {"placed": placed + kids, "parents": len(parents), "props": len(placed) - len(parents),
             "replaced": replaced, "held": held, "entries": entries, "missing_children": missing,
             "drop_pieces": drop, "no_model": no_model, "bounds": bounds, "ground_rule": rule, "kits": kit_reps,
-            "height_variants": fitter.built}
+            "height_variants": fitter.built, "height_variant_s": round(fitter.build_s, 1)}
 
 
 OUTER_RING = "/Game/AP/Terrain/SM_OuterRing"            # ap terrain ue (terrain_build.ue_assets)
@@ -572,7 +574,7 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     export/library/, their assets, each replaced slot's remaining greybox and its builds."""
     from . import kit_assembly, ue
     from .stages.s7_export import manifest_components
-    pl = plan(store, gb, use_active, index)
+    pl = plan(store, gb, use_active, index, log=log)
     slots = {s["id"]: s for s in gb["slots"]}
     feet: dict[str, list[dict]] = {}
     for p in pl["placed"]:
@@ -626,7 +628,7 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
                     "kit_modules": sum(1 for p in pl["placed"] if p.get("kit")),
                     "kit_notes": kit_assembly.report_lines(pl["kits"]),
                     "stacked_layers": sum(1 for p in pl["placed"] if p.get("vrole") in ("middle", "top")),
-                    "height_variants_built": pl["height_variants"]}
+                    "height_variants_built": pl["height_variants"], "height_variant_s": pl["height_variant_s"]}
     for line in m["library"]["kit_notes"]:
         log(line)
     log(f"library: {pl['parents']} builds + {pl['props']} props + {len(pl['placed']) - pl['parents'] - pl['props']} attached pieces in "

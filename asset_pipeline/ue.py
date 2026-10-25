@@ -11,6 +11,7 @@ a single JSON args file (no quoting trouble in -script=) and writes a JSON repor
 
 Engine: [unreal] editor_cmd in the user config (ap setup), or AP_UE_EDITOR_CMD.
 """
+import hashlib
 import json
 import os
 import re
@@ -76,6 +77,32 @@ def uproject(store: ProjectStore) -> Path:
 
 def work_dir(store: ProjectStore) -> Path:
     return s7_export.export_dir(store) / "ue"
+
+
+def imported_path(store: ProjectStore) -> Path:
+    """What the last import left in Unreal (record_imported), for the next build's estimate."""
+    return work_dir(store) / "ap_imported.json"
+
+
+def file_sha(path: Path) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def record_imported(store: ProjectStore, man: dict, rep: dict) -> None:
+    """{library: {asset id: its source GLB's hash}, assets: stand-in count} of an import: the
+    library builds Unreal holds now (imported or unchanged), so ue_build.queued_work can tell
+    which ones the next build re-imports."""
+    have = set(rep["assets"]["imported"]) | set(rep["assets"]["skipped"])
+    lib = {}
+    for a in man.get("library_assets") or []:
+        src = store.root / a.get("source", "")
+        if a["id"] in have and src.is_file():
+            lib[a["id"]] = file_sha(src)
+    write_json(imported_path(store), {"library": lib, "assets": len(man.get("assets") or [])})
 
 
 def init(store: ProjectStore) -> Path:
@@ -219,6 +246,7 @@ def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | 
     rep["ok"] = rep["ok"] and not rep["sample_errors"]
     rep["seconds"] = round(time.time() - t, 1)
     write_json(work_dir(store) / "ap_import_report.json", rep)
+    record_imported(store, read_json(man_path), rep)
     secs = rep.get("import_seconds") or {}
     if secs:
         write_json(work_dir(store) / "import_seconds.json", secs)

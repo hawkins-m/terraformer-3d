@@ -8,6 +8,9 @@
     placement check (placement_check: sunk, floating, moved, off-slot or overlapping library
     actors, or "placement OK").
 
+Its time estimate counts the work before it starts (queued_work: missing height variants,
+changed assets to import); each build records what its parts took (estimates.ue_build_stages).
+
 Renders go on the GPU ComfyUI doesn't use. Heavy Nanite scenes have lost the device on GPU 0
 (docs/notes/unreal.md), so the city renders on GPU 1, and only while ComfyUI is down there;
 otherwise the render step refuses with the reason (the rest of the build stands).
@@ -15,7 +18,7 @@ otherwise the render step refuses with the reason (the rest of the build stands)
 import time
 
 from . import layout_history, ue
-from .project import ProjectStore
+from .project import ProjectStore, read_json
 from .stages import s7_export, sw_site
 
 def _vision_gpu() -> int:
@@ -72,11 +75,79 @@ STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain",
             "level read": "import", "import": "import", "check": "check", "render": "render"}
 
 
+def terrain_due(store: ProjectStore) -> bool:
+    """The outer ring's Unreal assets need (re)making: built, and newer than what Unreal has."""
+    from . import terrain_build
+    glb = store.root / terrain_build.FAR_DIR / "outer.glb"
+    done = store.root / terrain_build.FAR_DIR / "ue_assets.json"
+    ring = ue.project_dir(store) / "Content/AP/Terrain/SM_OuterRing.uasset"
+    return glb.is_file() and (not ring.is_file() or not done.is_file() or glb.stat().st_mtime > done.stat().st_mtime)
+
+
+def queued_work(store: ProjectStore, use_active: bool = False, render: bool = False) -> dict:
+    """The work a build would do, counted before it starts (its time estimate): {backup, terrain,
+    height_variants (missing ones Blender builds), imports (assets whose GLB changed since the
+    last import: ue.record_imported; everything the first time), first_import, shots}, and
+    error when the library plan couldn't be counted. Builds nothing, writes nothing."""
+    from . import city_library, vertical
+    w = {"backup": ue.project_dir(store).is_dir(), "terrain": terrain_due(store), "height_variants": 0,
+         "imports": 0, "first_import": False, "shots": 0}
+    try:
+        gb = sw_site.load_greybox(store)
+        w["shots"] = len(gb.get("shots") or []) if render else 0
+        index = read_json(s7_export.export_dir(store) / "mesh_index.json", default=None)
+        fitter = vertical.Fitter(store, log=lambda *a: None, dry=True)
+        pl = city_library.plan(store, gb, use_active, index, fitter=fitter, log=lambda *a: None)
+        missing = set(fitter.missing)
+        prev = read_json(ue.imported_path(store), default=None)
+        held = (prev or {}).get("library") or {}
+        seen, n = set(), 0
+        for p in pl["placed"]:
+            aid = city_library.asset_id(p.get("mesh") or p["key"])
+            if aid in seen:
+                continue
+            seen.add(aid)
+            src = store.root / p["glb"]
+            n += p["glb"] in missing or not src.is_file() or held.get(aid) != ue.file_sha(src)
+        if prev is None:                         # the first import: the stand-in meshes too
+            n += len({v["id"] for v in (index or {}).values()})
+        w |= {"height_variants": len(missing), "imports": n, "first_import": prev is None}
+    except Exception as e:  # noqa: BLE001 - an estimate never stops a build
+        w["error"] = str(e).splitlines()[0][:160] if str(e) else type(e).__name__
+    return w
+
+
+def _record_times(store: ProjectStore, steps: dict, lib: dict, rep: dict) -> None:
+    """What this build's parts took, for the next one's estimate (estimates.ue_build_stages):
+    seconds per height variant, per imported asset, and each stage's fixed rest."""
+    from . import estimates
+    hv_n, hv_s = len(lib.get("height_variants_built") or []), float(lib.get("height_variant_s") or 0)
+    secs = rep.get("import_seconds") or {}
+    imp_s = float(sum(secs.values()))
+    by: dict[str, float] = {}
+    for name, s in steps.items():
+        by[STAGE_OF[name]] = by.get(STAGE_OF[name], 0.0) + s
+    by.pop("render", None)
+    if "export" in by:
+        by["export"] -= hv_s
+    if "import" in by:
+        by["import"] -= imp_s
+    slug = store.root.name
+    if hv_n and hv_s:
+        estimates.record_time("ue.height_variant", hv_n, hv_s, slug)
+    if secs:
+        estimates.record_time("ue.import_asset", len(secs), imp_s, slug)
+    for st, s in by.items():
+        estimates.record_time(f"ue.build.{st}", 1, max(0.0, s), slug)
+
+
 def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = False, render: bool = False,
-          log=print, on_step=None) -> dict:
+          log=print, on_step=None, progress: dict | None = None) -> dict:
     """on_step(name): called as each step starts (the UI job's stage). Under a UI job, Stop
-    is checked between steps (the editor and Blender runs stop at once: blender.run_logged)."""
-    from . import look, terrain_build
+    is checked between steps (the editor and Blender runs stop at once: blender.run_logged).
+    progress: a dict (the UI job's tag) kept up to date with stage_t0 (the current stage's
+    start), hv_started and hv_t0 (height variants started, the first one's start)."""
+    from . import look, terrain_build, vertical
     from .jobs import check_canceled
     t0 = time.time()
     up = ue.uproject(store)
@@ -84,11 +155,21 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
         raise RuntimeError(f"the Unreal editor has {up.name} open: close it first (ap ue build writes the city level)")
     warnings: list[str] = []
     steps: dict[str, float] = {}
+    if progress is not None:
+        outer_log = log
+
+        def log(msg):
+            if vertical.HV_LOG in str(msg):
+                progress.setdefault("hv_t0", time.time())
+                progress["hv_started"] = progress.get("hv_started", 0) + 1
+            outer_log(msg)
 
     def step(name, fn):
         check_canceled()
         if on_step:
             on_step(name)
+        if progress is not None and progress.get("stage_name") != STAGE_OF[name]:
+            progress.update(stage_name=STAGE_OF[name], stage_t0=time.time())
         t = time.time()
         log(f"{name}…")
         out = fn()
@@ -99,12 +180,9 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
         step("backup", lambda: ue.backup(store))
     c = step("export", lambda: s7_export.export(store, assets=True, use_active=use_active, log=log))
     man = s7_export.load_manifest(store)
-    glb = store.root / terrain_build.FAR_DIR / "outer.glb"
-    done = store.root / terrain_build.FAR_DIR / "ue_assets.json"
-    ring = ue.project_dir(store) / "Content/AP/Terrain/SM_OuterRing.uasset"
-    if glb.is_file() and (not ring.is_file() or not done.is_file() or glb.stat().st_mtime > done.stat().st_mtime):
+    if terrain_due(store):
         step("terrain assets", lambda: terrain_build.ue_assets(store))
-    elif not glb.is_file():
+    elif not (store.root / terrain_build.FAR_DIR / "outer.glb").is_file():
         warnings.append("no outer ring built (ap terrain outer): the terrain-outer greybox stays")
     light = step("lighting", lambda: look.city_lighting(store))
     ue_slots, ue_shots = step("level read", lambda: _level_actors(store, man["map"]))
@@ -158,6 +236,7 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
            "placement": placement,
            "steps": steps, "seconds": round(time.time() - t0, 1)}
+    _record_times(store, steps, lib, rep)
     store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement")},
                    "placement_ok": None if placement is None else placement["ok"]})
     return out
