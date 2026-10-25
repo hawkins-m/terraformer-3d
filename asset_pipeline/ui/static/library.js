@@ -3,7 +3,7 @@
 // and the user's call: good source / use description / exclude. Decisions are saved per
 // entry on the server (site/library_review.json) and survive re-planning.
 let libraryData = null;
-const lib = {filter: null, slug: null};
+const lib = {filter: null, slug: null, ticked: new Set()};      // ticked: entry ids ticked for a decision
 // the area the artist works on: the one last picked in Library › Areas…, else the first defined
 function currentArea() {
   const names = Object.keys((libraryData && libraryData.areas) || {});
@@ -22,7 +22,7 @@ function libFilters() {
 }
 function libFilterNow(filters) {
   if (lib.slug !== slug) {
-    lib.slug = slug; lib.filter = null;
+    lib.slug = slug; lib.filter = null; lib.ticked.clear();
     try { lib.filter = localStorage.getItem(`ap.libFilter.${slug}`); } catch (_) { /* ignore */ }
   }
   if (!lib.filter || !filters[lib.filter]) lib.filter = currentArea() ? `area:${currentArea()}` : "all";
@@ -92,7 +92,8 @@ function libCard(e) {
   const ref = d === "reference" ? libraryData.decisions[e.id].frame : null;
   const foliage = e.kind === "vegetation";
   const flags = e.flags.map(f => `<li class="${f.startsWith("approximate") ? "note" : "flag"}">${shortNote(f)}</li>`).join("");
-  el.innerHTML = `${e.best ? `<a href="${fileUrl(e.best)}" target="_blank" title="Open the source frame">
+  el.innerHTML = `<label class="asset-tick" title="Tick to decide several at once (the buttons over the list)"><input type="checkbox" data-tick="${esc(e.id)}" aria-label="Tick ${esc(e.id)}"></label>
+    ${e.best ? `<a href="${fileUrl(e.best)}" target="_blank" title="Open the source frame">
         <img loading="lazy" alt="" src="${fileUrl(`site/library/crops/${e.id}.jpg`)}"></a>`
       : `<div class="no-crop">${dupOf(e) ? "a copy: no shot frame of its own" : "no current shot frame shows it"}</div>`}
     <div class="asset-body">
@@ -166,8 +167,74 @@ function renderLibrary() {
     build: libCard,
   });
   if (!shown.length) box.innerHTML = `<p class="hint">No assets match: pick another Show filter.</p>`;
+  libBatchBar(all, shown);
   if (typeof renderLibSteps === "function") renderLibSteps();
 }
+
+// --- batch decisions: every card the Show filter shows, or the ticked cards ---------------------
+// Kit entries and vegetation never take a batch decision (their buttons are special or disabled).
+const libBatchable = e => e.kind !== "vegetation" && libDecision(e) !== "kit";
+const libHasCrop = e => !!e.best && !dupOf(e);                      // its Frame crop button is available
+// the cards an "all shown" batch would change: not already so, and (unless ticked) no usable crop
+function libBatchTargets(shown, decision) {
+  const crops = $("#lib-batch-crops").checked;
+  const cand = shown.filter(e => libBatchable(e) && libDecision(e) !== decision);
+  return {run: cand.filter(e => crops || !libHasCrop(e)), withCrop: crops ? [] : cand.filter(libHasCrop)};
+}
+function libBatchBar(all, shown) {
+  lib.shown = shown;
+  for (const [k, label] of [["description", "Description only for all shown"], ["exclude", "Exclude all shown"]]) {
+    const {run, withCrop} = libBatchTargets(shown, k), b = $(`#lib-batch-${k}`);
+    b.textContent = `${label} (${run.length})…`; b.disabled = !run.length;
+    b.title = `${label === "Exclude all shown" ? "Exclude" : "Description only for"} the ${run.length} card(s) the Show filter shows that aren't so yet (asks first)` +
+      (withCrop.length ? `; ${withCrop.length} with a frame crop left as they are (tick "include ones with a frame crop")` : "");
+  }
+  const ids = new Set(all.map(e => e.id));
+  for (const id of [...lib.ticked]) if (!ids.has(id)) lib.ticked.delete(id);
+  document.querySelectorAll("#assets-list [data-tick]").forEach(c => {
+    c.checked = lib.ticked.has(c.dataset.tick); c.closest(".asset-card").classList.toggle("ticked", c.checked);
+  });
+  $("#lib-ticked").hidden = !lib.ticked.size;
+  $("#lib-ticked-n").textContent = `${lib.ticked.size} ticked`;
+}
+const LIB_DECISION_NAME = {source: "Frame crop", description: "Description only", exclude: "Exclude", "": "Clear decision"};
+// confirm with the list, then one request; the plan follows on the server, so a reload updates
+// Reference sheets (Generate missing) too
+async function libDecideMany(entries, decision, skippedNote = "") {
+  if (!entries.length) return;
+  const names = entries.map(e => assetName(e.id, e.name)).sort((a, b) => a.localeCompare(b));
+  const ok = await confirmDialog({title: `${LIB_DECISION_NAME[decision || ""]}: ${entries.length} asset${entries.length === 1 ? "" : "s"}`,
+    button: decision === "exclude" ? "Exclude" : "Apply", id: "lib-batch-confirm",
+    body: `<p>${decision ? `Set <b>${esc(LIB_DECISION_NAME[decision])}</b> on` : "Clear the decision of"} these ${entries.length}:</p>
+      <ul class="lib-batch-list" style="max-height:240px;overflow:auto;margin:4px 0">${names.map(n => `<li>${esc(n)}</li>`).join("")}</ul>
+      ${skippedNote ? `<p class="hint">${esc(skippedNote)}</p>` : ""}`});
+  if (!ok) return;
+  let r;
+  try { r = await api(`/api/projects/${slug}/library/decisions`, {entries: entries.map(e => e.id), decision: decision || null}, "POST", {confirmed: true}); }
+  catch (err) { alert(errorText(err)); return; }
+  libraryData.decisions = r.decisions;
+  if (r.skipped.length || r.plan_note) alert([r.skipped.length ? `Skipped: ${r.skipped.map(x => `${assetName(x.entry)} (${x.why})`).join(", ")}.` : "", r.plan_note || ""].filter(Boolean).join("\n"));
+  await load();
+}
+for (const k of ["description", "exclude"]) $(`#lib-batch-${k}`).onclick = () => {
+  const {run, withCrop} = libBatchTargets(lib.shown || [], k);
+  libDecideMany(run, k, withCrop.length ? `${withCrop.length} with a frame crop left as they are.` : "");
+};
+$("#lib-batch-crops").onchange = () => renderLibrary();
+document.querySelectorAll("#lib-ticked [data-tick-decision]").forEach(b => b.onclick = () => {
+  const d = b.dataset.tickDecision, ticked = libEntries().filter(e => lib.ticked.has(e.id));
+  const skip = ticked.filter(e => !libBatchable(e) || (d === "source" && !libHasCrop(e)));
+  libDecideMany(ticked.filter(e => !skip.includes(e)), d,
+    skip.length ? `Left as they are: ${skip.map(e => assetName(e.id)).join(", ")} (a facade kit, vegetation${d === "source" ? " or no crop" : ""}).` : "");
+});
+$("#lib-untick").onclick = () => { lib.ticked.clear(); renderLibrary(); };
+$("#assets-list").addEventListener("change", e => {
+  const c = e.target.closest("[data-tick]"); if (!c) return;
+  if (c.checked) lib.ticked.add(c.dataset.tick); else lib.ticked.delete(c.dataset.tick);
+  c.closest(".asset-card").classList.toggle("ticked", c.checked);
+  $("#lib-ticked").hidden = !lib.ticked.size;
+  $("#lib-ticked-n").textContent = `${lib.ticked.size} ticked`;
+});
 
 async function libDecide(id, decision, frame = null) {
   const cur = (libraryData.decisions[id] || {}).decision || null;

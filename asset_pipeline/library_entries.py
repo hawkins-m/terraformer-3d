@@ -182,7 +182,7 @@ def sync_plan(store: ProjectStore, extra: list[str] = ()) -> None:
     ents = _all_entries(store)
     keep = {k for k in keep if (dec.get(k) or {}).get("decision") not in (None, "exclude")
             and not ((dec.get(k) or {}).get("decision") == "source" and not (ents.get(k) or {}).get("best"))}
-    if keep:
+    if keep or included:                 # the last included entry excluded: the plan keeps none
         sw_library.asset_plan(store, only=sorted(keep))
 
 

@@ -133,6 +133,11 @@ class LibraryDecisionReq(BaseModel):
     frame: str | None = None              # reference: the look-reference frame
 
 
+class LibraryDecisionsReq(BaseModel):     # one decision for many entries (Asset review's batch actions)
+    entries: list[str]
+    decision: Literal["source", "description", "exclude"] | None = None
+
+
 class LibraryRouteReq(BaseModel):
     entry: str
     route: Literal["procedural", "trellis"] | None = None      # None: back to the default
@@ -1351,6 +1356,38 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             raise HTTPException(404, str(e))
         except ValueError as e:
             raise HTTPException(400, str(e))
+
+    @app.post("/api/projects/{slug}/library/decisions")
+    def library_decisions(slug: str, req: LibraryDecisionsReq):
+        """One decision for several entries, then plans/library.json follows (newly decided entries
+        become reference-sheet units, excluded and cleared ones leave), so Reference sheets'
+        Generate missing counts them. Kit entries and vegetation are skipped, never overwritten."""
+        store = _store(slug)
+        dec = sw_library.decisions(store)
+        ents = library_entries._all_entries(store)
+        missing = [e for e in req.entries if e not in ents]
+        if missing:
+            raise HTTPException(404, f"no library entries {missing}")
+        done, skipped = [], []
+        for eid in dict.fromkeys(req.entries):
+            e = ents[eid]
+            why = ("a facade kit" if (dec.get(eid) or {}).get("decision") == "kit"
+                   else "vegetation (Unreal foliage)" if e.get("kind") == "vegetation"
+                   else "no crop to use" if req.decision == "source" and not e.get("best") else None)
+            if why:
+                skipped.append({"entry": eid, "why": why})
+                continue
+            try:
+                sw_library.decide(store, eid, req.decision)
+            except ValueError as err:
+                raise HTTPException(400, str(err))
+            done.append(eid)
+        plan_note = None
+        try:
+            library_entries.sync_plan(store, extra=done if req.decision not in (None, "exclude") else [])
+        except (ValueError, KeyError) as err:           # best effort, as after any entry change
+            plan_note = f"Reference sheets not updated: {err}"
+        return {"decisions": sw_library.decisions(store), "done": done, "skipped": skipped, "plan_note": plan_note}
 
     # --- library build review (detail view) ---
 

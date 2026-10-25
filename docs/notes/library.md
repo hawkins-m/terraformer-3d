@@ -323,3 +323,12 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   report says so. Scratch test: three entries given the real project's TRELLIS Active versions.
 - All modules approved, or the slot stays greybox. Written 2026-10-25 in a cloud session on
   synthetic footprints only: NOT yet run in Unreal.
+
+## Batch decisions in Asset review (2026-10-25)
+- Over the list: Description only / Exclude for all shown (the Show filter's cards not already so; cards whose
+  Frame crop is available are skipped unless "include ones with a frame crop" is ticked), and a tick box per card
+  for Frame crop / Description only / Exclude / Clear on just those. Both confirm with the list of assets.
+- `POST /library/decisions` {entries, decision}: skips kit entries, vegetation and Frame crop without a crop, then
+  `library_entries.sync_plan` (new decisions become sheet units, excluded leave), so Generate missing updates.
+  `sync_plan` now also rewrites the plan when its last included entry leaves.
+- Test: tests/test_library_batch_decide.py (API and browser).

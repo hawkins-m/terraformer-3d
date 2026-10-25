@@ -207,6 +207,17 @@
                 placeholder="asset name or id" autocomplete="off"></label><datalist id="assets-jump-list"></datalist>
               <span class="hint jump-msg" id="assets-jump-msg" style="margin:0" aria-live="polite"></span>
             </div>
+            <div class="lib-batch" id="lib-batch">
+              <button type="button" class="small" id="lib-batch-description" title="Description only for every card the Show filter shows (asks first)">Description only for all shown (0)…</button>
+              <button type="button" class="small" id="lib-batch-exclude" title="Exclude every card the Show filter shows (asks first)">Exclude all shown (0)…</button>
+              <label class="check" title="Off: cards whose Frame crop is available are left as they are"><input type="checkbox" id="lib-batch-crops"> include ones with a frame crop</label>
+              <span id="lib-ticked" hidden><b id="lib-ticked-n">0 ticked</b>:
+                <button type="button" class="small" data-tick-decision="source">Frame crop</button>
+                <button type="button" class="small" data-tick-decision="description">Description only</button>
+                <button type="button" class="small" data-tick-decision="exclude">Exclude</button>
+                <button type="button" class="small" data-tick-decision="">Clear decision</button>
+                <button type="button" class="small" id="lib-untick">Untick all</button></span>
+            </div>
             <p id="assets-summary" class="hint" style="margin:0 0 4px"></p>
             <div id="assets-list" class="scroll-list"></div>
           </div>
