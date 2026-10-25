@@ -125,14 +125,18 @@ function detailLine(j, p) {
 let jobDlg = null;     // {id, win, close}
 let jobDlgPending = null;   // a job just started: opens once the next reload lists it
 function openJobDialog(id) {
-  if (jobDlg && jobDlg.id === id) return;
+  if (jobDlg && !jobDlg.win.isConnected) jobDlg = null;        // its window is gone: never paint into it
+  if (jobDlg && jobDlg.id === id) { if (jobDlgPending === id) jobDlgPending = null; return; }
   const j = data && data.jobs.find(x => x.id === id);
   if (!j) { jobDlgPending = id; return; }
   if (jobDlgPending === id) jobDlgPending = null;
   if (jobDlg) jobDlg.close();
   const [title] = LOADERS[j.kind] || [`${jobLabel(j)}…`];
   const body = document.createElement("div"); body.className = "loader";
-  const d = dialog({title, body, className: "loader-window", buttons: [], onClose: () => { if (jobDlg && jobDlg.id === id) jobDlg = null; }});
+  const d = dialog({title, body, className: "loader-window", buttons: [], onClose: () => {
+    if (jobDlg && jobDlg.id === id) jobDlg = null;
+    if (jobDlgPending === id) jobDlgPending = null;     // Run in background: never reopened by a later poll
+  }});
   d.win.closest(".modal-back").classList.add("loader-back");
   jobDlg = {id, ...d};
   updateJobDialog();
@@ -140,6 +144,7 @@ function openJobDialog(id) {
 
 function updateJobDialog() {
   if (jobDlgPending != null && data && data.jobs.some(x => x.id === jobDlgPending)) return openJobDialog(jobDlgPending);
+  if (jobDlg && !jobDlg.win.isConnected) jobDlg = null;
   if (!jobDlg || !data) return;
   const j = data.jobs.find(x => x.id === jobDlg.id);
   if (!j) { jobDlg.close(); return; }

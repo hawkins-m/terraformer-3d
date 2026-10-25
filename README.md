@@ -262,6 +262,8 @@ ap ui                              # the app, at http://127.0.0.1:8700 (or the d
 scripts/demo.sh starter            # neutral starter layout, no Unreal needed
 ```
 
+Closing the browser doesn't stop jobs; closing the Terraformer window does.
+
 `demo.sh starter [SLUG]` creates a project (default `my-project`), a starter layout, the greybox,
 the shot passes and a style text, and generates two concept frames for the `street` shot through
 ComfyUI. Frames land under `<storage>/projects/my-project/`. In the app it is Help › Run demo….

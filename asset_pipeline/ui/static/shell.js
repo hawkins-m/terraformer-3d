@@ -25,7 +25,7 @@ function showTab(tab) {
   });
   document.querySelectorAll(".tabpanel[data-tab]").forEach(m => { m.hidden = m.dataset.tab !== tab; });
   try { localStorage.setItem("ap.tab", tab); } catch (_) { /* private window */ }
-  if (data) renderShell();
+  if (data) guarded(renderShell);
 }
 function tabKeys(list, attr, show) {   // arrow keys move between tabs, as in a desktop tab control
   list.addEventListener("keydown", e => {
@@ -171,6 +171,7 @@ const ACTIONS = {
   planImage: {run: () => window.open(fileUrl(catalogData.plan_image, catalogData.plan_mtime), "_blank"), enabled: () => !!(catalogData && catalogData.plan_image)},
   shortcuts: {run: () => shortcutsDialog()},
   about: {run: () => aboutDialog()},
+  jobsClosing: {run: () => dialog({title: "Running jobs", body: `<p>${esc(JOBS_CLOSING)}</p>`})},
   repo: {run: () => window.open(REPO_URL, "_blank", "noopener")},
 };
 const siteBusy = () => SITE_JOBS.some(k => activeJobs(k).length);
@@ -182,6 +183,7 @@ async function stopAll(ask = false) {
   await cancelJobs(jobs);
 }
 
+const JOBS_CLOSING = "Closing the browser doesn't stop jobs; closing the Terraformer window does.";   // also in the README
 const MENUS = [
   ["File", "F", [["New project…", "newProject", "Ctrl+N"], ["Open project…", "openProject", "Ctrl+O"], "-",
     ["Refresh", "refresh"]]],
@@ -193,7 +195,7 @@ const MENUS = [
     ["Export to Unreal", "exportUe", "Ctrl+E"], ["Back up Unreal project", "backupUe"], "-", ["Stop all jobs", "stopAll", "Esc"]]],
   ["Tools", "T", [["ComfyUI status…", "comfyCheck"], ["Vision LLM status…", "vlmStatus"], "-", ["Open city plan image", "planImage"]]],
   ["Help", "H", [["Show guide", "guide", null, () => typeof guideOn === "function" && $("#guide") && !$("#guide").hidden],
-    ["Keyboard shortcuts", "shortcuts"], ["Terraformer on GitHub", "repo"], "-", ["About Terraformer", "about"]]],
+    ["Keyboard shortcuts", "shortcuts"], ["Terraformer on GitHub", "repo"], "-", [JOBS_CLOSING, "jobsClosing"], "-", ["About Terraformer", "about"]]],
 ];
 
 function buildMenus() {
@@ -434,6 +436,11 @@ function renderLanes() {
   // rows are kept and updated in place: a rebuilt bar would restart its animation every poll
   const el = $("#lanes");
   const jobs = data ? data.jobs : [];
+  // poll while jobs run (first, so a redraw that throws below never stops it); pollLoad runs one
+  // load at a time and logs a failed one, and the next tick tries again
+  const active = jobs.some(isActive);
+  if (active && !polling) polling = setInterval(pollLoad, 2000);
+  if (!active && polling) { clearInterval(polling); polling = null; }
   const rows = [];
   for (const [lane, fixed] of LANES) {
     const name = lane === "gpu0" || lane === "comfy" ? laneLabel(lane).replace(/ \(.*\)$/, lane === "comfy" ? " · Comfy" : "") : fixed;
@@ -503,9 +510,6 @@ function renderLanes() {
       msg.innerHTML = last.status === "error" ? `<span class="error">${esc(jobLabel(last))} failed: ${esc(last.error)}</span>`
         : `<span>${esc(jobLabel(last))} canceled.</span>`;
   }
-  const active = jobs.some(isActive);
-  if (active && !polling) polling = setInterval(load, 2000);
-  if (!active && polling) { clearInterval(polling); polling = null; }
   trackJobEnds();
 }
 
@@ -705,12 +709,13 @@ function renderShell() {
   document.title = `Terraformer${proj}`;
   $("#titlebar").textContent = `Terraformer${proj}`;
   for (const t of TABS) document.querySelector(`#tabs [data-tab="${t}"]`).disabled = !slug;
-  if (!data || !slug) { $("#status-line").textContent = "No project"; renderLanes(); return; }
+  if (!data || !slug) { $("#status-line").textContent = "No project"; guarded(renderLanes); return; }
   $("#empty").hidden = true;
   const active = allActive();
   $("#status-line").textContent = `${active.length ? "Working" : "Ready"} · ${active.length ? `${active.length} job${active.length === 1 ? "" : "s"} running` : "no jobs"}`;
+  guarded(renderLanes);       // the Jobs panel and the job window first: nothing else may stop them
+  guarded(updateJobDialog);
   renderStages();
-  renderLanes();
   for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
   // Layout: the city's catalog and plan; a project with its own layout.json (no city) only gets Update greybox & passes
   $("#city-actions").hidden = !(siteData && siteData.layout);
@@ -735,8 +740,7 @@ function renderShell() {
     : statusData.comfy_service === "starting" ? " · ComfyUI starting" : " · ComfyUI not running";
   renderComfyControls();
   renderApplyBar();
-  if (typeof renderStepHeads === "function") { renderStepHeads(); renderGuide(); renderLibSteps(); }
-  updateJobDialog();
+  if (typeof renderStepHeads === "function") { guarded(renderStepHeads); guarded(renderGuide); guarded(renderLibSteps); }
 }
 
 // --- short help: one line on screen, the full text behind a "?" ----------------------------------

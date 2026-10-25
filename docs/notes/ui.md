@@ -123,3 +123,11 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - Never find a test server with a loop over /proc cmdlines from the shell: the loop's own bash
   command line contains the pattern and it killed itself. Find it by its listening port
   (/proc/net/tcp inode -> /proc/<pid>/fd).
+
+## Background jobs and the poll (2026-10-25)
+- `load()` runs one at a time (app.js): a load asked for while one runs waits and runs once more. The 2 s
+  poll used to stack loads on a slow server (3–4 in flight), each rendering the whole page.
+- The poll (`pollLoad`) logs a failed load and keeps going; `render()` and `renderShell()` run each part
+  through `guarded()` (net.js), and the Jobs panel and job window draw first, so a redraw that throws
+  never freezes them. `jobDone` retries failed checks. Run in background clears a pending reopen.
+- Test: `tests/test_ui_background_jobs.py` (browser; stubbed job, slow server, failed polls, a throwing redraw).
