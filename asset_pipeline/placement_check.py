@@ -121,7 +121,7 @@ def check(man: dict, actors: list[dict], slot_instances: dict, slot_bounds: dict
             found.append("floating")
         if vrole in ROOF_ROLES and over:
             found.append("roof_under")
-        if under and overhangs(a["key"], max(cfg.floating_m, 0.5)):
+        if under and f["base"] > g + cfg.floating_m and overhangs(a["key"], max(cfg.floating_m, 0.5)):   # held off the ground
             found.append("overhang")
         (x0, y0, _), (x1, y1, _) = slot_bounds.get(sid, [[-math.inf] * 3, [math.inf] * 3])
         m = cfg.slot_margin_m
