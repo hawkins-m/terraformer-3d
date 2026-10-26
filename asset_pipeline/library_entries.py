@@ -506,6 +506,15 @@ class FormNeeded(ValueError):
     """An entry can't be briefed: no building form, or no size. The message names the app's fields."""
 
 
+class NoFrontView(ValueError):
+    """Auto view: no view of the sheet is frontal enough. `scores`: [(position, score)], for the
+    UI's choice of another view (the message keeps the CLI's 0 / 1 / 2 / all)."""
+
+    def __init__(self, msg: str, scores: list):
+        super().__init__(msg)
+        self.scores = scores
+
+
 def catalog_form(store: ProjectStore, e: dict) -> str | None:
     """The generator form of an entry's catalog typology, if it has one."""
     from .building_proc import FORM_OF
@@ -664,8 +673,8 @@ def brief_from_sheet(store: ProjectStore, entry: str, sheet: str, view="front", 
     if view == "front":
         fv = front_view(store, [sheet], entry)
         if not fv["best"]:
-            raise ValueError(f"no near-front view on {sheet}: " + ", ".join(f"view {p} {s:.2f}" for _, p, s in fv["scores"])
-                             + " (pick one: 0 / 1 / 2 / all)")
+            raise NoFrontView(f"no near-front view on {sheet}: " + ", ".join(f"view {p} {s:.2f}" for _, p, s in fv["scores"])
+                              + " (pick one: 0 / 1 / 2 / all)", [(p, s) for _, p, s in fv["scores"]])
         view = fv["best"][1]
     elif view != "all":
         view = int(view)

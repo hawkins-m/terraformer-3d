@@ -172,13 +172,19 @@ function updateJobDialog() {
   const active = isActive(j);
   $(".wt", win).textContent = active ? title : j.status === "done" ? title.replace("…", ": done") : j.status === "canceled" ? title.replace("…", ": canceled") : title.replace("…", ": failed");
   const body = $(".loader", win);
-  if (body.dataset.pic !== pic) { body.dataset.pic = pic; body.innerHTML = `<div class="ld-pic">${PICS[pic] || ""}</div><div class="ld-line1"></div><div class="ld-bar"></div><div class="ld-foot"><span class="ld-line2"></span><span class="ld-btns"></span></div>`; }
+  if (body.dataset.pic !== pic) { body.dataset.pic = pic; body.innerHTML = `<div class="ld-pic">${PICS[pic] || ""}</div><div class="ld-line1"></div><div class="ld-bar"></div><div class="ld-foot"><span class="ld-line2"></span><span class="ld-btns"></span></div><div class="ld-fix"></div>`; }
   body.classList.toggle("still", !active);
   $(".ld-line1", body).textContent = detailLine(j, j.waiting ? {} : p);   // a wait's note is on the second line
   const slot = $(".ld-bar", body);       // one bar per job, updated in place (smooth, never restarted)
   if (slot.dataset.job !== String(j.id)) { slot.replaceChildren(); slot.dataset.job = String(j.id); }
   paintBar(slot, bar);
   const l2 = $(".ld-line2", body); l2.textContent = line2; l2.className = `ld-line2${j.status === "error" ? " error" : ""}`;
+  const fix = $(".ld-fix", body), fixSig = j.status === "error" && j.fix ? `${j.id}` : "";
+  if (fix.dataset.sig !== fixSig) {
+    fix.dataset.sig = fixSig; fix.replaceChildren();
+    const b = jobFixButton(j, () => jobDlg && jobDlg.close()); if (b) fix.append(b);
+  }
+  fix.hidden = !fix.children.length;
   const btns = $(".ld-btns", body);
   const want = active ? (STOPPABLE(j.kind) ? "cancel" : "none") : "close";
   if (btns.dataset.mode !== want) {
@@ -196,6 +202,17 @@ function updateJobDialog() {
     if (want !== "none") btns.append(b);
     $("button", btns)?.focus();
   }
+}
+
+// A failed job's one-click fix (jobs.Fixable): a button that opens the option the error points to.
+// `after` runs first (closing the window it is in).
+const JOB_FIXES = {brief_build: f => refsBriefBuildFix(f)};
+function jobFixButton(j, after) {
+  const f = j && j.status === "error" && j.fix;
+  if (!f || !JOB_FIXES[f.action]) return null;
+  const b = document.createElement("button"); b.type = "button"; b.className = "job-fix"; b.textContent = f.label;
+  b.onclick = e => { e.stopPropagation(); after && after(); JOB_FIXES[f.action](f); };
+  return b;
 }
 
 // --- notices: a job that ends while its window is closed -----------------------------------------
@@ -226,6 +243,7 @@ function jobNotice(j) {
     ${ok ? (jobMessage(j) ? `<div class="why">${esc(jobMessage(j))}</div>` : "") : `<div class="why">${esc(j.error || "unknown error")}</div>`}`;
   const gone = () => n.remove();
   $(".link", n).onclick = () => { gone(); openJobDialog(j.id); };
+  const fb = jobFixButton(j, gone); if (fb) { fb.classList.add("small"); $(".why", n).append(" ", fb); }
   $(".wclose", n).onclick = gone;
   box.append(n);
   while (box.children.length > 4) box.firstElementChild.remove();

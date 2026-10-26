@@ -214,21 +214,40 @@ function refsNextStep(u, el) {
   $(".unit-head", el).append(box);
 }
 
-async function refsBriefBuild(u, sheet, nx) {
+// The Brief & build dialog's View to measure options; with a failed Auto's scores, each view shows
+// its score and the best one is marked.
+function bbViewOptions(scores) {
+  const best = scores ? Object.entries(scores).sort((a, b) => b[1] - a[1])[0]?.[0] : null;
+  const lab = (v, name) => scores && scores[v] != null ? `${name} (${(+scores[v]).toFixed(2)}${v === best ? ", best" : ""})` : name;
+  return [["front", "Auto (the most frontal view)"], ["0", lab("0", "Left view")], ["1", lab("1", "Middle view")],
+    ["2", lab("2", "Right view")], ["all", "The whole sheet"]].map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join("");
+}
+
+// A job's one-click fix (jobs.Fixable on the server): reopen Brief & build for the asset with the
+// option the error points to (another view to measure, or the form fields).
+function refsBriefBuildFix(f) {
+  const u = refs.find(x => x.key === f.asset && x.next && x.next.route === "procedural");
+  const sheet = u && (u.sheets.includes(f.sheet) ? f.sheet : u.sheets.filter(s => data.stars[s]).at(-1));
+  if (!u || !sheet) { alert(`${f.asset} has no starred sheet in Library › Reference sheets: star one, then Brief & build.`); return; }
+  refsBriefBuild(u, sheet, u.next, f);
+}
+
+async function refsBriefBuild(u, sheet, nx, pre = null) {
   // The view the brief reads proportions and rhythm from: auto picks the most frontal one,
-  // which fails on curved buildings (vaults); then choose it by eye.
+  // which fails on curved buildings (vaults); then choose it by eye. `pre`: a job fix's options.
   const body = document.createElement("div");
   body.innerHTML = `<p>${nx.has_brief ? `<b>${esc(u.title)}</b> already has a brief. <b>Re-brief from this sheet</b> measures
     <code>${esc(sheet.split("/").pop())}</code> again and keeps your edits; <b>Re-brief from scratch</b> drops them and takes only what this
     sheet shows. Both show the fields before building. Or just rebuild with the brief as it is.`
       : `Brief <b>${esc(u.title)}</b> from <code>${esc(sheet.split("/").pop())}</code> with the vision model, then build it.`}</p>
-    <div class="form"><label for="bb-view">View to measure:</label><select id="bb-view">
-      <option value="front">Auto (the most frontal view)</option><option value="0">Left view</option>
-      <option value="1">Middle view</option><option value="2">Right view</option><option value="all">The whole sheet</option></select>
+    <div class="form"><label for="bb-view">View to measure:</label><select id="bb-view">${bbViewOptions(pre && pre.scores)}</select>
       <div id="bb-form" style="display:contents"></div>
       <label for="bb-guidance">Guidance for the next build:</label>
       <textarea id="bb-guidance" rows="3" placeholder="Optional. What should change, in words (taller windows, an open arcade on the ground floor…). The vision model turns it into brief edits you accept before the build."></textarea></div>`;
   $("#bb-guidance", body).value = nx.guidance || "";
+  if (pre && pre.view) $("#bb-view", body).value = pre.view;
+  if (pre && pre.scores) body.insertAdjacentHTML("afterbegin",
+    `<p class="hint">No view is straight-on enough to measure automatically: pick one below (the numbers are how straight-on each view is).</p>`);
   const info = nx.form || {form: null, suggested: "cube", size_m: null};
   try { $("#bb-form", body).innerHTML = await formFieldsHtml(info); formFieldsWire(body); }
   catch (err) { $("#bb-form", body).innerHTML = `<p class="error">${esc(errorText(err))}</p>`; }
@@ -257,11 +276,13 @@ async function refsBriefBuild(u, sheet, nx) {
     if (rebrief && nx.has_brief) { setTimeout(() => rebriefFields(u, sheet, scratch, info, send), 0); return true; }
     await send({});
   };
-  dialog({title: "Brief & build", body, buttons: nx.has_brief ? [
+  const dlg = dialog({title: "Brief & build", body, buttons: nx.has_brief ? [
     {label: "Re-brief from this sheet (keep my edits)", default: true, onClick: () => go(true)},
     {label: "Re-brief from scratch", onClick: () => go(true, true)},
     {label: "Just rebuild", onClick: () => go(false)},
     {label: "Cancel"}] : [{label: "Brief & build", default: true, onClick: () => go(true)}, {label: "Cancel"}]});
+  const focus = pre && (pre.focus === "form" ? dlg.win.querySelector("#bb-form select, #bb-form input") : pre.view && $("#bb-view", dlg.win));
+  if (focus) focus.focus();
 }
 
 // Re-brief, second step: what the sheet gives (measured again) and the edits carried over, each

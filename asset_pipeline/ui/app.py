@@ -23,7 +23,7 @@ from .. import config, library_entries, review, silhouette, ue, versions, vlm
 from ..comfy import service as comfy_service
 from . import messages
 from ..comfy.client import ComfyError, connect
-from ..jobs import JobQueue
+from ..jobs import Fixable, JobQueue
 from ..project import ProjectStore, read_json
 from .. import catalog as cat
 from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, StreetTrees, Typology, Variation
@@ -339,6 +339,22 @@ CATALOG = {"districts": (TypeAdapter(list[District]), True), "materials": (TypeA
            "typologies": (TypeAdapter(list[Typology]), True), "overlays": (TypeAdapter(dict[str, Overlay]), False),
            "checks": (TypeAdapter(RepetitionChecks), False), "variation": (TypeAdapter(Variation), False),
            "street_trees": (TypeAdapter(StreetTrees), False)}
+
+
+def _job_error(ex: ValueError, asset: str, sheet: str | None) -> RuntimeError:
+    """A brief job's error for the UI. Known ones whose fix is another option in the Brief & build
+    dialog come back Fixable: a plain message, a button that reopens the dialog with that option
+    set (refs.js jobFixButton), the raw message for the log only."""
+    if isinstance(ex, library_entries.NoFrontView):
+        best = max(ex.scores, key=lambda x: x[1])[0] if ex.scores else "all"
+        return Fixable("No view is straight-on enough to measure automatically.",
+                       {"action": "brief_build", "label": "Try another view to measure", "asset": asset,
+                        "sheet": sheet, "view": str(best), "scores": {str(p): round(s, 2) for p, s in ex.scores}},
+                       detail=str(ex))
+    if isinstance(ex, library_entries.FormNeeded):
+        return Fixable(str(ex), {"action": "brief_build", "label": "Choose the form and size", "asset": asset,
+                                 "sheet": sheet, "focus": "form"}, detail=str(ex))
+    return RuntimeError(str(ex))
 
 
 def _shot_edit(store: ProjectStore, shot: str) -> dict:
@@ -1682,10 +1698,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     library_entries.brief_from_sheet(store, asset, req.sheet, req.view, form=req.form, dims=req.dims,
                                                      drop=req.drop, scratch=req.scratch)
                 except ValueError as ex:
-                    msg = str(ex)
-                    if "no near-front view" in msg:          # the UI's words, not the CLI's 0 / 1 / 2
-                        msg = msg.split(" (pick one")[0] + ". Click Brief & build again and choose the view to measure."
-                    raise RuntimeError(msg) from None
+                    raise _job_error(ex, asset, req.sheet) from None
                 lr.brief_edited(store, asset)                # a new brief: an Approved asset needs review again
                 building_proc.read_band_materials(store, asset, log=lambda *a: None)   # still on GPU 0
                 at(2, "Waiting for the CPU…")
@@ -1744,7 +1757,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             try:
                 return lr.reroll(store, asset, req.guidance, req.view, log=lambda *a: None, at=at, to_cpu=lambda: hop("cpu"))
             except ValueError as ex:
-                raise RuntimeError(str(ex)) from None
+                raise _job_error(ex, asset, (read_json(kit_proc.spec_path(store, asset), default=None) or {}).get("sheet")) from None
         return jobs.submit("library.reroll", slug, run, lane="gpu0",
                            tag={"asset": asset, "plan": sw_library.PLAN_NAME, "guidance": req.guidance.strip()}).public()
 
@@ -1770,7 +1783,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             try:
                 return brief_guide.propose(store, asset, req.sheet, req.guidance, req.view)
             except ValueError as ex:
-                raise RuntimeError(str(ex)) from None
+                raise _job_error(ex, asset, req.sheet) from None
         return jobs.submit("library.guide", slug, run, lane="gpu0",
                            tag={"asset": asset, "sheet": req.sheet}).public()
 

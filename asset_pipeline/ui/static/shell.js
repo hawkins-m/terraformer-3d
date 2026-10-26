@@ -506,9 +506,11 @@ function renderLanes() {
   const msg = $("#jobs-msg"); msg.replaceChildren();
   if (!jobs.some(isActive)) {
     const last = jobs.filter(j => j.status === "error" || j.status === "canceled").sort((a, b) => b.finished - a.finished)[0];
-    if (last && Date.now() / 1000 - last.finished < 120)
+    if (last && Date.now() / 1000 - last.finished < 120) {
       msg.innerHTML = last.status === "error" ? `<span class="error">${esc(jobLabel(last))} failed: ${esc(last.error)}</span>`
         : `<span>${esc(jobLabel(last))} canceled.</span>`;
+      const fb = jobFixButton(last); if (fb) { fb.classList.add("small"); msg.append(" ", fb); }
+    }
   }
   trackJobEnds();
 }

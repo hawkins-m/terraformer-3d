@@ -364,6 +364,8 @@ details summary { cursor: default; }
 .ld-line1 { min-height: 1.35em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ld-foot { display: flex; align-items: center; gap: 10px; }
 .ld-line2 { flex: 1; }
+.ld-fix { margin-top: 8px; }
+.ld-fix[hidden] { display: none; }
 .ld-pic svg * { transform-box: fill-box; }
 .ld-lens { animation: ld-scan 3.2s ease-in-out infinite; }
 @keyframes ld-scan { 0%, 100% { transform: translate(0, 0); } 25% { transform: translate(-22px, -14px); } 50% { transform: translate(-26px, 10px); } 75% { transform: translate(-4px, 16px); } }

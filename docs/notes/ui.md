@@ -137,3 +137,12 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   through `guarded()` (net.js), and the Jobs panel and job window draw first, so a redraw that throws
   never freezes them. `jobDone` retries failed checks. Run in background clears a pending reopen.
 - Test: `tests/test_ui_background_jobs.py` (browser; stubbed job, slow server, failed polls, a throwing redraw).
+
+## Fixable job errors (2026-10-26)
+- A known job error whose fix is another option raises `jobs.Fixable(plain message, fix, detail=raw)`: the job's
+  `error` is the plain message, `fix` ({action, label, ...}) becomes a button under it in the job window, the Jobs
+  panel and the job notice (`jobFixButton`, loaders.js; actions in `JOB_FIXES`), and the raw error goes to the log only.
+- `app._job_error` maps them for Brief & build, Reroll and guidance: `library_entries.NoFrontView` (Auto view
+  failed; carries the scores) -> "Try another view to measure", which reopens Brief & build with View to measure on
+  the best view and each view's score in the labels; `FormNeeded` -> "Choose the form and size" (the form fields).
+- Test: tests/test_ui_job_fixes.py (API cases, plus a browser case).

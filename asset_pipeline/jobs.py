@@ -42,6 +42,7 @@ import contextlib
 import contextvars
 import itertools
 import threading
+import sys
 import time
 import traceback
 from dataclasses import dataclass, field
@@ -86,6 +87,17 @@ def exclusive(kind: str, project: str, tag: dict | None) -> str | None:
     return None
 
 
+class Fixable(RuntimeError):
+    """A known job error with a one-click fix: the plain message shows in the job dialog and the
+    Jobs panel, `fix` ({action, label, ...}) becomes the button there, and `detail` (the raw
+    error) goes to the log only."""
+    plain = True
+
+    def __init__(self, msg: str, fix: dict, detail: str | None = None):
+        super().__init__(msg)
+        self.fix, self.detail = fix, detail
+
+
 @dataclass
 class Job:
     id: int
@@ -96,6 +108,7 @@ class Job:
     status: str = "queued"          # queued | running | done | error | canceled
     result: Any = None
     error: str | None = None
+    fix: dict | None = None         # a Fixable error's one-click fix, for the UI
     note: str = ""                  # what a running job is doing right now (startup log line, waiting)
     created: float = field(default_factory=time.time)
     started: float | None = None
@@ -114,7 +127,7 @@ class Job:
     def public(self) -> dict:
         return {"id": self.id, "kind": self.kind, "project": self.project, "lane": self.lane,
                 "tag": self.tag, "status": self.status, "result": self.result,
-                "error": self.error, "note": self.note, "created": self.created, "started": self.started,
+                "error": self.error, "fix": self.fix, "note": self.note, "created": self.created, "started": self.started,
                 "finished": self.finished, "holds": list(self.holds), "est_s": self.est_s,
                 "waiting": dict(self.waiting) if self.waiting else None}
 
@@ -384,6 +397,9 @@ class JobQueue:
                     job.error = write_error_text(e, ap_root() / "projects")
                 if self.error_text:
                     job.error = self.error_text(job.error)
+                job.fix = getattr(e, "fix", None)
+                if getattr(e, "detail", None):
+                    print(f"job {job.id} ({job.kind}): {e.detail}", file=sys.stderr)
                 traceback.print_exc()
         finally:
             # the VLM goes after a job that used it, unless another VLM job waits; decided while
