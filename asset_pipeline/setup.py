@@ -52,7 +52,8 @@ ITEMS = [
          "choice", ["sdk", "httpx"], wizard="connections",
          labels={"sdk": "Comfy SDK, through the local proxy", "httpx": "ComfyUI's own HTTP API (httpx)"}),
     Item("comfy_url", "ComfyUI address", "comfyui.url",
-         "The ComfyUI server the pipeline uses, e.g. http://127.0.0.1:8188. Install ComfyUI yourself (README step 2).",
+         "The ComfyUI server the pipeline uses, e.g. http://127.0.0.1:8188 (127.0.0.1 is this computer; nothing is sent "
+         "online). The setup wizard installs a local ComfyUI when it finds none; or install your own (README step 2).",
          wizard="connections"),
     Item("sdk_url", "Comfy API proxy address", "comfyui.sdk_url",
          "The local comfy-api-proxy the sdk backend talks to (install once: scripts/comfy_api_proxy.sh install). "

@@ -132,6 +132,14 @@ $template = $template -replace '(?m)^set "TF_REPO=.*"', ('set "TF_REPO=' + $Chec
 $template = $template -replace '(?m)^set "TF_PORT=.*"', "set `"TF_PORT=$Port`""
 [IO.File]::WriteAllText($bat, ($template -replace "`r?`n", "`r`n"), [Text.Encoding]::ASCII)
 
+# the Terraformer icon for the shortcuts (installer/assets/5a-green-wave.ico next to this script's folder)
+$icon = "$env:SystemRoot\System32\shell32.dll,13"
+$ico = Join-Path (Split-Path $PSScriptRoot -Parent) "installer\assets\5a-green-wave.ico"
+if (Test-Path $ico) {
+    Copy-Item -Force $ico (Join-Path $dest "terraformer.ico")
+    $icon = (Join-Path $dest "terraformer.ico") + ",0"
+}
+
 $shell = New-Object -ComObject WScript.Shell
 $links = @(Join-Path ([Environment]::GetFolderPath("Programs")) "Terraformer.lnk")
 if (-not $NoDesktopShortcut) { $links += Join-Path ([Environment]::GetFolderPath("Desktop")) "Terraformer.lnk" }
@@ -139,8 +147,8 @@ foreach ($l in $links) {
     $s = $shell.CreateShortcut($l)
     $s.TargetPath = $bat
     $s.WorkingDirectory = $dest
-    $s.Description = "Terraformer ($Label): opens the app at http://localhost:$Port/"
-    $s.IconLocation = "$env:SystemRoot\System32\shell32.dll,13"
+    $s.Description = "Terraformer ($Label): opens the app in its own window (http://localhost:$Port/)"
+    $s.IconLocation = $icon
     $s.Save()
     Ok "Shortcut: $l"
 }

@@ -1,11 +1,29 @@
-# Model runtimes the setup wizard installs after the model downloads (asset_pipeline/installer.py),
-# in this order. A runtime runs when every `when` condition holds:
+# Runtimes and tools the setup wizard installs (asset_pipeline/installer.py), after the model downloads
+# unless stage says otherwise, in this order. A runtime runs when every `when` condition holds:
 #   "feature:NAME"         a selected component (config/models.toml) has that feature
 #   "SECTION.KEY=VALUE"    the setting as the wizard saves it (VALUE may use * and ?)
+#   "component:ID"         that component is selected and not installed yet ([runtime.component] below)
+#   "platform:linux"       plain Linux ("platform:wsl": inside WSL)
 # command runs from the repo root with AP_ROOT and AP_TORCH (the hardware profile's PyTorch build) set;
 # {SECTION.KEY} in it is filled from the config. Output goes to <storage>/logs/installer-<id>.log.
 # weight: how long it takes against the others (the overall progress bar). A runtime that finished
-# once is skipped on later runs (ap setup).
+# once is skipped on later runs (ap setup). stage = "before-models" runs it before the downloads;
+# step: the Installing page's line (default "Installing <label>"). [runtime.component] makes it a
+# checkbox on the Components page (title, group, size_gb, license, used_by), checked by default.
+
+[[runtime]]
+id = "comfyui"
+label = "ComfyUI on this computer"
+stage = "before-models"             # the model downloads go into its models folder
+when = ["component:comfyui"]
+command = ["scripts/install_comfyui.sh", "{comfyui.service.cwd}"]
+weight = 10
+[runtime.component]                 # offered only when no ComfyUI was found (asset_pipeline/installer.py)
+title = "Install ComfyUI (local)"
+group = "ComfyUI"
+size_gb = 6
+license = "GPL-3.0"
+used_by = "Runs the image workflows on this computer (127.0.0.1); offered because no ComfyUI was found"
 
 [[runtime]]
 id = "comfy-api-proxy"
@@ -48,3 +66,18 @@ label = "TRELLIS.2 and its extensions"
 when = ["feature:trellis"]
 command = ["scripts/install_trellis2.sh", "venv", "deps", "trellis", "nvdiffrast", "cumesh", "flexgemm", "ovoxel", "nvdiffrec", "verify"]
 weight = 20
+
+[[runtime]]
+id = "comfyui-start"
+label = "ComfyUI"
+step = "Starting ComfyUI"
+when = ["component:comfyui"]
+command = ["scripts/ap", "comfy", "start"]
+weight = 1
+
+[[runtime]]
+id = "launcher"
+label = "the Terraformer menu entry"
+when = ["platform:linux"]
+command = ["scripts/ap", "launcher", "install"]
+weight = 1

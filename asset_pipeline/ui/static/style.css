@@ -738,3 +738,13 @@ details summary { cursor: default; }
 #ue-dress .dress-water-label { min-width: 3.5em; }
 .dress-map td, .dress-map th { padding: 2px 6px; text-align: left; vertical-align: middle; }
 .dress-map select, .dress-map input { width: 100%; min-width: 260px; }
+
+/* Settings (settings.js): pages on the left, the page on the right */
+.settings-window { width: min(760px, 94vw); }
+.settings { display: grid; grid-template-columns: 150px 1fr; gap: 12px; }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; }
+.settings-nav button { text-align: left; }
+.settings-nav button.on { font-weight: bold; }
+.settings .setup-row input { flex: 1; min-width: 0; }
+.toolbar .gear { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; }
+.doctor-line .key-link { flex-basis: 100%; }

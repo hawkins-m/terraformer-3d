@@ -6,7 +6,7 @@
 //   The version in use (cleanup, export) is highlighted: "Active".
 // - Tools › Storage…: what the builds and versions take, per asset and per project, with
 //   "Delete unpinned versions" (never the Approved, pinned or current ones).
-// - Tools › Settings…: how many unpinned versions to keep per asset.
+// - Tools › Project settings…: how many unpinned versions to keep per asset.
 // Loaded after tools.js (jobDone, confirmDialog).
 Object.assign(JOB_LABELS, {"library.restore": "switching the version in use", "library.assembly": "attached pieces preview"});
 Object.assign(LOADERS, {"library.restore": ["Switching the version in use…", "greybox", "steps"], "library.assembly": ["Placing the attached pieces…", "greybox", ""]});
@@ -233,7 +233,7 @@ async function storageDialog() {
     catch (err) { body.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
     const f = s.files || {};
     body.innerHTML = `<p id="st-total"><b>${fmtBytes(s.total)}</b> in asset builds and versions: ${fmtBytes(s.current_bytes)} current build files,
-        ${fmtBytes(s.versions_bytes)} in versions. The last ${s.keep} versions not marked Keep of each asset stay (Tools › Settings…).</p>
+        ${fmtBytes(s.versions_bytes)} in versions. The last ${s.keep} versions not marked Keep of each asset stay (Tools › Project settings…).</p>
       <fieldset id="st-shared"><legend>Shared file store</legend>
         <p style="margin:0 0 4px">Sheets, cut views and 3D models are stored once and referenced by every entry and version that uses them:
           <b>${fmtBytes(f.bytes || 0)}</b> on disk for ${(f.references || 0).toLocaleString("en")} references to ${(f.objects || 0).toLocaleString("en")} files,
@@ -285,7 +285,7 @@ async function storageDialog() {
   draw();
 }
 
-// --- Tools › Settings… -------------------------------------------------------------------
+// --- Tools › Project settings… -------------------------------------------------------------------
 async function settingsDialog() {
   if (noProject()) return;
   let s;
@@ -297,7 +297,7 @@ async function settingsDialog() {
     <p class="hint">Every build of an asset is kept as a version. After a build, versions beyond the last N not marked Keep are offered for
       removal in the asset's version strip (nothing is deleted without asking). Versions marked Keep, the Approved one and the current one are never removed.
       Set per project (default ${s.default}).</p><p class="error" id="set-err"></p>`;
-  const dlg = dialog({title: "Settings", body, className: "tool-window", buttons: [
+  const dlg = dialog({title: "Project settings", body, className: "tool-window", buttons: [
     {label: "Save", default: true, onClick: async () => {
       const v = Number($("#set-keep", body).value);
       if (!Number.isInteger(v) || v < 1) { $("#set-err", body).textContent = "Versions to keep must be a whole number, 1 or more."; return false; }
@@ -331,7 +331,7 @@ Object.assign(ACTIONS, {storage: {run: storageDialog, enabled: () => !!slug}, se
   smoothAll: {run: () => fixAllDialog("smooth"), enabled: () => !!slug}, groundAll: {run: () => fixAllDialog("ground"), enabled: () => !!slug}});
 {
   const tools = MENUS.find(m => m[0] === "Tools")[2];
-  tools.splice(tools.length, 0, "-", ["Storage…", "storage"], ["Settings…", "settings"]);
+  tools.splice(tools.length, 0, "-", ["Storage…", "storage"], ["Project settings…", "settings"]);
   const pipe = MENUS.find(m => m[0] === "Pipeline")[2];
   pipe.splice(pipe.findIndex(x => x[1] === "make3d") + 1, 0, ["Smooth TRELLIS models…", "smoothAll"], ["Remove ground from TRELLIS models…", "groundAll"]);
 }

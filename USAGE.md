@@ -1099,7 +1099,7 @@ and input image stay where TRELLIS wrote them. A procedural version holds no GLB
   Stop keeping (the CLI and API call it pin / unpin), Delete, and tick two versions for Compare. Restoring a procedural version puts its brief
   back and rebuilds (or copies back the GLB of a version marked Keep); restoring a TRELLIS version makes
   it the newest result.
-- The last N versions not marked Keep stay (Tools › Settings…, per project, default 3). Older ones are
+- The last N versions not marked Keep stay (Tools › Project settings…, per project, default 3). Older ones are
   never removed silently: no build, reroll or Make 3D prunes anything; afterwards the strip offers
   "N old versions can be removed". The Approved, Keep and Active (current) versions are never
   removed, and the Active one can't be deleted while other versions exist. Make 3D writes into a

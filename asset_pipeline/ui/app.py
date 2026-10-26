@@ -709,6 +709,14 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def index():
         return HTMLResponse(index_html(), headers={"Cache-Control": "no-store"})
 
+    @app.get("/app-icon.png")
+    def app_icon():
+        """The Terraformer icon (installer art): the tab and the app window's icon."""
+        icon = config.REPO_ROOT / "installer" / "assets" / "5a-green-wave-256.png"
+        if not icon.is_file():
+            raise HTTPException(404, "no icon")
+        return FileResponse(icon, media_type="image/png")
+
     ui_commit = git_head()                     # the commit this server's Python was loaded from
 
     @app.get("/api/version")

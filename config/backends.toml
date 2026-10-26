@@ -157,3 +157,11 @@ torch = ""
 # (the next free one when taken).
 [installer]
 port = 8705
+# A local ComfyUI the wizard installs when none is found ("Install ComfyUI (local)"; scripts/install_comfyui.sh)
+comfyui_repo = "https://github.com/comfyanonymous/ComfyUI.git"
+comfyui_ref = "v0.24.0"
+
+# The app window (asset_pipeline/launcher.py): a browser with an app mode (--app=URL), e.g. "brave-browser";
+# "" = the first of Chrome, Chromium, Edge found. Without one, the default browser.
+[ui]
+app_browser = ""

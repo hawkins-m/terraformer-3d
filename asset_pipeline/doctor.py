@@ -36,11 +36,12 @@ class Check:
     fix: str = ""
     features: list[str] = field(default_factory=list)   # disabled when this check fails
     optional: bool = False         # its failure turns its features off but isn't "missing"
+    key: str = ""                  # the API key (secrets.toml name) whose absence this check reports
 
 
-def _c(id_, name, ok, detail, fix="", features=(), warn=False, optional=False) -> Check:
+def _c(id_, name, ok, detail, fix="", features=(), warn=False, optional=False, key="") -> Check:
     return Check(id_, name, "ok" if ok and not warn else ("warn" if ok else "fail"), detail, "" if ok and not warn else fix,
-                 list(features), optional)
+                 list(features), optional, key)
 
 
 def check_config() -> Check:
@@ -289,14 +290,27 @@ def check_paid_keys() -> list[Check]:
         if backend in setup.paid_needs():
             have = bool(os.environ.get(key) or config.secrets().get(key))
             out.append(_c(f"key_{backend}", f"{key} (a default backend is paid)", have,
-                          "set" if have else "not set", "Add it in `ap setup` (secrets.toml), or switch the default to local."))
+                          "set" if have else "not set",
+                          "Add it in Settings › Keys & connections (secrets.toml), or switch the default to local.", key=key))
     return out
+
+
+def check_hf_token() -> list[Check]:
+    """A required model is gated and missing, and no Hugging Face token is set: its download can't start."""
+    from . import models
+    gated = [m for m in models.missing() if m.gated]
+    if not gated or models.hf_token():
+        return []
+    return [_c("key_hf", "Hugging Face token", False,
+               f"not set; {', '.join(m.title for m in gated)} is gated and not installed yet",
+               "Accept the license on its model page, then add a read token in Settings › Keys & connections.",
+               sorted({m.feature for m in gated}), key="HF_TOKEN")]
 
 
 def run() -> list[Check]:
     checks = [check_config(), check_storage(), *check_wsl(), check_gpus(), check_profile(), *check_fit(), *check_comfy(),
               check_blender(), check_unreal(),
-              *check_local(), *check_paid_keys()]
+              *check_local(), *check_paid_keys(), *check_hf_token()]
     return checks
 
 
@@ -319,5 +333,7 @@ def report() -> dict:
             "missing": sum(c.level == "fail" and not c.optional for c in checks),
             "optional_missing": sum(c.level == "fail" and c.optional for c in checks),
             "notes": sum(c.level == "warn" for c in checks),
+            "keys_missing": [{"key": c.key, "name": c.name, "features": c.features} for c in checks
+                             if c.key and c.level == "fail"],
             "gpus": {"vision": int(config.get("jobs.gpu0_gpu", 0)), "comfy": int(config.get("jobs.comfy_gpu", 1))},
             "at": time.time(), "seconds": round(time.time() - t0, 1)}

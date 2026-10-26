@@ -82,8 +82,72 @@ def free_bytes(path: str | Path) -> int | None:
         return None
 
 
-def components() -> list[dict]:
+# the setup items a local ComfyUI the wizard installs fills in ({storage}: the storage folder on page 5)
+COMFY_PLANNED = {"comfy_url": "http://127.0.0.1:8188", "comfy_cwd": "{storage}/ComfyUI",
+                 "comfy_models_dir": "{storage}/ComfyUI/models",
+                 "comfy_launch": "{storage}/ComfyUI/venv/bin/python main.py --listen 127.0.0.1 --port {port}"}
+COMFY_ITEMS = ("comfy_url", "sdk_url", "comfy_models_dir", "comfy_launch", "comfy_cwd")
+_comfy_cache: dict = {}
+
+
+def _listening(url: str) -> bool:
+    """Something accepts connections at url's host and port (the bootstrap Python can't ask ComfyUI itself)."""
+    import socket
+    u = urlparse(url)
+    try:
+        with socket.create_connection((u.hostname or "127.0.0.1", u.port or 80), timeout=0.5):
+            return True
+    except OSError:
+        return False
+
+
+def comfy_found() -> dict:
+    """{found, where}: a ComfyUI answering (the configured address, 8188, 8000), or a ComfyUI folder the config
+    or ~/ComfyUI holds. Cached for 10 s."""
+    if _comfy_cache.get("at", 0) > time.time() - 10:
+        return _comfy_cache["found"]
+    out = {"found": False, "where": ""}
+    try:
+        import httpx  # noqa: F401
+        probe = lambda u: bool(setup._probe_comfy(u))      # noqa: E731
+    except ImportError:
+        probe = _listening
+    user = config.user().get("comfyui", {})
+    for u in dict.fromkeys([str(config.get("comfyui.url") or ""), "http://127.0.0.1:8188", "http://127.0.0.1:8000"]):
+        if u and probe(u):
+            out = {"found": True, "where": f"answering at {u}"}
+            break
+    else:
+        for d in dict.fromkeys([str(user.get("service", {}).get("cwd") or ""), "~/ComfyUI"]):
+            if d and (Path(os.path.expanduser(d)) / "main.py").is_file():
+                out = {"found": True, "where": f"in {d}"}
+                break
+        else:
+            md = str(user.get("models_dir") or "")
+            if md and Path(os.path.expanduser(md)).is_dir():
+                out = {"found": True, "where": f"its models folder {md}"}
+    _comfy_cache.update(at=time.time(), found=out)
+    return out
+
+
+def tool_components() -> list[dict]:
+    """Components that are runtimes (installer/runtimes.toml [runtime.component]), e.g. a local ComfyUI."""
     out = []
+    for r in runtimes():
+        c = r.get("component")
+        if not c:
+            continue
+        have = r["id"] == "comfyui" and comfy_found()["found"]
+        size = int(float(c.get("size_gb", 0)) * 1e9)
+        out.append({"id": r["id"], "title": c["title"], "feature": "tool", "group": c.get("group", "Tools"),
+                    "need": "optional", "select": "", "size": size, "installed": have, "missing_bytes": 0 if have else size,
+                    "license": c.get("license", ""), "used_by": c.get("used_by", ""), "gated": False, "vram_gb": 0,
+                    "tool": True})
+    return out
+
+
+def components() -> list[dict]:
+    out = tool_components()
     for m in models.load():
         st = models.status(m)
         out.append({"id": m.id, "title": m.title, "feature": m.feature, "group": FEATURES.get(m.feature, m.feature),
@@ -94,9 +158,20 @@ def components() -> list[dict]:
 
 
 def default_components(comps: list[dict], vlm: str) -> list[str]:
-    """Required ones, the chosen vision model, the CC0 dressing assets and whatever is installed."""
-    return [c["id"] for c in comps if c["need"] == "required" or c["installed"] or c["feature"] == "dressing"
-            and c["need"] == "optional" or c["need"] == "local.model" and c["select"] == vlm]
+    """Required ones, the chosen vision model, the CC0 dressing assets, a local ComfyUI when none was found,
+    and whatever is installed."""
+    return [c["id"] for c in comps if c["need"] == "required" or c["installed"] or c.get("tool")
+            or c["feature"] == "dressing" and c["need"] == "optional" or c["need"] == "local.model" and c["select"] == vlm]
+
+
+def recommended(comps: list[dict], gpus: list[dict], profile: str | None) -> dict:
+    """The best choice for this machine: the detected profile, the largest vision model that fits the
+    TRELLIS/vision GPU, and a local ComfyUI when none was found."""
+    vis = next((g for g in gpus if g["index"] == int(config.get("jobs.gpu0_gpu", 0) or 0)), gpus[0] if gpus else None)
+    vlm = (profiles.smaller_vlm(vis["vram_gb"]) or {}).get("select") if vis and vis.get("vram_gb") else None
+    ids = [c["id"] for c in comps if (c["need"] == "local.model" and vlm and c["select"] == vlm)
+           or (c.get("tool") and not c["installed"])]
+    return {"items": {"hardware_profile": profile, "vlm_model": vlm}, "components": ids}
 
 
 def catalog() -> dict:
@@ -110,9 +185,16 @@ def catalog() -> dict:
             it["tested"] = {k: p.tested for k, p in profiles.PROFILES.items()}
         items.append(it)
     comps = components()
+    rec = recommended(comps, st["gpus"], hw["profile"])
+    for it in items:
+        if rec["items"].get(it["id"]):
+            it["recommended"] = rec["items"][it["id"]]
+    vlm = next((i["value"] or i["detected"] for i in items if i["id"] == "vlm_model"), "") or "32b"
+    cf = comfy_found()
     return {"items": items, "gpus": st["gpus"], "detected": {k: hw[k] for k in ("vendor", "count", "profile", "wsl")},
             "wsl": st["wsl"], "components": comps, "features": FEATURES, "first_run": st["first_run"],
-            "default_components": default_components(comps, str(config.get("local.model") or "32b")),
+            "default_components": default_components(comps, vlm), "recommended_components": rec["components"],
+            "comfyui": {"found": cf["found"], "where": cf["where"], "planned": {} if cf["found"] else COMFY_PLANNED},
             "storage_free": free_bytes(config.ap_root()), "installed": installed(load_state())}
 
 
@@ -139,9 +221,13 @@ def app_python() -> str | None:
     return str(py) if (venv_dir() / "bin" / "ap").exists() and py.exists() else None
 
 
-def _holds(cond: str, values: dict, features: set[str]) -> bool:
+def _holds(cond: str, values: dict, features: set[str], todo: set[str] = frozenset()) -> bool:
     if cond.startswith("feature:"):
         return cond.removeprefix("feature:") in features
+    if cond.startswith("component:"):                 # selected and not installed yet
+        return cond.removeprefix("component:") in todo
+    if cond.startswith("platform:"):
+        return {"linux": not wsl.is_wsl(), "wsl": wsl.is_wsl()}.get(cond.removeprefix("platform:"), False)
     key, _, want = cond.partition("=")
     return fnmatch.fnmatch(str(values.get(key, config.get(key, "")) or ""), want)
 
@@ -163,15 +249,19 @@ def plan(values: dict, selected: list[str]) -> list[dict]:
     steps = [{"id": "settings", "kind": "settings", "label": "Saving your settings", "weight": UNIT},
              {"id": "app", "kind": "app", "label": "Installing the Terraformer app", "weight": 4 * UNIT},
              {"id": "command", "kind": "command", "label": "Adding the ap command", "weight": UNIT // 4}]
-    if todo:
-        steps.append({"id": "models", "kind": "models", "label": "Downloading models", "ids": [c["id"] for c in todo],
-                      "weight": sum(c["missing_bytes"] for c in todo)})
+    downloads = [c for c in todo if not c.get("tool")]
     feats = {c["feature"] for c in want}
     sv = setting_values(values)
+    later = []
     for r in runtimes():
-        if all(_holds(c, sv, feats) for c in r.get("when", [])):
-            steps.append({"id": "runtime:" + r["id"], "kind": "runtime", "label": "Installing " + r["label"],
-                          "command": r["command"], "weight": int(r.get("weight", 2)) * UNIT})
+        if all(_holds(c, sv, feats, {c["id"] for c in todo}) for c in r.get("when", [])):
+            step = {"id": "runtime:" + r["id"], "kind": "runtime", "label": r.get("step") or "Installing " + r["label"],
+                    "command": r["command"], "weight": int(r.get("weight", 2)) * UNIT}
+            (steps if r.get("stage") == "before-models" else later).append(step)
+    if downloads:
+        steps.append({"id": "models", "kind": "models", "label": "Downloading models", "ids": [c["id"] for c in downloads],
+                      "weight": sum(c["missing_bytes"] for c in downloads)})
+    steps += later
     for s in steps:
         s.update(status="pending", done=0)
     return steps
@@ -307,6 +397,11 @@ class Installer:
     # steps ---------------------------------------------------------------------------------------
     def _step_settings(self, step: dict, secrets: dict) -> bool:
         vals = self.st["values"]
+        if "comfyui" in (self.st["components"] or []) and not comfy_found()["found"]:
+            storage = str(vals.get("storage") or config.ap_root()).rstrip("/")
+            for k, v in COMFY_PLANNED.items():          # a local ComfyUI: its folder, models folder and launch command
+                if not vals.get(k) or vals[k] == str(setup._repo_default(setup.BY_ID[k].key) or ""):
+                    vals[k] = v.replace("{storage}", storage)
         shown = {k: v for k, v in vals.items() if k in setup.BY_ID and setup._shown(setup.BY_ID[k], vals)}
         setup.save(shown, {k: v for k, v in secrets.items() if k in config.SECRET_KEYS})
         return True
@@ -399,24 +494,27 @@ class Installer:
 # --- launching the app ----------------------------------------------------------------------------
 
 def open_browser(url: str) -> None:
-    """The default browser; inside WSL, the Windows one."""
-    if wsl.is_wsl():
-        for cmd in (["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"Start-Process '{url}'"],
-                    ["cmd.exe", "/c", "start", "", url]):
-            try:
-                if subprocess.run(cmd, capture_output=True, timeout=20).returncode == 0:
-                    return
-            except (OSError, subprocess.SubprocessError):
-                continue
-    else:
-        import webbrowser
-        if webbrowser.open(url):
-            return
-    print(f"Open {url} in your browser.")
+    """An app window (Chrome, Chromium or Edge --app; inside WSL, on Windows), else the default browser."""
+    from .launcher import open_app
+    if not open_app(url):
+        print(f"Open {url} in your browser.")
 
 
-def launch_app() -> str:
-    """Start Terraformer the way its launcher does; returns the app's address."""
+def _open_when_up(url: str, timeout: float = 60) -> None:
+    import urllib.request
+    t0 = time.time()
+    while time.time() - t0 < timeout:
+        try:
+            with urllib.request.urlopen(url + "api/version", timeout=2):
+                open_browser(url)
+                return
+        except OSError:
+            time.sleep(1)
+
+
+def launch_app() -> dict:
+    """Start Terraformer the way its launchers do, in its own app window: {url, window} (window: the
+    launcher opens it; else the page goes there itself)."""
     from .launcher import DEFAULT_PORT
     url = f"http://localhost:{DEFAULT_PORT}/"
     detached = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
@@ -430,16 +528,18 @@ def launch_app() -> str:
         except (OSError, subprocess.SubprocessError):
             bat = ""
     if bat and Path(wsl.to_linux(bat)).is_file():
-        subprocess.Popen(["cmd.exe", "/c", "start", "", bat], **detached)
-    elif (Path.home() / ".local" / "bin" / "terraformer-launch").is_file():
+        subprocess.Popen(["cmd.exe", "/c", "start", "", bat], **detached)      # it opens the app window
+        return {"url": url, "window": True}
+    if (Path.home() / ".local" / "bin" / "terraformer-launch").is_file():
         subprocess.Popen([str(Path.home() / ".local" / "bin" / "terraformer-launch")], **detached)
-    else:
-        log = config.ap_root() / "logs" / "ui.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with open(log, "a") as out:
-            subprocess.Popen([str(config.REPO_ROOT / "scripts" / "ap"), "ui", "--port", str(DEFAULT_PORT)],
-                             stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
-    return url
+        return {"url": url, "window": True}
+    log = config.ap_root() / "logs" / "ui.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    with open(log, "a") as out:
+        subprocess.Popen([str(config.REPO_ROOT / "scripts" / "ap"), "ui", "--port", str(DEFAULT_PORT)],
+                         stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+    threading.Thread(target=_open_when_up, args=(url,), daemon=True).start()
+    return {"url": url, "window": True}
 
 
 # --- the server -----------------------------------------------------------------------------------
@@ -533,13 +633,14 @@ def make_handler(inst: Installer, server_state: dict):
                 return self._json({"ok": True})
             if path == "/api/test":
                 try:
-                    return self._json(setup.test(data["id"], data.get("value"), data.get("values") or {}))
+                    r = setup.test(data["id"], data.get("value"), data.get("values") or {})
                 except ImportError:
-                    return self._json({"id": data.get("id"), "ok": True, "warn": True,
-                                       "message": "Tested once the app is installed: this check needs the app's "
-                                                  "Python packages, which Installing adds. Run ap setup afterwards."})
+                    r = {"id": data.get("id"), "ok": True, "warn": True,
+                         "message": "Tested once the app is installed: this check needs the app's Python packages, "
+                                    "which Installing adds. Run ap setup afterwards."}
                 except (KeyError, ValueError) as e:
                     return self._json({"error": str(e)}, 400)
+                return self._json(local_comfy_test(r, data, inst))
             if path == "/api/disk":
                 return self._json({"free": free_bytes(data.get("path") or config.ap_root())})
             if path == "/api/install":
@@ -547,13 +648,25 @@ def make_handler(inst: Installer, server_state: dict):
             if path == "/api/cancel":
                 return self._json(inst.cancel())
             if path == "/api/finish":
-                url = launch_app() if data.get("launch") else ""
-                self._json({"ok": True, "url": url})
+                inst.update({"page": "welcome"})             # ap setup later starts at Welcome
+                app = launch_app() if data.get("launch") else {"url": "", "window": False}
+                self._json({"ok": True} | app)
                 threading.Timer(1.0, server_state["httpd"].shutdown).start()
                 return
             self._send(404, b"not found", "text/plain")
 
     return Handler
+
+
+def local_comfy_test(r: dict, data: dict, inst: Installer) -> dict:
+    """A ComfyUI check before Setup has installed the local ComfyUI it will install: that passes."""
+    sel = inst.st["components"]
+    picked = "comfyui" in sel if sel is not None else not comfy_found()["found"]
+    if data.get("id") not in COMFY_ITEMS or not picked or comfy_found()["found"] or (r["ok"] and not r["warn"]):
+        return r
+    where = (data.get("values") or {}).get("comfy_url") or COMFY_PLANNED["comfy_url"]
+    return {"id": data["id"], "ok": True, "warn": False,
+            "message": f"Setup installs ComfyUI on this computer and starts it at {where} (Installing page)."}
 
 
 def find_running(port: int) -> bool:

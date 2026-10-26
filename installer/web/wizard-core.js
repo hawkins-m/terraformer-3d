@@ -118,11 +118,27 @@
       setCatalog(cat) {
         w.catalog = cat;
         w.installed = !!cat.installed;
-        for (const it of cat.items) {                // what is set, else what Setup found
-          if (w.values[it.id] === undefined && it.kind !== "secret" && it.kind !== "info") w.values[it.id] = it.value || it.detected || "";
+        for (const it of cat.items) {                // what is set, else what Setup found, else the recommendation
+          if (w.values[it.id] === undefined && it.kind !== "secret" && it.kind !== "info") w.values[it.id] = it.value || it.detected || it.recommended || "";
+          if (it.kind !== "secret") w.initial[it.id] = it.value || it.detected || "";
         }
         if (!w.haveSelection) { w.selected = new Set(cat.default_components); w.haveSelection = true; }
         w.syncRequired();
+        w.applyComfyPlan();
+      },
+      initial: {}, planned: {},
+      isRecommended(id) { return !!(w.catalog && (w.catalog.recommended_components || []).includes(id)); },
+      // a local ComfyUI Setup installs: its address, folder, models folder and launch command follow the storage folder
+      applyComfyPlan() {
+        const plan = (w.catalog && w.catalog.comfyui && w.catalog.comfyui.planned) || {};
+        const on = w.selected.has("comfyui");
+        const storage = String(w.values.storage || "").replace(/\/+$/, "");
+        for (const [k, tpl] of Object.entries(plan)) {
+          const want = on ? tpl.replace("{storage}", storage) : w.initial[k] || "";
+          const cur = w.values[k] || "";
+          if (!cur || cur === w.initial[k] || cur === w.planned[k]) w.values[k] = want;
+          w.planned[k] = on ? want : undefined;
+        }
       },
       item(id) { return w.catalog ? w.catalog.items.find(i => i.id === id) : null; },
       items(page) { return w.catalog ? w.catalog.items.filter(i => i.wizard === page) : []; },
@@ -181,6 +197,7 @@
       setValue(id, v, tick = true) {
         w.values[id] = v;
         if (id === "vlm_model") w.syncRequired();
+        if (id === "storage") w.applyComfyPlan();
         if (tick) w.select();
       },
       acceptLicense(on) { w.license = !!on; w.select(); },
@@ -189,6 +206,7 @@
         if (!c || isLocked(c, w.vlm())) return false;
         w.touched.add(id);
         if (w.selected.has(id)) w.selected.delete(id); else w.selected.add(id);
+        if (id === "comfyui") w.applyComfyPlan();
         w.select();
         return true;
       },

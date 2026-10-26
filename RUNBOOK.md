@@ -140,7 +140,7 @@ seed) and size. Tick two and **Compare** (side by side, with the source and brie
 differ); **Restore** brings one back (a procedural version is rebuilt from its saved brief; a
 one marked Keep, or a TRELLIS one, comes back as it was); **Keep** keeps a version and its 3D model
 for good; **Delete** removes one (asks first; never the Approved one). The last 3 versions not
-marked Keep stay (Tools › **Settings…**); when there are more, the strip offers to remove the
+marked Keep stay (Tools › **Project settings…**); when there are more, the strip offers to remove the
 old ones (nothing is pruned by a build). Versions marked Keep, the Approved one and the Active one are never removed. Tools › **Storage…** shows
 the space per asset and per project, with "Delete versions not marked Keep" per asset or for the
 whole project. In Views and 3D, **Reroll** (procedural assets) adds a new version from the sheet,

@@ -151,6 +151,21 @@ asks in the terminal instead). The pages read the hardware profiles, the manifes
 items, so a new model or setting appears without changing the wizard. The steps below do the same
 by hand.
 
+- **Recommended** marks the best choice for the detected hardware, preselected: the profile, and the
+  vision model that fits the TRELLIS/vision GPU (Qwen3-VL 8B under 28 GB).
+- **ComfyUI by default**: a running ComfyUI (or a ComfyUI folder) is found and filled in. When there
+  is none, Components offers **Install ComfyUI (local)**, checked: Setup installs ComfyUI 0.24.0
+  with its own venv in `<storage>/ComfyUI` (`scripts/install_comfyui.sh`), downloads the models
+  into it and starts it at `http://127.0.0.1:8188` (this computer; nothing is sent online).
+- **Keys later**: the optional keys (Hugging Face token, Comfy account) can be skipped and added in
+  the app under **File › Settings…** (or the gear in the toolbar) › Keys & connections, which has every
+  setting of the wizard's Connections page with a Test each. The Status box says
+  "Setup: missing key — Settings" when a feature needs a key that isn't set.
+- **App window**: the wizard, the Linux launcher (`ap launcher install`, which Setup runs: a menu
+  entry with the Terraformer icon), the Windows Start menu shortcut and "Launch Terraformer" open
+  in their own window (Chrome, Chromium or Edge `--app`: no tabs or address bar), else in the default
+  browser. `ap config set ui.app_browser NAME` picks another browser with an app mode.
+
 | | | |
 |---|---|---|
 | ![1 Welcome](docs/images/installer/page-01.png) | ![2 License](docs/images/installer/page-02.png) | ![3 Hardware profile](docs/images/installer/page-03.png) |

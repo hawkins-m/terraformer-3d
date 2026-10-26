@@ -1,5 +1,5 @@
 // The setup wizard's page flow, sounds (mock audio) and progress text: installer/web/wizard-core.js.
-// Run: node --test tests/js/   (tests/test_installer_web.py runs it under pytest)
+// Run: node --test tests/js/wizard_core.test.js   (tests/test_installer_web.py runs it under pytest)
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -247,4 +247,44 @@ test("ap setup on an installed system skips the accepted license", () => {
   const fresh = setup({ license: true }).w;            // first install: the license page still shows
   fresh.next();
   assert.equal(at(fresh), "license");
+});
+
+test("recommendations: the best choice for this machine is tagged and preselected", () => {
+  const cat = JSON.parse(JSON.stringify(CATALOG));
+  const vlm = cat.items.find(i => i.id === "vlm_model");
+  vlm.value = ""; vlm.recommended = "8b";                        // a 24 GB vision GPU: the 32B doesn't fit
+  cat.items[0].recommended = "rocm-2gpu";
+  cat.recommended_components = ["vlm-8b"];
+  const w = C.createWizard({ sounds: C.createSounds({ makeAudio: mockAudio().make, storage: memStore() }), state: {}, catalog: cat });
+  assert.equal(w.values.vlm_model, "8b", "preselected");
+  assert.equal(w.values.hardware_profile, "rocm-2gpu");
+  assert.ok(w.isRecommended("vlm-8b") && !w.isRecommended("vlm-32b"));
+  assert.ok(w.selected.has("vlm-8b") && !w.selected.has("vlm-32b"), "the recommended vision model is the one installed");
+});
+
+test("no ComfyUI found: Install ComfyUI is checked and its settings follow the storage folder", () => {
+  const cat = JSON.parse(JSON.stringify(CATALOG));
+  cat.items.push({ id: "comfy_url", wizard: "connections", kind: "text", value: "http://127.0.0.1:8188", label: "ComfyUI address" },
+                 { id: "comfy_cwd", wizard: "advanced", kind: "path", value: "~/ComfyUI", label: "ComfyUI folder" },
+                 { id: "comfy_models_dir", wizard: "connections", kind: "path", value: "", label: "Models folder" });
+  cat.components.unshift({ id: "comfyui", title: "Install ComfyUI (local)", group: "ComfyUI", feature: "tool", need: "optional",
+                           size: 6e9, missing_bytes: 6e9, installed: false, tool: true });
+  cat.default_components = [...cat.default_components, "comfyui"];
+  cat.recommended_components = ["comfyui"];
+  cat.comfyui = { found: false, planned: { comfy_url: "http://127.0.0.1:8188", comfy_cwd: "{storage}/ComfyUI",
+                                           comfy_models_dir: "{storage}/ComfyUI/models" } };
+  const { sounds } = setup();
+  const w = C.createWizard({ sounds, state: {}, catalog: cat });
+  assert.ok(w.selected.has("comfyui") && w.isRecommended("comfyui"));
+  assert.equal(w.values.comfy_cwd, "/data/terraformer/ComfyUI", "filled in, nothing typed");
+  assert.equal(w.values.comfy_models_dir, "/data/terraformer/ComfyUI/models");
+  w.setValue("storage", "/big/tf/", false);
+  assert.equal(w.values.comfy_models_dir, "/big/tf/ComfyUI/models", "follows the storage folder");
+  w.values.comfy_cwd = "/my/own/ComfyUI";                         // typed by the user: kept
+  w.setValue("storage", "/other", false);
+  assert.equal(w.values.comfy_cwd, "/my/own/ComfyUI");
+  assert.equal(w.neededBytes(), 17e9 + 24e9 + 4e7 + 6e9, "its download counts");
+  w.toggle("comfyui");                                            // unticked: back to what was there
+  assert.equal(w.values.comfy_models_dir, "");
+  assert.equal(w.values.comfy_cwd, "/my/own/ComfyUI");
 });

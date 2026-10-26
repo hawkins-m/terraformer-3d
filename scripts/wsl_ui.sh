@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/wsl_ui.sh [PORT]  -- the WSL side of windows/Terraformer.bat (Windows (WSL2) + NVIDIA, beta).
-# Starts `ap ui` on PORT (default 8700), opens the Windows default browser at http://localhost:PORT/ once
-# it answers, and stops it (SIGTERM: uvicorn shuts down cleanly) when the launcher window closes (stdin
+# Starts `ap ui` on PORT (default 8700), opens http://localhost:PORT/ once it answers in an app window (Edge or
+# Chrome --app; else the Windows default browser), and stops it (SIGTERM: uvicorn shuts down cleanly) when the launcher window closes (stdin
 # ends, or SIGHUP) or on Ctrl+C. An `ap ui` already answering on PORT is left alone: only the browser opens.
 set -uo pipefail
 here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
@@ -9,8 +9,10 @@ source "$here/ap_root.sh"
 port="${1:-8700}"
 url="http://localhost:$port/"
 up() { curl -fsS -m 2 "http://127.0.0.1:$port/api/version" >/dev/null 2>&1; }
-open_browser() {   # WSL interop: the Windows default browser
-  powershell.exe -NoProfile -NonInteractive -Command "Start-Process '$url'" >/dev/null 2>&1 ||
+open_browser() {   # WSL interop: an app window (Edge or Chrome --app: no tabs or address bar), else the default browser
+  powershell.exe -NoProfile -NonInteractive -Command "Start-Process msedge -ArgumentList '--app=$url'" >/dev/null 2>&1 ||
+    powershell.exe -NoProfile -NonInteractive -Command "Start-Process chrome -ArgumentList '--app=$url'" >/dev/null 2>&1 ||
+    powershell.exe -NoProfile -NonInteractive -Command "Start-Process '$url'" >/dev/null 2>&1 ||
     cmd.exe /c start "" "$url" >/dev/null 2>&1 ||
     echo "Open $url in your browser (WSL interop couldn't start it)."
 }

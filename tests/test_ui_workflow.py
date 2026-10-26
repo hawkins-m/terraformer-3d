@@ -21,7 +21,7 @@ def test_toolbar_keeps_only_global_controls_and_stage_buttons_live_in_their_tabs
     html = _html()
     bar = re.search(r'<div class="toolbar".*?\n  </div>', html, re.S).group(0)
     ids = re.findall(r'id="([^"]+)"', bar)
-    assert ids == ["project", "tb-new", "tb-disk", "tb-stop"], ids
+    assert ids == ["project", "tb-new", "tb-disk", "tb-settings", "tb-stop"], ids
 
     def tab(name):
         return re.search(rf'<section class="tabpanel" data-tab="{name}".*?</section>', html, re.S).group(0)

@@ -65,8 +65,10 @@ function renderDoctorLine() {
   if (!DOCTOR || DOCTOR.pending) { box.innerHTML = `<span class="hint" style="margin:0">Checking this machine…</span>`; return; }
   const off = Object.entries(DOCTOR.features).filter(([, v]) => !v.ok).map(([, v]) => v.what.split(" (")[0]);
   const msg = DOCTOR.missing ? `${DOCTOR.missing} missing` : DOCTOR.optional_missing ? "ready; some extras off" : "all set";
+  const keys = DOCTOR.keys_missing || [];
   box.innerHTML = `<span class="${DOCTOR.missing ? "error" : ""}" title="${esc(off.length ? `Off: ${off.join("; ")}` : "Every check passed")}">Setup: ${esc(msg)}</span>
-    <button type="button" class="small" data-open="doctor">Details…</button>`;
+    <button type="button" class="small" data-open="doctor">Details…</button>
+    ${keys.length ? `<a href="#" class="key-link" data-open="settings" title="${esc(keys.map(k => k.name).join("; "))}">Setup: missing key — Settings</a>` : ""}`;
 }
 
 async function fetchDoctor(refresh = false) {
@@ -114,6 +116,8 @@ ACTIONS.doctor = {run: doctorDialog};
 document.addEventListener("click", e => {               // buttons inside rendered text: Setup… / Details…
   const b = e.target.closest("[data-open]");
   if (!b) return;
+  if (b.tagName === "A") e.preventDefault();
+  if (b.dataset.open === "settings") appSettingsDialog();
   if (b.dataset.open === "setup") setupDialog();
   if (b.dataset.open === "doctor") doctorDialog();
 });
