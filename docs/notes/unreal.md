@@ -109,9 +109,12 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   KEEP_WORLD; the position is right whether or not the attachment holds.
 
 ## World dressing (2026-10-25)
-- **A scratch AP_ROOT still builds into the real Unreal project** unless `AP_UE_PROJECTS` (and
-  `AP_UE_BACKUPS`) point at the scratch copy: the user config's `[unreal] projects_dir` wins over
-  the scratch root's `backends.local.toml`. Export both before any scratch `ap ue ...` run.
+- **A scratch AP_ROOT resolved to the real Unreal project**: the user config's `[unreal]
+  projects_dir` wins over the scratch root's `backends.local.toml`. Fixed 2026-10-25: a project sets
+  its own `unreal.project_dir` / `backup_dir` in project.json (they win over config and env), and
+  `ue.check_target` (in `ue.init`, `ue.backup`, `ap ue build`) refuses a project from another storage
+  root that would fall through to the user config's folders, and an Unreal folder whose
+  `.terraformer-project` names another pipeline project (an unclaimed folder is claimed).
 - The dressing runs inside the import's commandlet (`ap_import.py` → `ap_dressing.apply`), so it
   costs no extra editor start: the first full run with everything on took 37 s of import, later
   ones ~30 s (instances unchanged, materials re-applied).
@@ -132,6 +135,8 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   SetTargetLandscape`), which asserts `CurrentBaseApplication.IsValid()` (no Slate) and kills the
   editor with SIGSEGV; Python can't catch it. The dressing never tries headless: Ocean enables the
   plugin in the .uproject (it loads fine) and falls back to the simple sea, saying so in the report.
-- `ue.pick_gpu` falls over to GPU 1 when GPU 0 holds more than 4 GB, without asking whether
-  ComfyUI runs there (2026-10-25: a dressing preview render landed on GPU 1 next to a running,
-  idle ComfyUI; it finished in 44 s and ComfyUI was undisturbed). Check both before a render.
+- `ue.pick_gpu` used to fall over to GPU 1 when GPU 0 held more than 4 GB, without asking about
+  ComfyUI (2026-10-25: a preview render landed next to an idle ComfyUI, undisturbed). It now skips
+  ComfyUI's GPU while ComfyUI has a job running or queued (its `/queue` through ComfyClient), any
+  GPU with a TRELLIS lock or the vision model answering, and one over the VRAM limit; otherwise it
+  waits, then refuses with the reasons.

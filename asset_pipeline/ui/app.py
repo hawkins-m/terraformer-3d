@@ -1806,7 +1806,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         man = s7_export.export_dir(store) / "manifest.json"
         up = ue.uproject(store)
         out = {"export": None, "uproject": str(up), "project": up.is_file(), "editor_open": False,
-               "backups": [], "backup_dir": str(ue.backups_dir() / store.load().slug),
+               "backups": [], "backup_dir": str(ue.project_backups_dir(store)),
                "greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
         if man.is_file():
             out["export"] = s7_export.counts(read_json(man)) | {"mtime": man.stat().st_mtime}

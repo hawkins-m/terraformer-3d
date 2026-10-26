@@ -96,6 +96,11 @@ class UnrealSettings(BaseModel):
     for the check at the end of every build. Dressing: the last-used world dressing; its library
     maps roles (dressing.ROLES) to Unreal asset paths (Megascans), scanned from these folders
     as well as /Game/Fab, /Game/Megascans and /Game/Quixel."""
+    # this project's own Unreal project folder and backup folder: win over [unreal] projects_dir /
+    # backup_dir and AP_UE_PROJECTS / AP_UE_BACKUPS ("" = those). A copy of a project in another
+    # storage root (a scratch root) must set them (ue.check_target).
+    project_dir: str = ""
+    backup_dir: str = ""
     dressing: DressingOptions = Field(default_factory=DressingOptions)
     dressing_library: dict[str, str] = Field(default_factory=dict)
     dressing_folders: list[str] = Field(default_factory=list)

@@ -72,8 +72,55 @@ def backups_dir() -> Path:
     return Path(_setting("AP_UE_BACKUPS", "backup_dir", "") or config.ap_root() / "backups" / "unreal").expanduser()
 
 
+def _own(store: ProjectStore) -> tuple[str, str]:
+    u = store.load().unreal
+    return (u.project_dir, u.backup_dir) if u else ("", "")
+
+
 def project_dir(store: ProjectStore) -> Path:
-    return projects_dir() / store.load().slug
+    """The project's own folder (project.json unreal.project_dir), else <projects_dir>/<slug>."""
+    own = _own(store)[0]
+    return Path(own).expanduser() if own else projects_dir() / store.load().slug
+
+
+def project_backups_dir(store: ProjectStore) -> Path:
+    """Where this project's snapshots go: its own unreal.backup_dir, else <backup_dir>/<slug>."""
+    own = _own(store)[1]
+    return Path(own).expanduser() if own else backups_dir() / store.load().slug
+
+
+OWNER_FILE = ".terraformer-project"     # in the UE project: the pipeline project that writes it
+
+
+def check_target(store: ProjectStore) -> Path:
+    """Refuse before anything writes to the project's Unreal folder (or its backups) when that
+    folder isn't this project's:
+      - the project lives in another storage root than the user config's (a scratch copy) but takes
+        its Unreal or backup folder from the user config: it would land in the real project;
+      - the Unreal folder belongs to another pipeline project (OWNER_FILE names its folder).
+    Claims an unclaimed Unreal folder for this project. Returns the folder."""
+    own_dir, own_bak = _own(store)
+    user_root = (config.user().get("paths") or {}).get("ap_root")
+    if user_root and Path(user_root).expanduser().resolve() != config.ap_root().resolve():
+        shared = [what for what, own, env in (("Unreal project", own_dir, "AP_UE_PROJECTS"), ("backup", own_bak, "AP_UE_BACKUPS"))
+                  if not own and not os.environ.get(env)]
+        if shared:
+            raise RuntimeError(
+                f"refusing to write: this project is in {config.ap_root()}, not your storage folder {user_root}, "
+                f"but its {' and '.join(shared)} folder comes from your user config ({project_dir(store)}). "
+                f"Set the project's own unreal.project_dir and unreal.backup_dir in project.json "
+                f"(or AP_UE_PROJECTS / AP_UE_BACKUPS).")
+    d = project_dir(store)
+    marker = d / OWNER_FILE
+    mine = str(store.root.resolve())
+    if marker.is_file():
+        owner = (read_json(marker, default={}) or {}).get("project", "")
+        if owner and owner != mine:
+            raise RuntimeError(f"refusing to write: {d} belongs to the pipeline project {owner}, not {mine}. "
+                               f"Point this project at its own Unreal folder (project.json unreal.project_dir).")
+    elif d.is_dir():
+        write_json(marker, {"project": mine})
+    return d
 
 
 def uproject(store: ProjectStore) -> Path:
@@ -111,12 +158,15 @@ def record_imported(store: ProjectStore, man: dict, rep: dict) -> None:
 
 
 def init(store: ProjectStore) -> Path:
-    """Create the UE project (idempotent: an existing .uproject is kept)."""
+    """Create the UE project (idempotent: an existing .uproject is kept). Every headless run and
+    render comes through here: check_target refuses a folder that isn't this project's."""
+    check_target(store)
     up = uproject(store)
     if up.is_file():
         return up
     d = up.parent
     (d / "Content").mkdir(parents=True, exist_ok=True)
+    write_json(d / OWNER_FILE, {"project": str(store.root.resolve())})
     (d / "Config").mkdir(exist_ok=True)
     up.write_text(json.dumps({
         "FileVersion": 3, "EngineAssociation": ENGINE_VERSION, "Category": "",
@@ -312,23 +362,64 @@ def gpu_vram() -> dict[int, float]:
     return gpu_mod.vram_used_gb()
 
 
-def pick_gpu(preferred: int, limit_gb: float = VRAM_LIMIT_GB, wait_s: float = 1800.0, log=print) -> int:
-    """The GPU to render on: `preferred` unless others hold more than limit_gb there, then the
-    other one; if both are busy, wait (polling every 30 s) up to wait_s, then refuse. Every
-    Unreal render goes through this (the 2026-10-14 device-lost crashes came from a Blender
-    session sharing the GPU)."""
+def comfy_queue() -> dict | None:
+    """ComfyUI's queue ({"running", "pending"}), None while it's down; {"unknown": why} when it's up
+    but the queue can't be read (counts as busy)."""
+    from .comfy import client as comfy_client
+    from .look import comfy_running
+    if not comfy_running():
+        return None
+    try:
+        return comfy_client.connect(timeout_s=10).queue_state()
+    except Exception as e:  # noqa: BLE001 - unreadable: treat as busy
+        return {"unknown": str(e).splitlines()[0][:120]}
+
+
+def gpu_busy(g: int) -> list[str]:
+    """Why GPU g can't take an Unreal render now (empty: it can): a TRELLIS job on it, the vision
+    model answering on it, or (ComfyUI's GPU) ComfyUI with a job running or queued."""
+    from . import gpu_policy, vlm
+    out = []
+    if vlm.trellis_jobs(g):
+        out.append(f"TRELLIS is running on GPU {g}")
+    st = vlm.state()
+    if st and st.get("gpu") == g and vlm.busy(st):
+        out.append(f"the vision model is answering a request on GPU {g}")
+    if g == gpu_policy.settings()["gpus"]["comfy"]:
+        q = comfy_queue()
+        if q and "unknown" in q:
+            out.append(f"ComfyUI runs on GPU {g} and its queue can't be read ({q['unknown']})")
+        elif q and (q["running"] or q["pending"]):
+            out.append(f"ComfyUI has {q['running']} job(s) running and {q['pending']} queued on GPU {g}")
+    return out
+
+
+def pick_gpu(preferred: int, limit_gb: float = VRAM_LIMIT_GB, wait_s: float = 1800.0, log=print,
+             busy_fn=None, vram_fn=None, poll_s: float = 30.0) -> int:
+    """The GPU to render on: `preferred`, else the other one, but never one with a TRELLIS or vision
+    job running, never ComfyUI's while ComfyUI has a job running or queued, and never one where
+    others hold more than limit_gb. Neither free: wait (polling every poll_s) up to wait_s, then
+    refuse with the reasons. Every Unreal render goes through this (the 2026-10-14 device-lost
+    crashes came from a Blender session sharing the GPU; on 2026-10-25 a render fell over to
+    ComfyUI's GPU unchecked)."""
+    busy_fn, vram_fn = busy_fn or gpu_busy, vram_fn or gpu_vram
     t0 = time.time()
     while True:
-        used = gpu_vram()
+        used = vram_fn()
+        why = {}
         for g in (preferred, 1 - preferred):
-            if used.get(g, 99.0) <= limit_gb:
+            r = busy_fn(g)
+            if used.get(g, 99.0) > limit_gb:
+                r = r + [f"GPU {g} has {used.get(g, 99.0):.1f} GB of other work in use (limit {limit_gb:.0f} GB)"]
+            if not r:
                 log(f"rendering on GPU {g} (VRAM in use: " + ", ".join(f"GPU {k} {v:.1f} GB" for k, v in sorted(used.items())) + ")")
                 return g
-        if time.time() - t0 > wait_s:
-            raise RuntimeError("both GPUs hold more than %.0f GB of other work: " % limit_gb
-                               + ", ".join(f"GPU {k} {v:.1f} GB" for k, v in sorted(used.items())))
-        log("both GPUs busy (" + ", ".join(f"GPU {k} {v:.1f} GB" for k, v in sorted(used.items())) + "); waiting")
-        time.sleep(30)
+            why[g] = r
+        reasons = "; ".join(x for rs in why.values() for x in rs)
+        if time.time() - t0 >= wait_s:
+            raise RuntimeError(f"no GPU free for the Unreal render: {reasons}. Try again when one is free.")
+        log(f"no GPU free for the render yet ({reasons}); waiting")
+        time.sleep(poll_s)
 
 
 def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: str, timeout_s: int,
@@ -467,7 +558,7 @@ def editor_running(up: Path, proc: Path = Path("/proc")) -> bool:
 
 def backups(store: ProjectStore) -> list[Path]:
     """Snapshots of the project, oldest first."""
-    d = backups_dir() / store.load().slug
+    d = project_backups_dir(store)
     return sorted(p for p in d.iterdir() if p.is_dir() and not p.is_symlink()) if d.is_dir() else []
 
 
@@ -486,10 +577,11 @@ def backup(store: ProjectStore, keep: int | None = None, force: bool = False) ->
     up = uproject(store)
     if not up.is_file():
         raise FileNotFoundError(f"no UE project at {up}")
+    check_target(store)
     if editor_running(up) and not force:
         raise RuntimeError(f"an Unreal Editor has {up.name} open: save and close it first (or force; a "
                            f"snapshot taken mid-save can be inconsistent)")
-    root = backups_dir() / store.load().slug
+    root = project_backups_dir(store)
     root.mkdir(parents=True, exist_ok=True)
     previous = backups(store)
     dest = root / time.strftime("%Y%m%d-%H%M%S")

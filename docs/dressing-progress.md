@@ -33,4 +33,5 @@ Megascans", USAGE "Unreal Engine 5.8".
 
 ## Open
 - The ocean needs the full editor (Slate): a step in an offscreen editor run could place it.
-- `ue.pick_gpu` can fall over to ComfyUI's GPU without checking ComfyUI (docs/notes/unreal.md).
+- (done 2026-10-25) `ue.pick_gpu` checks ComfyUI's queue, TRELLIS and the vision model per GPU;
+  projects set their own Unreal folders and `ue.check_target` guards every write.

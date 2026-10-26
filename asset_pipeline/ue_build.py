@@ -152,6 +152,7 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
     from . import look, terrain_build, vertical
     from .jobs import check_canceled
     t0 = time.time()
+    ue.check_target(store)                      # never another project's Unreal folder or backups
     up = ue.uproject(store)
     if ue.editor_running(up):
         raise RuntimeError(f"the Unreal editor has {up.name} open: close it first (ap ue build writes the city level)")

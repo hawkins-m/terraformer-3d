@@ -85,7 +85,7 @@ def unreal_dirs(store: ProjectStore) -> dict[str, Path]:
     """The project's UE project folder and its backups (both outside the project folder)."""
     from . import ue
     try:
-        out = {"project": ue.project_dir(store), "backups": ue.backups_dir() / store.load().slug}
+        out = {"project": ue.project_dir(store), "backups": ue.project_backups_dir(store)}
     except Exception:  # noqa: BLE001  (a missing UE config must not break the size)
         return {}
     return {k: p for k, p in out.items() if p.is_dir()}

@@ -48,6 +48,16 @@ class ComfyClient:
                 f"`ap comfy start` (or Start ComfyUI in the app's Status box)") from e
         return r.json()
 
+    def queue_state(self) -> dict:
+        """{"running": n, "pending": n}: ComfyUI's own queue (GET /queue), whoever queued the jobs."""
+        try:
+            r = self.http.get("/queue")
+            r.raise_for_status()
+            q = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            raise ComfyUnavailable(f"ComfyUI's queue not readable at {self.url} ({e})") from e
+        return {"running": len(q.get("queue_running") or []), "pending": len(q.get("queue_pending") or [])}
+
     def free_memory(self) -> None:
         """Ask ComfyUI to unload its models and free cached VRAM (POST /free). ComfyUI keeps running
         and loads them again on its next job; used when one GPU is shared with TRELLIS and the VLM."""
