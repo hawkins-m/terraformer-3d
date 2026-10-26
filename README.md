@@ -129,6 +129,39 @@ ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
 ## Install
 
+### Setup wizard
+
+The quickest install is the setup wizard, a classic installer in your browser:
+
+```bash
+git clone https://github.com/hawkins-m/terraformer-3d.git && cd terraformer-3d
+scripts/install.sh                 # Windows: double-click windows\install.bat (below)
+```
+
+`scripts/install.sh` checks only what the wizard's own small server needs (Python 3.12 with venv,
+git, curl), starts it and opens <http://localhost:8705/>. The wizard does the rest: hardware
+profile, components (every model in [config/models.toml](config/models.toml) and the CC0 dressing
+assets, with sizes and free disk space), storage folder, ComfyUI / Blender / Unreal connections
+(each with a Test button), then installs the app, the `ap` command, the models (`ap models download`
+with resume and checksums) and the model runtimes ([installer/runtimes.toml](installer/runtimes.toml)).
+Keep the terminal open while it installs; if it closes, run the same command again (or `ap setup`)
+and it resumes: finished steps are skipped and partial downloads continue. On an installed system
+`ap setup` opens the same wizard to add components or change settings (`ap setup --terminal`
+asks in the terminal instead). The pages read the hardware profiles, the manifest and the setup
+items, so a new model or setting appears without changing the wizard. The steps below do the same
+by hand.
+
+| | | |
+|---|---|---|
+| ![1 Welcome](docs/images/installer/page-01.png) | ![2 License](docs/images/installer/page-02.png) | ![3 Hardware profile](docs/images/installer/page-03.png) |
+| 1 Welcome | 2 License | 3 Hardware profile |
+| ![4 Components](docs/images/installer/page-04.png) | ![5 Destination](docs/images/installer/page-05.png) | ![6 Connections](docs/images/installer/page-06.png) |
+| 4 Components | 5 Destination | 6 Connections |
+| ![7 Ready](docs/images/installer/page-07.png) | ![8 Installing](docs/images/installer/page-08.png) | ![9 Finish](docs/images/installer/page-09.png) |
+| 7 Ready to install | 8 Installing | 9 Finish |
+
+The screenshots show a synthetic machine (`scripts/installer_screenshots.py` renders them headless).
+
 ### Hardware profiles
 
 `ap setup` detects the GPU vendor, count and VRAM (`rocm-smi` / `nvidia-smi`) and preselects a
@@ -199,7 +232,8 @@ storage folder on a big drive, set it before downloading:
    the proxy's cancel route, so Stop falls back to `/queue` delete plus `/interrupt`. The proxy
    does not return 3D outputs; only the experimental Hunyuan path needs `httpx`.
 
-3. **Setup.** `ap setup` asks for the storage folder, the hardware profile, the ComfyUI backend
+3. **Setup.** `ap setup` opens the [setup wizard](#setup-wizard); `ap setup --terminal` asks in the
+   terminal instead for the storage folder, the hardware profile, the ComfyUI backend
    and address, Blender, Unreal (optional) and the GPU for each role; what it finds is pre-filled
    and each answer is tested. `ap setup --check` only tests, `ap setup --yes` takes what it
    found. The app opens the same Setup screen on first run (later: Tools › Setup…).
@@ -261,13 +295,14 @@ Windows one.
    - installs `Ubuntu-24.04` in WSL if it is missing (it asks first; Ubuntu then asks for a Linux
      user name and password), and converts it to WSL 2 if needed;
    - checks that `nvidia-smi` works inside WSL;
-   - clones the repo inside WSL at `~/terraformer-3d` and runs the Linux install there:
-     `scripts/install.sh --profile wsl-nvidia` (venv, `ap`, the profile, then `ap setup`);
+   - clones the repo inside WSL at `~/terraformer-3d`;
    - writes the launcher `%LOCALAPPDATA%\Terraformer\Terraformer.bat` and a **Terraformer**
-     shortcut in the Start Menu and on the desktop.
-2. Inside WSL (Start Menu › Ubuntu), do the rest of the [Steps](#steps) as on Linux: ComfyUI
-   (installed inside WSL), models, model runtimes, `ap doctor`. Skip
-   `scripts/setup_rocm_toolchain.sh` and `ap launcher install`.
+     shortcut in the Start Menu and on the desktop;
+   - starts the [setup wizard](#setup-wizard) inside WSL (`scripts/install.sh --profile wsl-nvidia`)
+     and opens it in your Windows browser; it installs the app, models and runtimes.
+2. Inside WSL (Start Menu › Ubuntu), install ComfyUI if you haven't (README step 2), then run
+   `ap doctor`. The by-hand [Steps](#steps) work too; skip `scripts/setup_rocm_toolchain.sh` and
+   `ap launcher install`.
 3. Start **Terraformer** from the Start Menu. It runs `ap ui` inside WSL and opens your default
    browser at <http://localhost:8700/>. Closing its window (or Ctrl+C in it) stops `ap ui`; an
    `ap ui` that was already running is left alone.

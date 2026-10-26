@@ -1,5 +1,7 @@
-# Images the privacy hook (scripts/git-hooks/pre-commit) lets into docs/images/: one file name per
-# line. Only the repo owner adds names here; agents ask first. Every other image is refused.
+# Images the privacy hook (scripts/git-hooks/pre-commit) lets into the repo: one path per line, below
+# docs/images/ (terraformer-main.png, installer/page-01.png) or, for installer art, from the repo
+# root (installer/assets/<name>). Only the repo owner adds names here; agents ask first. Every other
+# image is refused.
 terraformer-main.png    # main window, starter city (demo-a), approved 2026-10-18
 installer/assets/01-courtyard.png
 installer/assets/02-bridge.png
@@ -20,3 +22,14 @@ installer/assets/5a-green-wave.ico
 installer/assets/concept-banner-preview.mp4
 installer/assets/terraformer-5a-header-110.png
 installer/assets/terraformer-installer-sidebanner-1x1-9.png
+# setup wizard screenshots (scripts/installer_screenshots.py), approved 2026-10-26
+installer/page-01.png
+installer/page-02.png
+installer/page-03.png
+installer/page-04.png
+installer/page-05.png
+installer/page-06.png
+installer/page-07.png
+installer/page-08.png
+installer/page-09.png
+installer/all-pages.png

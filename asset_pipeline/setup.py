@@ -30,6 +30,7 @@ class Item:
     optional: bool = False
     when: str = ""                 # shown only when this holds: "backend=sdk", "backend=httpx", "paid"
     labels: dict = field(default_factory=dict)    # choice -> what the screen shows
+    wizard: str = "advanced"       # the setup wizard's page: hardware | storage | connections | advanced | none
 
 
 def _profile_item() -> "Item":
@@ -38,21 +39,24 @@ def _profile_item() -> "Item":
                 "Detected from rocm-smi / nvidia-smi; pick another to override. It sets the PyTorch build for the "
                 "model environments and the GPU for each job lane (below). NVIDIA is untested: the CUDA paths "
                 "have never run; Windows (WSL2) + NVIDIA is beta.", "choice", list(profiles.PROFILES),
-                labels={k: p.title for k, p in profiles.PROFILES.items()})
+                labels={k: p.title for k, p in profiles.PROFILES.items()}, wizard="hardware")
 
 
 ITEMS = [
     _profile_item(),
     Item("storage", "Storage folder", "paths.ap_root",
-         "Where projects, models, model environments and outputs go. Needs room: tens of GB for models.", "path"),
+         "Where projects, models, model environments and outputs go. Needs room: tens of GB for models.", "path",
+         wizard="storage"),
     Item("comfy_backend", "ComfyUI backend", "comfyui.backend",
          "sdk: the Comfy SDK through the local comfy-api-proxy (the default). httpx: ComfyUI's own HTTP API, no proxy.",
-         "choice", ["sdk", "httpx"]),
+         "choice", ["sdk", "httpx"], wizard="connections",
+         labels={"sdk": "Comfy SDK, through the local proxy", "httpx": "ComfyUI's own HTTP API (httpx)"}),
     Item("comfy_url", "ComfyUI address", "comfyui.url",
-         "The ComfyUI server the pipeline uses, e.g. http://127.0.0.1:8188. Install ComfyUI yourself (README step 2)."),
+         "The ComfyUI server the pipeline uses, e.g. http://127.0.0.1:8188. Install ComfyUI yourself (README step 2).",
+         wizard="connections"),
     Item("sdk_url", "Comfy API proxy address", "comfyui.sdk_url",
          "The local comfy-api-proxy the sdk backend talks to (install once: scripts/comfy_api_proxy.sh install). "
-         "`ap comfy start` starts it with ComfyUI.", when="backend=sdk"),
+         "`ap comfy start` starts it with ComfyUI.", when="backend=sdk", wizard="connections"),
     Item("comfy_launch", "ComfyUI launch command", "comfyui.service.launch",
          "How Start ComfyUI launches your server; {port} is filled in. Leave as is if you start ComfyUI yourself.",
          optional=True),
@@ -60,10 +64,10 @@ ITEMS = [
          "The folder the launch command runs in (your ComfyUI checkout).", "path", optional=True),
     Item("comfy_models_dir", "ComfyUI models folder", "comfyui.models_dir",
          "Your ComfyUI's models folder: `ap models download` puts the ComfyUI models there (found from a running "
-         "ComfyUI).", "path"),
+         "ComfyUI).", "path", wizard="connections"),
     Item("comfy_api_key", "Comfy account API key", "secret:COMFY_API_KEY",
          "Only for Comfy Cloud, a paid service (not the default, not needed for a local ComfyUI).", "secret",
-         optional=True, when="backend=sdk"),
+         optional=True, when="backend=sdk", wizard="connections"),
     Item("gemini_key", "Gemini API key", "secret:GEMINI_API_KEY",
          "Needed only because a default backend is Gemini (paid; runs need AP_ALLOW_PAID_APIS=1).", "secret",
          when="paid=gemini"),
@@ -72,26 +76,30 @@ ITEMS = [
          when="paid=claude"),
     Item("hf_token", "Hugging Face token", "secret:HF_TOKEN",
          "Only for gated models (FLUX.1 Redux dev; DINOv3 for TRELLIS): accept each license on its model page, then "
-         "paste a read token from huggingface.co/settings/tokens. `hf auth login` works too.", "secret", optional=True),
+         "paste a read token from huggingface.co/settings/tokens. `hf auth login` works too.", "secret", optional=True,
+         wizard="connections"),
     Item("models", "Models", "info:models",
          "The model files the pipeline needs (config/models.toml): `ap models list` shows each, `ap models download "
-         "--required` gets what's missing.", "info"),
+         "--required` gets what's missing.", "info", wizard="none"),
     Item("blender", "Blender", "tools.blender",
-         "The Blender executable (greybox, procedural buildings, renders). Blender 4.2 or newer.", "path"),
+         "The Blender executable (greybox, procedural buildings, renders). Blender 4.2 or newer.", "path",
+         wizard="connections"),
     Item("unreal", "Unreal Engine", "unreal.editor_cmd",
          "UnrealEditor-Cmd of a UE 5.8 install (<UnrealEngine>/Engine/Binaries/Linux/UnrealEditor-Cmd). "
-         "Without it the Unreal tab explains what is missing and everything else works.", "path", optional=True),
+         "Without it the Unreal tab explains what is missing and everything else works.", "path", optional=True,
+         wizard="connections"),
     Item("unreal_projects", "Unreal projects folder", "unreal.projects_dir",
          "Where the pipeline keeps its UE projects (one per project).", "path", optional=True),
     Item("vlm_model", "Vision model", "local.model",
          "32b reads plans best and needs ~28 GB on the vision GPU; 8b needs ~19 GB (Setup offers it when the "
          "32B doesn't fit).", "choice", ["32b", "8b"],
-         labels={"32b": "Qwen3-VL 32B (~28 GB VRAM, 24.4 GB download)", "8b": "Qwen3-VL 8B (~19 GB VRAM, 17.5 GB download)"}),
+         labels={"32b": "Qwen3-VL 32B (~28 GB VRAM, 24.4 GB download)", "8b": "Qwen3-VL 8B (~19 GB VRAM, 17.5 GB download)"},
+         wizard="hardware"),
     Item("gpu_vision", "GPU for TRELLIS and the vision model", "jobs.gpu0_gpu",
-         "GPU index for TRELLIS.2 and the local vision LLM.", "gpu"),
+         "GPU index for TRELLIS.2 and the local vision LLM.", "gpu", wizard="hardware"),
     Item("gpu_comfy", "GPU for ComfyUI", "jobs.comfy_gpu",
          "GPU index ComfyUI runs on (Start ComfyUI pins it there). With one GPU use the same index for both: "
-         "jobs then wait for each other.", "gpu"),
+         "jobs then wait for each other.", "gpu", wizard="hardware"),
 ]
 BY_ID = {i.id: i for i in ITEMS}
 
@@ -151,8 +159,11 @@ def _has_secret(item: Item) -> bool:
 # --- detection --------------------------------------------------------------------------------
 
 def _probe_comfy(url: str, timeout: float = 1.0) -> dict | None:
-    from .comfy.client import ComfyClient, ComfyError
-    import httpx
+    try:
+        from .comfy.client import ComfyClient, ComfyError
+        import httpx
+    except ImportError:                               # the setup wizard's bootstrap Python: no app packages yet
+        return None
     c = ComfyClient(url, timeout_s=timeout)
     c.http.timeout = httpx.Timeout(timeout)
     try:
@@ -230,24 +241,31 @@ def _comfy_models_dir(url: str) -> str:
     """The configured folder, else the one a running ComfyUI reports, else <ComfyUI folder>/models."""
     if config.get("comfyui.models_dir"):
         return str(config.get("comfyui.models_dir"))
-    from .comfy.client import ComfyClient, ComfyError
-    import httpx
-    c = ComfyClient(url, timeout_s=2)
-    c.http.timeout = httpx.Timeout(2)
     try:
-        ck = (c.folder_paths().get("checkpoints") or [""])[0]
-        if ck:
-            return str(Path(ck).parent)
-    except (ComfyError, httpx.HTTPError, ValueError):
-        pass
-    finally:
-        c.http.close()
+        from .comfy.client import ComfyClient, ComfyError
+        import httpx
+    except ImportError:                               # the setup wizard's bootstrap Python
+        ComfyClient = None
+    if ComfyClient is not None:
+        c = ComfyClient(url, timeout_s=2)
+        c.http.timeout = httpx.Timeout(2)
+        try:
+            ck = (c.folder_paths().get("checkpoints") or [""])[0]
+            if ck:
+                return str(Path(ck).parent)
+        except (ComfyError, httpx.HTTPError, ValueError):
+            pass
+        finally:
+            c.http.close()
     cwd = Path(os.path.expanduser(str(config.get("comfyui.service.cwd") or "~/ComfyUI")))
     return str(cwd / "models") if (cwd / "models").is_dir() else ""
 
 
 def _ue_projects_default() -> Path:
-    from . import ue
+    try:
+        from . import ue
+    except ImportError:                               # the setup wizard's bootstrap Python (no numpy yet)
+        return Path(config.get("unreal.projects_dir") or "~/Documents/Unreal Projects").expanduser()
     return ue.projects_dir()
 
 
@@ -312,6 +330,7 @@ def _test_storage(v: str, _all: dict) -> dict:
 
 
 def _test_comfy_url(v: str, _all: dict) -> dict:
+    import httpx  # noqa: F401 - the setup wizard's bootstrap Python lacks it: the wizard tests this after installing
     u = urlparse(v or "")
     if u.scheme not in ("http", "https") or not u.hostname:
         return _res(False, "Enter an address like http://127.0.0.1:8188.")

@@ -1,0 +1,50 @@
+# Model runtimes the setup wizard installs after the model downloads (asset_pipeline/installer.py),
+# in this order. A runtime runs when every `when` condition holds:
+#   "feature:NAME"         a selected component (config/models.toml) has that feature
+#   "SECTION.KEY=VALUE"    the setting as the wizard saves it (VALUE may use * and ?)
+# command runs from the repo root with AP_ROOT and AP_TORCH (the hardware profile's PyTorch build) set;
+# {SECTION.KEY} in it is filled from the config. Output goes to <storage>/logs/installer-<id>.log.
+# weight: how long it takes against the others (the overall progress bar). A runtime that finished
+# once is skipped on later runs (ap setup).
+
+[[runtime]]
+id = "comfy-api-proxy"
+label = "the Comfy API proxy"
+when = ["comfyui.backend=sdk"]
+command = ["scripts/comfy_api_proxy.sh", "install"]
+weight = 1
+
+[[runtime]]
+id = "vlm-llamacpp"
+label = "llama.cpp for the 32B vision model"
+when = ["feature:vlm", "local.model=32b"]
+command = ["scripts/install_llamacpp_vlm.sh", "llamacpp"]
+weight = 2
+
+[[runtime]]
+id = "vlm-transformers"
+label = "the 8B vision model's environment"
+when = ["feature:vlm", "local.model=8b"]
+command = ["scripts/install_qwen_vl.sh", "venv"]
+weight = 4
+
+[[runtime]]
+id = "segdepth"
+label = "the segmentation and depth environment"
+when = ["feature:segdepth"]
+command = ["scripts/install_segdepth.sh", "venv"]
+weight = 4
+
+[[runtime]]
+id = "rocm-toolchain"
+label = "the ROCm build toolchain for TRELLIS.2"
+when = ["feature:trellis", "hardware.profile=rocm-*"]
+command = ["scripts/setup_rocm_toolchain.sh"]
+weight = 2
+
+[[runtime]]
+id = "trellis2"
+label = "TRELLIS.2 and its extensions"
+when = ["feature:trellis"]
+command = ["scripts/install_trellis2.sh", "venv", "deps", "trellis", "nvdiffrast", "cumesh", "flexgemm", "ovoxel", "nvdiffrec", "verify"]
+weight = 20

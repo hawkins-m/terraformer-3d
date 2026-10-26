@@ -6,10 +6,11 @@
   1. Checks the Windows version (Windows 11, or Windows 10 21H2 / build 19044 or newer) and WSL.
   2. Installs WSL and Ubuntu if missing (asks first; installing WSL itself needs admin and a restart).
   3. Checks that nvidia-smi works inside WSL (the Windows NVIDIA driver provides it).
-  4. Clones the repo inside WSL (default ~/terraformer-3d: the WSL filesystem, not C:\) and runs the
-     normal Linux install there with the NVIDIA profile: scripts/install.sh --profile wsl-nvidia.
+  4. Clones the repo inside WSL (default ~/terraformer-3d: the WSL filesystem, not C:\).
   5. Installs the launcher: %LOCALAPPDATA%\Terraformer\Terraformer.bat, a Start Menu shortcut and a
      desktop shortcut.
+  6. Starts the setup wizard inside WSL with the NVIDIA profile (scripts/install.sh --profile wsl-nvidia)
+     and opens it in the Windows default browser; the wizard does the rest.
   Beta: none of this has run on a Windows machine yet. Run it from install.bat.
 
 .EXAMPLE
@@ -119,13 +120,6 @@ if (-not $LauncherOnly) {
             if ($LASTEXITCODE -ne 0) { Fail "git pull failed; update it by hand in WSL." }
         }
     }
-    $flags = "--profile wsl-nvidia" + $(if ($Yes) { " --yes" } else { "" })
-    Say "Running the Linux install inside WSL: scripts/install.sh $flags"
-    InWsl "cd $Checkout && bash scripts/install.sh $flags"
-    if ($LASTEXITCODE -ne 0) {
-        Fail "The Linux install stopped (see above). Fix it, then run install.bat again."
-    }
-    Ok "Terraformer installed in WSL"
 }
 
 # --- 5. Launcher and shortcuts -----------------------------------------------------------------
@@ -151,7 +145,17 @@ foreach ($l in $links) {
     Ok "Shortcut: $l"
 }
 
+# --- 6. The setup wizard ------------------------------------------------------------------------
+if (-not $LauncherOnly) {
+    Say ""
+    Say "Starting the setup wizard inside WSL (scripts/install.sh --profile wsl-nvidia); it opens in your browser."
+    Say "Keep this window open while it installs. Closing it pauses the install; run install.bat again to resume."
+    InWsl "cd $Checkout && bash scripts/install.sh --profile wsl-nvidia"
+    if ($LASTEXITCODE -ne 0) {
+        Fail "The setup wizard stopped (see above). Fix it, then run install.bat again: it resumes."
+    }
+}
+
 Say ""
 Say "Done. Start Terraformer from the Start Menu (or the desktop shortcut). It opens http://localhost:$Port/"
-Say "in your browser; closing its window stops it."
-Say "Still to do inside WSL (README, Windows section): ComfyUI, ap models download --required, the model runtimes, ap doctor."
+Say "in your browser; closing its window stops it. Change components or settings later with: ap setup (in WSL)."
