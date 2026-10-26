@@ -3,10 +3,11 @@
 #
 # Blocks staged changes that
 #   - add media / data files (images, video, meshes, .blend, arrays), or project-shaped
-#     files (briefs, layout/shot/greybox/review JSON). One exception: an image directly in
-#     docs/images/ whose file name is listed in docs/images/APPROVED.txt as committed (the
-#     staged version; one name per line, # comments). Only the repo owner adds names there;
-#     agents ask first;
+#     files (briefs, layout/shot/greybox/review JSON). One exception: a file listed in
+#     docs/images/APPROVED.txt as committed (the staged version; one path per line, # comments):
+#     an image in docs/images/ by its path below docs/images/ (terraformer-main.png,
+#     installer/page-01.png), or installer art by its repo path (installer/assets/<name>).
+#     Only the repo owner adds names there; agents ask first;
 #   - mention a project slug (every dir with a project.json under $AP_ROOT/projects) or a
 #     term listed in $AP_ROOT/private-terms.txt (one per line, # comments; kept outside
 #     the repo so the terms themselves never get committed).
@@ -22,8 +23,9 @@ approved=$(git show :docs/images/APPROVED.txt 2>/dev/null | sed 's/#.*//' | awk 
 bad_files=""
 for f in $media; do
   case "$f" in
-    docs/images/*/*) ;;                                  # never in a subfolder
     docs/images/*) printf '%s\n' "$approved" | grep -qxF -- "${f#docs/images/}" && continue ;;
+    installer/assets/*/*) ;;                             # installer art: never in a subfolder
+    installer/assets/*) printf '%s\n' "$approved" | grep -qxF -- "$f" && continue ;;
   esac
   bad_files="$bad_files $f"
 done

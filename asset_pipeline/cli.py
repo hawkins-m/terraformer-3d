@@ -113,9 +113,14 @@ def cmd_config(a) -> None:
 
 def cmd_setup(a) -> None:
     """ap setup: ask for each setting with the current or detected value pre-filled, test it,
-    write the user config. --yes takes the pre-filled values, --check only tests."""
+    write the user config. --yes takes the pre-filled values, --check only tests. Without any of
+    those (or --terminal, --set): the setup wizard in the browser (asset_pipeline/installer.py)."""
     import getpass
     from . import setup
+    if not (a.terminal or a.yes or a.check or a.set):
+        from . import installer
+        installer.serve(open_page=not a.no_open)
+        return
     st = setup.state()
     vals = {i["id"]: i["value"] or i["detected"] for i in st["items"]}
     for kv in a.set or []:
@@ -1490,7 +1495,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--json", action="store_true", help="the report as JSON (what the app's Status box shows)")
     p.set_defaults(fn=cmd_doctor)
 
-    p = sub.add_parser("setup", help="first-run setup: storage, ComfyUI, API keys, Blender, Unreal, GPUs (tests each)")
+    p = sub.add_parser("setup", help="the setup wizard in your browser (components, storage, ComfyUI, Blender, Unreal, GPUs); "
+                                     "--terminal, --yes or --check ask and test in this terminal instead")
+    p.add_argument("--terminal", action="store_true", help="ask in this terminal instead of opening the wizard")
+    p.add_argument("--no-open", action="store_true", help="wizard: print its address instead of opening the browser")
     p.add_argument("--yes", action="store_true", help="take the current or detected values without asking")
     p.add_argument("--check", action="store_true", help="only test the current settings; write nothing")
     p.add_argument("--set", action="append", metavar="ITEM=VALUE",

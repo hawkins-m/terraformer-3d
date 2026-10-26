@@ -204,3 +204,36 @@ def test_pre_commit_lets_only_approved_docs_images_through(tmp_path):
     assert "shot.png" in commit("shot.png").stderr                          # anywhere else: refused as before
     (img / "APPROVED.txt").write_text("ok.png\nother.png\n")                # listed but the list not staged
     assert commit("docs/images/other.png").returncode != 0
+
+
+def test_pre_commit_lets_listed_subfolder_images_and_installer_art_through(tmp_path):
+    """APPROVED.txt names docs/images subfolder images by their path below docs/images/ and installer
+    art by its repo path; nothing unlisted passes."""
+    repo, root = tmp_path / "r", tmp_path / "root"
+    repo.mkdir(), root.mkdir()
+    env = {"AP_ROOT": str(root), "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+
+    def git(*a):
+        return subprocess.run(["git", *a], cwd=repo, capture_output=True, text=True,
+                              env={"PATH": os.environ["PATH"], "HOME": str(tmp_path), **env})
+    git("init", "-q")
+    git("config", "core.hooksPath", str(REPO / "scripts" / "git-hooks"))
+    for name in ("docs/images/installer/page-01.png", "docs/images/installer/page-02.png",
+                 "installer/assets/banner.png", "installer/assets/other.png", "installer/assets/sub/banner.png"):
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_bytes(b"\x89PNG")
+    (repo / "docs/images/APPROVED.txt").write_text("installer/page-01.png\ninstaller/assets/banner.png\n"
+                                                   "installer/assets/sub/banner.png\n")
+    git("add", "docs/images/APPROVED.txt")
+    assert git("commit", "-qm", "list").returncode == 0
+
+    def commit(path):
+        git("reset", "-q")
+        git("add", path)
+        return git("commit", "-qm", "x").returncode
+    assert commit("docs/images/installer/page-01.png") == 0
+    assert commit("installer/assets/banner.png") == 0
+    assert commit("docs/images/installer/page-02.png") != 0          # not listed
+    assert commit("installer/assets/other.png") != 0
+    assert commit("installer/assets/sub/banner.png") != 0            # installer art: never in a subfolder

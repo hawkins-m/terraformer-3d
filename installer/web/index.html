@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terraformer Setup</title>
+<link rel="icon" href="assets/5a-green-wave-32.png" sizes="32x32">
+<link rel="icon" href="assets/5a-green-wave.ico" sizes="any">
+<link rel="stylesheet" href="web/wizard.css">
+</head>
+<body>
+<div class="backdrop-title">Terraformer <span>Setup</span></div>
+<div class="window" id="win" role="dialog" aria-labelledby="win-title">
+  <div class="titlebar">
+    <img class="titleicon" src="assets/5a-green-wave-16.png" alt="" data-fallback="assets/5a-green-wave.ico">
+    <span id="win-title">Terraformer Setup</span>
+    <button class="tb-close" id="tb-close" title="Cancel" aria-label="Cancel">&#x2715;</button>
+  </div>
+  <div class="header" id="header" hidden>
+    <div class="h-text"><div class="h-title" id="h-title"></div><div class="h-sub" id="h-sub"></div></div>
+    <img class="h-icon" id="h-icon" src="assets/terraformer-5a-header-110.png" alt="" data-fallback="assets/5a-green-wave.ico">
+  </div>
+  <div class="body" id="body"></div>
+  <div class="footer">
+    <span class="brand">Terraformer</span>
+    <button class="speaker" id="speaker" title="Sound on (click to mute)" aria-label="Mute sounds" aria-pressed="false"></button>
+    <div class="buttons">
+      <button class="btn" id="btn-back">&lt; Back</button><button class="btn" id="btn-next">Next &gt;</button>
+      <button class="btn cancel" id="btn-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
+<script src="web/wizard-core.js"></script>
+<script src="web/wizard.js"></script>
+</body>
+</html>

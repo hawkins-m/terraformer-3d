@@ -152,3 +152,8 @@ dinov3_repo = ""
 [hardware]
 profile = ""
 torch = ""
+
+# The setup wizard (scripts/install.sh, windows/install.bat, `ap setup`): its local server's port
+# (the next free one when taken).
+[installer]
+port = 8705
