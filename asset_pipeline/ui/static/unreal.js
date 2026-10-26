@@ -46,6 +46,7 @@ function ueBuildReport(r) {
     `<div class="${placeOk ? "" : "error"}">${esc(place[0])}</div>` +
     (place.length > 1 ? `<ul>${place.slice(1).map(l => `<li>${esc(l.trim())}</li>`).join("")}</ul>` : "") +
     ((r.active_models || []).length ? `<ul>${r.active_models.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : "") +
+    dressReport(r.dressing) +
     (r.warnings.length ? `<div>${n(r.warnings.length, "warning", "warnings")}:</div><ul>${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
 }
 
@@ -58,6 +59,7 @@ function renderUnreal() {
   $("#ue-build-state").innerHTML = buildWhy ? `<span class="${u.editor_open ? "error" : "ue-why"}">${esc(buildWhy)}</span>`
     : building.length ? "Progress and Stop: Jobs panel." : "";
   setStop("#ue-build-stop", building);
+  if (dressFor !== slug) loadDressing();
   $("#ue-build-report").hidden = !u.build;
   $("#ue-build-report").innerHTML = ueBuildReport(u.build);
   const steps = ueSteps(u), running = k => activeJobs(k).length > 0;
@@ -109,7 +111,8 @@ async function ueBackup(force = false) {
 
 // `ap ue build` as a job (api() asks first when the estimate is long); the report shows on the tab.
 async function ueBuild() {
-  const body = {use_active: $("#ueb-active").checked, keep_hand_moves: $("#ueb-keep").checked, render: $("#ueb-render").checked};
+  const body = {use_active: $("#ueb-active").checked, keep_hand_moves: $("#ueb-keep").checked, render: $("#ueb-render").checked,
+    dressing: dressData ? dressOpts() : null};
   if (!body.keep_hand_moves && !(await confirmDialog({title: "Reset layout", button: "Build and reset", danger: true, id: "ue-build-reset",
     body: "<p>Every actor goes back to the plan's spot: moves you made in Unreal are lost (the build backs up the UE project first).</p>"}))) return;
   let j;
@@ -141,3 +144,126 @@ function ueLookNewDialog() {
     }}, {label: "Cancel"}]});
 }
 $("#ue-backup").onclick = () => ueBackup();
+
+// --- World dressing (under Build): options remembered per project, sent with each build ------------
+// GET ue/dressing gives the options, the Megascans mapping, each option's label, performance tag and
+// tooltip, the CC0 defaults' state and whether this Unreal has the Fab plugin.
+let dressData = null, dressFor = null, dressSaveT = null;
+const DRESS_CHECKS = {ground: "#dr-ground", rocks: "#dr-rocks", vegetation: "#dr-vegetation", megascans: "#dr-megascans"};
+
+async function loadDressing() {
+  dressFor = slug;
+  if (!slug) return;
+  try { dressData = await api(`/api/projects/${slug}/ue/dressing`, undefined, "GET"); }
+  catch (err) { dressData = null; $("#dr-state").textContent = `World dressing unavailable: ${errorText(err)}`; return; }
+  const o = dressData.options;
+  for (const [k, sel] of Object.entries(DRESS_CHECKS)) $(sel).checked = !!o[k];
+  $("#dr-rock-density").value = o.rock_density;
+  $("#dr-veg-density").value = o.vegetation_density;
+  for (const r of document.querySelectorAll('input[name="dr-water"]')) r.checked = r.value === o.water;
+  renderDressing();
+}
+
+function dressOpts() {
+  const w = document.querySelector('input[name="dr-water"]:checked');
+  return {ground: $("#dr-ground").checked, rocks: $("#dr-rocks").checked, rock_density: +$("#dr-rock-density").value,
+    vegetation: $("#dr-vegetation").checked, vegetation_density: +$("#dr-veg-density").value,
+    water: w ? w.value : "off", megascans: $("#dr-megascans").checked, seed: dressData ? dressData.options.seed : 1};
+}
+
+// The current Megascans mapping, one role per line (the Megascans tooltip).
+function dressMapping() {
+  const lib = dressData.library || {};
+  const lines = Object.keys(dressData.roles).map(r => `${r}: ${lib[r] ? lib[r].split("/").pop().split(".")[0] : "(free CC0 / fallback)"}`);
+  return `Mapping:\n${lines.join("\n")}`;
+}
+
+function renderDressing() {
+  if (!dressData) return;
+  const L = dressData.labels, o = dressOpts();
+  for (const el of document.querySelectorAll("#ue-dress .perf")) el.textContent = (L[el.dataset.perf] || {}).perf || "";
+  const tip = (sel, k) => { const lab = $(sel).closest("label"); lab.title = L[k].tip; };
+  tip("#dr-ground", "ground"); tip("#dr-rocks", "rocks"); tip("#dr-vegetation", "vegetation");
+  for (const r of document.querySelectorAll('input[name="dr-water"]'))
+    r.closest("label").title = r.value === "off" ? "Leave the sea plane as it is." : L[`water_${r.value}`].tip;
+  $("#dr-megascans").closest("label").title = `${L.megascans.tip}\n\n${dressData.plugin.help}\n\n${dressMapping()}`;
+  $("#dr-find").title = "Scan the Unreal project's Content (/Game/Fab, /Game/Megascans, /Game/Quixel and your folders) " +
+    "for Megascans meshes, foliage and surfaces, and propose which role each fills.\n\n" + dressData.plugin.help;
+  $("#dr-rock-density").disabled = !o.rocks;
+  $("#dr-veg-density").disabled = !o.vegetation;
+  $("#dr-rock-density").nextElementSibling.textContent = `×${o.rock_density.toFixed(2)}`;
+  $("#dr-veg-density").nextElementSibling.textContent = `×${o.vegetation_density.toFixed(2)}`;
+  // what the free defaults still need to download (on the first build that uses them)
+  const used = Object.entries(dressData.roles).filter(([, v]) => o[v.option]).map(([r]) => r);
+  const missing = used.filter(r => dressData.cc0[r] && dressData.cc0[r].state !== "installed");
+  const mapped = o.megascans ? used.filter(r => (dressData.library || {})[r]).length : 0;
+  $("#dr-state").textContent = !used.length && o.water === "off" ? "No dressing: the build removes what an earlier one placed." :
+    [mapped ? `${mapped} of ${used.length} roles from Megascans` : "",
+     missing.length ? `${missing.length} free CC0 asset${missing.length === 1 ? "" : "s"} download on the first build` : "",
+     o.water === "ocean" ? "Ocean enables the Water plugin in the .uproject" : ""].filter(Boolean).join(" · ");
+}
+
+function dressChanged() {
+  renderDressing();
+  clearTimeout(dressSaveT);
+  dressSaveT = setTimeout(async () => {
+    try { await api(`/api/projects/${slug}/ue/dressing`, dressOpts()); dressData.options = dressOpts(); }
+    catch (err) { $("#dr-state").textContent = `Not saved: ${errorText(err)}`; }
+  }, 400);
+}
+for (const el of document.querySelectorAll("#ue-dress input")) el.addEventListener(el.type === "range" ? "input" : "change", dressChanged);
+
+// Build report: which options ran, instances per role, the source of each role.
+function dressReport(d) {
+  if (!d || !d.ran) return "";
+  if (!d.ran.length) return `<div>World dressing: off${(d.removed || []).length ? ` (removed ${esc(d.removed.join(", "))})` : ""}</div>`;
+  const counts = Object.entries(d.counts || {}).filter(([, n]) => n).map(([r, n]) => `${r} ${n.toLocaleString("en")}`);
+  const by = {};
+  for (const [r, s] of Object.entries(d.sources || {})) (by[s] = by[s] || []).push(r);
+  return `<div>World dressing: ${esc(d.ran.join(", "))}${d.placed === false ? " (instances unchanged)" : ""}</div><ul>` +
+    (counts.length ? `<li>${esc(counts.join(", "))}</li>` : "") +
+    Object.entries(by).map(([s, rs]) => `<li>${esc(s)}: ${esc(rs.join(", "))}</li>`).join("") +
+    (d.water ? `<li>water: ${esc(d.water)}</li>` : "") +
+    (d.warnings || []).map(w => `<li class="error">${esc(w)}</li>`).join("") + "</ul>";
+}
+
+// Find my assets: scan, then a role -> asset table to edit (a list of what was found, or a path typed in).
+async function dressFind() {
+  if (!dressData) await loadDressing();
+  let s;
+  try { s = await api(`/api/projects/${slug}/ue/dressing/scan`, {}); }
+  catch (err) { alert(errorText(err)); return; }
+  const lib = s.library || {};
+  const rows = Object.entries(dressData.roles).map(([r, v]) => {
+    const cands = s.candidates[r] || [], cur = lib[r] || "", pick = cur || s.proposal[r] || "";
+    const opts = [["", "(none: free CC0 / fallback)"], ...cands.map(c => [c.path, `${c.name} (${c.class.replace("_", " ")})`])];
+    if (cur && !cands.some(c => c.path === cur)) opts.push([cur, `${cur.split("/").pop()} (current, not found)`]);
+    return `<tr><th scope="row" title="${esc(v.what)}">${esc(r)}</th><td><select data-role="${esc(r)}" data-initial="${esc(pick)}" aria-label="${esc(r)}">` +
+      opts.map(([p, t]) => `<option value="${esc(p)}"${p === pick ? " selected" : ""}>${esc(t)}</option>`).join("") +
+      `</select></td><td>${cands.length} found${!cur && s.proposal[r] ? " · proposed" : ""}</td></tr>`;
+  }).join("");
+  const found = Object.values(s.candidates).reduce((n, c) => n + c.length, 0);
+  formDialog({title: "Megascans for world dressing", id: "dress-map-dialog",
+    html: `<p class="hint" style="grid-column:1/-1">Scanned ${s.folders_scanned.length} folder(s) in ${esc(s.content)}: ${found} matching asset(s).
+        ${found ? "" : esc(dressData.plugin.help)}</p>
+      <table class="dress-map" style="grid-column:1/-1"><thead><tr><th>Role</th><th>Unreal asset</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+      <label for="dm-folders">Also scan:</label><input id="dm-folders" placeholder="/Game/MyPacks, /Game/Environment" value="${esc((dressData.folders || []).join(", "))}">
+      <label for="dm-path">Or type a path:</label><input id="dm-path" placeholder="role=/Game/Fab/.../SM_Name.SM_Name">`,
+    buttons: [{label: "Save mapping", default: true, onClick: async win => {
+      const library = {};
+      // "" only where you changed a role to none: roles nothing was found for stay open to later scans
+      for (const sel of win.querySelectorAll("select[data-role]"))
+        if (sel.value || sel.value !== sel.dataset.initial || (sel.dataset.role in lib)) library[sel.dataset.role] = sel.value;
+      const typed = $("#dm-path", win).value.trim().match(/^(\w+)\s*=\s*(\/Game\/\S+)$/);
+      if (typed) library[typed[1]] = typed[2];
+      const folders = $("#dm-folders", win).value.split(",").map(x => x.trim()).filter(Boolean);
+      try { const r = await api(`/api/projects/${slug}/ue/dressing/library`, {library, folders}); dressData.library = r.library; dressData.folders = folders; }
+      catch (err) { alert(errorText(err)); return false; }
+      renderDressing();
+    }}, {label: "Scan again", onClick: async win => {
+      const folders = $("#dm-folders", win).value.split(",").map(x => x.trim()).filter(Boolean);
+      try { await api(`/api/projects/${slug}/ue/dressing/scan`, {folders}); dressData.folders = folders; } catch (err) { alert(errorText(err)); }
+      setTimeout(dressFind, 0);
+    }}, {label: "Cancel"}]});
+}
+$("#dr-find").onclick = () => dressFind();

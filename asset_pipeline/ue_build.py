@@ -70,8 +70,8 @@ def render_gpu(comfy_up: bool, vram: dict[int, float]) -> tuple[int | None, str]
 
 
 # the stages the UI shows (Jobs panel), in run order, and the build step each one covers
-STAGES = ["backup", "export", "terrain", "lighting", "import", "check"]
-STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "lighting": "lighting",
+STAGES = ["backup", "export", "terrain", "dressing", "lighting", "import", "check"]
+STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "dressing": "dressing", "lighting": "lighting",
             "level read": "import", "import": "import", "check": "check", "render": "render"}
 
 
@@ -142,11 +142,13 @@ def _record_times(store: ProjectStore, steps: dict, lib: dict, rep: dict) -> Non
 
 
 def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = False, render: bool = False,
-          log=print, on_step=None, progress: dict | None = None) -> dict:
-    """on_step(name): called as each step starts (the UI job's stage). Under a UI job, Stop
+          log=print, on_step=None, progress: dict | None = None, dressing=None) -> dict:
+    """dressing: schema.DressingOptions for this build (remembered for the project); None = the
+    project's last-used ones. on_step(name): called as each step starts (the UI job's stage). Under a UI job, Stop
     is checked between steps (the editor and Blender runs stop at once: blender.run_logged).
     progress: a dict (the UI job's tag) kept up to date with stage_t0 (the current stage's
     start), hv_started and hv_t0 (height variants started, the first one's start)."""
+    from . import dressing as dress
     from . import look, terrain_build, vertical
     from .jobs import check_canceled
     t0 = time.time()
@@ -184,6 +186,9 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
         step("terrain assets", lambda: terrain_build.ue_assets(store))
     elif not (store.root / terrain_build.FAR_DIR / "outer.glb").is_file():
         warnings.append("no outer ring built (ap terrain outer): the terrain-outer greybox stays")
+    opts = dressing if dressing is not None else dress.options(store)
+    dress.save(store, opts)
+    drec = step("dressing", lambda: dress.prepare(store, opts, log=log))
     light = step("lighting", lambda: look.city_lighting(store))
     ue_slots, ue_shots = step("level read", lambda: _level_actors(store, man["map"]))
     reset_only = None
@@ -195,7 +200,8 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
             log(f"kept {len(cls['hand'])} slot(s) moved by hand in Unreal")
     expect = expected_prune(ue_slots, ue_shots, man)
     rep = step("import", lambda: ue.import_(store, reset_layout=reset_layout or reset_only is not None, prune=True,
-                                            expect=expect, reset_only=reset_only, lighting=light))
+                                            expect=expect, reset_only=reset_only, lighting=light,
+                                            dressing=s7_export.export_dir(store) / "dressing.json"))
     warnings += rep.get("warnings", [])
     if rep.get("prune_refused") is not None:
         warnings.append(f"prune refused: {rep['prune_refused']} orphans, expected {expect}")
@@ -235,9 +241,10 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
            "pruned": len(rep.get("pruned", [])), "terrain_outer": bool(rep.get("terrain_outer")),
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
            "placement": placement, "active_models": lib.get("active_models", []),
+           "dressing": dress.summary(drec, rep),
            "steps": steps, "seconds": round(time.time() - t0, 1)}
     _record_times(store, steps, lib, rep)
-    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models")},
+    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models", "dressing")},
                    "placement_ok": None if placement is None else placement["ok"]})
     return out
 
@@ -254,6 +261,8 @@ def report_lines(r: dict) -> list[str]:
              + (f"; {r['shots']} shots rendered" if r["shots"] is not None else ""),
              f"time: {r['seconds'] / 60:.1f} min (" + ", ".join(f"{k} {v:.0f} s" for k, v in r["steps"].items()) + ")"]
     lines += r.get("active_models") or []
+    from .dressing import report_lines as dressing_lines
+    lines += dressing_lines(r.get("dressing") or {})
     if r.get("placement") is not None:
         from .placement_check import lines as check_lines
         lines += check_lines(r["placement"])

@@ -8,7 +8,8 @@ a disk-space check first, checksum verification, and progress as text or JSON li
 one event per line, for an installer's progress bar). Gated repos get exact instructions.
 
 Roots: comfyui -> [comfyui] models_dir; models -> <storage>/models; hf_cache -> <storage>/hf/hub
-(the Hugging Face cache layout: blobs/<hash> plus snapshots/<revision>/<path> links).
+(the Hugging Face cache layout: blobs/<hash> plus snapshots/<revision>/<path> links); dressing ->
+<storage>/dressing (CC0 world-dressing assets from ambientCG and Poly Haven: files with a direct url).
 """
 import hashlib
 import json
@@ -25,6 +26,8 @@ from . import config
 MANIFEST = config.REPO_ROOT / "config" / "models.toml"
 NEEDS = ("required", "local.model", "optional", "experimental")
 DISK_MARGIN = 2 * 1024**3                        # keep 2 GB free on top of the downloads
+# repos that aren't on the hub ("<site>:<asset id>", their files carry a url): the asset's page
+SITE_PAGES = {"ambientcg": "https://ambientcg.com/view?id={}", "polyhaven": "https://polyhaven.com/a/{}"}
 
 
 @dataclass
@@ -34,6 +37,7 @@ class File:
     size: int
     sha256: str | None = None
     git_sha1: str | None = None
+    url: str = ""                                # a direct download (CC0 sites); "" = the hub's resolve URL
 
     @property
     def checksum(self) -> str:
@@ -82,7 +86,11 @@ class Model:
 
     @property
     def page(self) -> str:
-        return f"https://huggingface.co/{self.source().repo}"
+        repo = self.source().repo
+        site, _, aid = repo.partition(":")
+        if site in SITE_PAGES and aid:
+            return SITE_PAGES[site].format(aid)
+        return f"https://huggingface.co/{repo}"
 
 
 def _files(rows) -> list[File]:
@@ -135,6 +143,8 @@ def root_dir(root: str) -> Path | None:
         return config.ap_root() / "models"
     if root == "hf_cache":
         return config.ap_root() / "hf" / "hub"
+    if root == "dressing":
+        return config.ap_root() / "dressing"
     raise ValueError(f"unknown root {root!r}")
 
 
@@ -355,7 +365,7 @@ def _fetch(url: str, part: Path, f: File, token: str | None, emit, ctx: dict, mo
             for chunk in iter(lambda: fh.read(1 << 22), b""):
                 h.update(chunk)
     emit("file_start", model=model_id, file=f.dest, size=f.size, resume_from=start)
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    headers = {"User-Agent": "terraformer"} | ({"Authorization": f"Bearer {token}"} if token else {})
     if start and start < f.size:
         headers["Range"] = f"bytes={start}-"
     own = client is None
@@ -490,8 +500,8 @@ def download(models: list[Model], emit=None, dry_run: bool = False, client=None)
         try:
             for f in files:
                 part = _part(m, f, src)
-                url = f"{endpoint()}/{src.repo}/resolve/{src.revision}/{f.src}"
-                _fetch(url, part, f, token, emit, ctx, m.id, client)
+                url = f.url or f"{endpoint()}/{src.repo}/resolve/{src.revision}/{f.src}"
+                _fetch(url, part, f, None if f.url else token, emit, ctx, m.id, client)
                 _install(m, f, src, part)
                 emit("file_done", model=m.id, file=f.dest)
             emit("model_done", model=m.id, where=status(m)["where"])

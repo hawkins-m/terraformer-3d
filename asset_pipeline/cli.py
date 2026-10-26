@@ -1282,13 +1282,39 @@ def cmd_ue(a) -> None:
         from . import ue_build
         if a.reset_layout and a.only_stale:
             raise SystemExit("--reset-layout or --only-stale, not both (build keeps hand moves by default: --only-stale)")
-        r = ue_build.build(store, use_active=a.use_active, reset_layout=a.reset_layout, render=a.render)
+        from . import dressing
+        off = {k: False for k in ("ground", "rocks", "vegetation", "megascans")} | {"water": "off"} if a.no_dressing else {}
+        opts = dressing.merged(store, **(off | {k: getattr(a, v) for k, v in DRESS_FLAGS.items() if getattr(a, v) is not None}))
+        r = ue_build.build(store, use_active=a.use_active, reset_layout=a.reset_layout, render=a.render, dressing=opts)
         print("\n".join(ue_build.report_lines(r)))
+    elif a.action == "scan-assets":
+        from . import dressing
+        if a.folder:
+            dressing.save(store, folders=_unique(dressing._unreal(store).dressing_folders + a.folder))
+        s = dressing.scan(store)
+        print(f"scanned {len(s['folders_scanned'])} folder(s) under {s['content']}")
+        lib = dict(dressing._unreal(store).dressing_library)
+        for role in dressing.ROLES:
+            n, new = len(s["candidates"][role]), s["proposal"].get(role)
+            print(f"  {role:13} {lib.get(role) or '-':60} " + (f"proposed: {new} ({n} found)" if new and new != lib.get(role) else f"{n} found"))
+        if a.apply:
+            dressing.save(store, library=lib | s["proposal"])
+            print("saved the proposed mapping (roles found); your other roles kept")
+        p = dressing.plugin_status()
+        print(p["help"])
     elif a.action == "backup":
         rep = ue.backup(store, keep=a.keep, force=a.force)
         print(f"{rep['snapshot']}: {rep['files']} files, {rep['new_mb']} MB new (the rest hard-linked), "
               f"{rep['seconds']} s; keeping {len(rep['kept'])}"
               + (f", removed {', '.join(rep['removed'])}" if rep["removed"] else ""))
+
+
+DRESS_FLAGS = {"ground": "ground", "rocks": "rocks", "rock_density": "rock_density", "vegetation": "dress_vegetation",
+               "vegetation_density": "vegetation_density", "water": "water", "megascans": "megascans", "seed": "dress_seed"}
+
+
+def _unique(xs: list) -> list:
+    return list(dict.fromkeys(xs))
 
 
 def cmd_terrain(a) -> None:
@@ -1416,7 +1442,7 @@ def main(argv: list[str] | None = None) -> None:
         p.add_argument("names", nargs="*", help="model ids from `ap models list`")
         p.add_argument("--required", action="store_true", help="every required model")
         p.add_argument("--all", action="store_true", help="every model but the experimental ones")
-        p.add_argument("--feature", choices=["comfy", "vlm", "segdepth", "trellis"], help="only this feature's models")
+        p.add_argument("--feature", choices=["comfy", "vlm", "segdepth", "trellis", "dressing"], help="only this feature's models (dressing: CC0 world-dressing assets)")
         p.add_argument("--json", action="store_true", help="progress as JSON lines (event, model, file, done, total, ...)")
         if name == "download":
             p.add_argument("--dry-run", action="store_true", help="show the plan and the disk check; download nothing")
@@ -1876,9 +1902,11 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
-    p.add_argument("action", choices=["build", "init", "import", "stale", "render", "look", "pull-layout", "backup"],
-                   help="build: the whole city headless (backup, export with library builds, terrain, import, "
-                        "light, optional --render; keeps hand moves unless --reset-layout)")
+    p.add_argument("action", choices=["build", "init", "import", "stale", "render", "look", "pull-layout", "backup",
+                                      "scan-assets"],
+                   help="build: the whole city headless (backup, export with library builds, terrain, dressing, import, "
+                        "light, optional --render; keeps hand moves unless --reset-layout); scan-assets: find Megascans "
+                        "in the UE project and propose the dressing library (--apply saves it)")
     p.add_argument("project")
     p.add_argument("shots", nargs="*", help="render: only these shots; look: the look preset's name "
                                             "(site/look_tests/NAME.json: a shot rebuilt in a level of its own)")
@@ -1899,6 +1927,21 @@ def main(argv: list[str] | None = None) -> None:
                    help="build: place every built asset's Active version, approved or not (previews)")
     p.add_argument("--render", action="store_true",
                    help="build: render the shots afterwards (GPU 1, only while ComfyUI is down)")
+    dg = p.add_argument_group("world dressing (build; unset = the project's last-used choice, which these update)")
+    bo = argparse.BooleanOptionalAction
+    dg.add_argument("--ground", action=bo, default=None, help="ground textures by slope and height (Light)")
+    dg.add_argument("--rocks", action=bo, default=None, help="rock clusters on open ground (Light-Medium)")
+    dg.add_argument("--rock-density", type=float, metavar="X", help="rocks: x the default count (0.1-4)")
+    dg.add_argument("--dress-vegetation", action=bo, default=None,
+                    help="tree meshes for placeholder trees, shrubs and grass in green zones (Medium-Heavy)")
+    dg.add_argument("--vegetation-density", type=float, metavar="X", help="shrubs, grass, olives: x the default (0.1-4)")
+    dg.add_argument("--water", choices=["off", "simple", "ocean"], help="simple sea material (Light) or the Water "
+                    "plugin's ocean (Heavy, experimental; falls back to simple)")
+    dg.add_argument("--megascans", action=bo, default=None, help="use the dressing library's Megascans where mapped")
+    dg.add_argument("--dress-seed", type=int, metavar="N", help="placement seed")
+    dg.add_argument("--no-dressing", action="store_true", help="every dressing option off (removes what was placed)")
+    p.add_argument("--folder", action="append", metavar="/Game/...", help="scan-assets: also scan this folder (remembered)")
+    p.add_argument("--apply", action="store_true", help="scan-assets: save the proposed mapping")
     p.add_argument("--keep", type=int, help="backup: snapshots to keep (default: config [unreal] backup_keep, 10)")
     p.add_argument("--force", action="store_true", help="backup: even while an editor has the project open")
     p.set_defaults(fn=cmd_ue)

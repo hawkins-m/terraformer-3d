@@ -423,3 +423,139 @@ files = [
   { src = "model.safetensors", dest = "model.safetensors", size = 1212559808, sha256 = "dcb2e45127cccbf1601e5f42fef165eea275c8e5213197e8dcf3f48822718179" },
   { src = "preprocessor_config.json", dest = "preprocessor_config.json", size = 585, git_sha1 = "0126173c1ab7b75bbd9102e37de8a56ffe0a012b" },
 ]
+
+# --- World dressing defaults (CC0): ap ue build's ground textures, rocks and shrubs when Megascans
+# are off or lack a role (asset_pipeline/dressing.py). Fetched on first use, or
+# `ap models download --feature dressing --all`. Roles without a suitable CC0 asset (umbrella
+# pine, cypress, olive, grass tufts) get a stylised Blender mesh instead (scripts/blender_dressing.py).
+
+[[model]]
+id = "cc0-grass004"
+title = "ambientCG Grass 004 (2K)"
+used_by = "World dressing: ground_grass (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:Grass004"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "ground_grass"
+files = [
+  { src = "Grass004_2K-JPG.zip", dest = "ambientcg/Grass004/Grass004_2K-JPG.zip", size = 39900302, sha256 = "d7d3f08e8bb1e59aed0c3dbb85ea0b46d5308481f89b6a3fd62c0ec9e862245b", url = "https://ambientcg.com/get?file=Grass004_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-ground106"
+title = "ambientCG Ground 106 (2K)"
+used_by = "World dressing: ground_dirt (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:Ground106"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "ground_dirt"
+files = [
+  { src = "Ground106_2K-JPG.zip", dest = "ambientcg/Ground106/Ground106_2K-JPG.zip", size = 34247201, sha256 = "97c4b62b7595516a5f1972ab7ea1bd814deb8aa76fa7f319e7fe52c9329e81e5", url = "https://ambientcg.com/get?file=Ground106_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-rock030"
+title = "ambientCG Rock 030 (2K)"
+used_by = "World dressing: ground_rock (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:Rock030"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "ground_rock"
+files = [
+  { src = "Rock030_2K-JPG.zip", dest = "ambientcg/Rock030/Rock030_2K-JPG.zip", size = 33491328, sha256 = "18992ddc09f8f0cc60eceb875243c0c2449666c662ab7fedbd8bdea4b3d15a99", url = "https://ambientcg.com/get?file=Rock030_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-ground093c"
+title = "ambientCG Ground 093 C (2K)"
+used_by = "World dressing: ground_sand (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:Ground093C"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "ground_sand"
+files = [
+  { src = "Ground093C_2K-JPG.zip", dest = "ambientcg/Ground093C/Ground093C_2K-JPG.zip", size = 18689560, sha256 = "7f0223582641a1407ff6050029ed46ad3c4e66f21a15ffb51880d092617f9ecf", url = "https://ambientcg.com/get?file=Ground093C_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-rock-07"
+title = "Poly Haven Rock 07 (1k glTF)"
+used_by = "World dressing: rock_small (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "polyhaven:rock_07"
+revision = "1k"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "rock_small"
+files = [
+  { src = "rock_07_1k.gltf", dest = "polyhaven/rock_07/rock_07_1k.gltf", size = 2979, sha256 = "efcc2dcaa133ff8ad5c865dc2135772e8f5dbc83fa38db2ee2cf25382436b6e6", url = "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_07/rock_07_1k.gltf" },
+  { src = "rock_07.bin", dest = "polyhaven/rock_07/rock_07.bin", size = 468936, sha256 = "e4a532a6d6cf4a08c288f501b790f32cba0528136a29959ce774c3cd39369e7e", url = "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/rock_07/rock_07.bin" },
+  { src = "textures/rock_07_arm_1k.jpg", dest = "polyhaven/rock_07/textures/rock_07_arm_1k.jpg", size = 309735, sha256 = "1ed76e9a8542c76bdc6b7b018720ae1f52cd75d9f5ae719f613de3f5032cf4da", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_07/rock_07_arm_1k.jpg" },
+  { src = "textures/rock_07_diff_1k.jpg", dest = "polyhaven/rock_07/textures/rock_07_diff_1k.jpg", size = 635452, sha256 = "8ff1965aa1664cc4abcc0131c44ee2b97ab14d6e131d7a51429ff261eeb101c8", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_07/rock_07_diff_1k.jpg" },
+  { src = "textures/rock_07_nor_gl_1k.jpg", dest = "polyhaven/rock_07/textures/rock_07_nor_gl_1k.jpg", size = 766986, sha256 = "57cb2210951aeb376164fce5f7c65f03e5599def04873b56cad0f173c275d78d", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/rock_07/rock_07_nor_gl_1k.jpg" },
+]
+
+[[model]]
+id = "cc0-boulder-01"
+title = "Poly Haven Boulder 01 (1k glTF)"
+used_by = "World dressing: rock_large (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "polyhaven:boulder_01"
+revision = "1k"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "rock_large"
+files = [
+  { src = "boulder_01_1k.gltf", dest = "polyhaven/boulder_01/boulder_01_1k.gltf", size = 2773, sha256 = "51487934db898b4c24072780a451e34eca5c02e3ada24a62bbc600bbc4019e92", url = "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/boulder_01/boulder_01_1k.gltf" },
+  { src = "boulder_01.bin", dest = "polyhaven/boulder_01/boulder_01.bin", size = 2938808, sha256 = "7f5b06503d62bd95bfe9c6b8a354a5cc8ff04a4d271a8cf87a3e3125db4232d7", url = "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/boulder_01/boulder_01.bin" },
+  { src = "textures/boulder_01_arm_1k.jpg", dest = "polyhaven/boulder_01/textures/boulder_01_arm_1k.jpg", size = 659386, sha256 = "c57187c5746b6be913fa53846cb44ff78743e7ca5000f131c9627b99563c2b87", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/boulder_01/boulder_01_arm_1k.jpg" },
+  { src = "textures/boulder_01_diff_1k.jpg", dest = "polyhaven/boulder_01/textures/boulder_01_diff_1k.jpg", size = 987467, sha256 = "c38f0e918f6dc16b8d386ba3cdd89805c78320c119a1ceec85856f82b09a65b8", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/boulder_01/boulder_01_diff_1k.jpg" },
+  { src = "textures/boulder_01_nor_gl_1k.jpg", dest = "polyhaven/boulder_01/textures/boulder_01_nor_gl_1k.jpg", size = 1183552, sha256 = "0810cf6e89d89bb6eb065b4d2e2855288f5dcbd2c15c6e40ab90d462021b50aa", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/boulder_01/boulder_01_nor_gl_1k.jpg" },
+]
+
+[[model]]
+id = "cc0-shrub-02"
+title = "Poly Haven Shrub 02 (1k glTF)"
+used_by = "World dressing: shrub (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "polyhaven:shrub_02"
+revision = "1k"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "shrub"
+files = [
+  { src = "shrub_02_1k.gltf", dest = "polyhaven/shrub_02/shrub_02_1k.gltf", size = 8083, sha256 = "99de0a70fe88ad414615cc8d8e020617c8512e2abfe08b911b153a6fcc40d93e", url = "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/shrub_02/shrub_02_1k.gltf" },
+  { src = "shrub_02.bin", dest = "polyhaven/shrub_02/shrub_02.bin", size = 758692, sha256 = "5c1b79da1cfdbac90599542ccd1f75ba433a3a4d356b1ea03655adb39b0e2c96", url = "https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/shrub_02/shrub_02.bin" },
+  { src = "textures/shrub_02_arm_1k.jpg", dest = "polyhaven/shrub_02/textures/shrub_02_arm_1k.jpg", size = 313715, sha256 = "7186bf604d5c02f873aef6de2346cc06b6fa48f47d054edbef36d2c3772c0890", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/shrub_02/shrub_02_arm_1k.jpg" },
+  { src = "textures/shrub_02_diff_1k.jpg", dest = "polyhaven/shrub_02/textures/shrub_02_diff_1k.jpg", size = 395120, sha256 = "9956eff294034d70516d867e9668428a23d782feb3d4c34061dce5e44bacd5a8", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/shrub_02/shrub_02_diff_1k.jpg" },
+  { src = "textures/shrub_02_nor_gl_1k.jpg", dest = "polyhaven/shrub_02/textures/shrub_02_nor_gl_1k.jpg", size = 490815, sha256 = "54c24e433365d5410223b7ebd2b33042b80831f80976e10768114db5ef6911d7", url = "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/shrub_02/shrub_02_nor_gl_1k.jpg" },
+]

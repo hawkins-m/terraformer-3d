@@ -63,6 +63,9 @@ FLUX frame generation, the city planner and the first browser UI. Added during i
 - **Unreal city build**: `ap export --assets` and `ap ue build` place the whole city's library
   builds in the Unreal level headless, at their real places; `ap ue stale`, `--only-stale`
   re-imports; look scenes from presets (`ap ue look`) with frame-read tints, exposure and ridge.
+- **World dressing**: optional ground textures, rocks, vegetation and water for "Build city in
+  Unreal" (`ap ue build --ground --rocks ...`), each tagged Light to Heavy, from free CC0 assets
+  (or your Megascans), deterministic per seed; see [World dressing and Megascans](#world-dressing-and-megascans).
 - **Library and asset loop**: library planning from locked shots, SAM 3.1 / OneFormer / Depth
   Anything crop checks, procedural facade grammar, material library (ambientCG), TRELLIS.2 route,
   review gate with silhouette and openings checks, areas and batch commands.
@@ -384,6 +387,8 @@ is for non-commercial use unless you swap those models.
 | BiRefNet (TRELLIS.2) | Background removal | MIT |
 | DINOv3 ViT-L/16 (TRELLIS.2, gated) | Image features | Meta DINOv3 License |
 | ambientCG 2K sets | Materials | CC0 |
+| ambientCG Grass004, Ground106, Rock030, Ground093C (2K) | World dressing: ground textures (optional) | CC0 |
+| Poly Haven rock_07, boulder_01, shrub_02 (1k glTF) | World dressing: rocks, shrubs (optional) | CC0 |
 
 Code dependencies with notable licenses: nvdiffrast and nvdiffrec (NVIDIA Source Code License,
 non-commercial), used by TRELLIS.2.
@@ -403,6 +408,45 @@ UK or South Korea) and a Mask2Former A/B exist as prototypes and are not on any 
 Paid backends (Gemini, Claude) exist but are off by default and refuse to run without
 `AP_ALLOW_PAID_APIS=1`; the entry does not use them. The SDK can also target Comfy Cloud; that
 is untested and not used.
+
+## World dressing and Megascans
+
+"Build city in Unreal" (Unreal tab) and `ap ue build` can dress the world: **Ground textures**
+(Light: grass, dirt patches, rock on slopes, sand at the shore), **Rocks** (Light–Medium, density
+slider), **Vegetation** (Medium–Heavy: tree meshes for the placeholder trees, olives in open green,
+shrubs and grass in green zones; density slider) and **Water** (Simple sea, Light; or the Water
+plugin's Ocean, Heavy and experimental: in UE 5.8 the plugin crashes the headless editor when it
+places a water body, so the build enables the plugin and uses Simple sea, and you can add a Water
+Body Ocean by hand in the editor). Each option is cheap by default and remembered per project; unticking one removes what
+it placed on the next build. The build report lists instances per role, the options that ran and
+where each role came from:
+
+- **CC0 (default, no account):** ambientCG ground sets and Poly Haven rocks and shrub, fetched on first
+  use through the model manifest (`ap models download --feature dressing --all` to get them ahead).
+- **Fallback:** stylised Blender meshes where no suitable CC0 asset exists (umbrella pine, cypress,
+  olive, grass tufts).
+- **Megascans:** your own, where you map them. Megascans are licensed for use in Unreal only, so
+  Terraformer never downloads them and nothing from Fab goes into this repo.
+
+```
+ap ue build my-project --ground --rocks --dress-vegetation --water simple
+ap ue build my-project --rock-density 2 --no-ground       # flags left out keep the last-used choice
+ap ue build my-project --no-dressing                      # everything off (removes what was placed)
+ap ue scan-assets my-project --apply                      # Megascans: propose and save the mapping
+```
+
+**Getting Megascans via Fab (Windows).** Open your project in Unreal, then Window › Fab (or in the
+Epic Games Launcher, the Fab tab), pick a Megascans pack (rocks, trees, shrubs, grass, ground surfaces)
+and **Add to Project**. Then in Terraformer tick **Use Megascans assets** and click **Find my assets**:
+it scans `/Game/Fab`, `/Game/Megascans`, `/Game/Quixel` and any folder you add, proposes a role for
+each asset from its name, and lets you change the mapping. A Windows Unreal project under the WSL
+setup is scanned through its WSL path. Builds with Megascans ticked scan again and fill roles whose
+asset is new or gone; your own choices stay.
+
+**Moving Megascans to another machine** (for example a Linux Unreal, which ships without the Fab
+plugin): on the source machine, with the same engine version, right-click the imported folder in the
+Content Browser › **Asset Actions › Migrate**, and pick the target project's `Content` folder (or copy
+that folder over by USB into the target's `Content`, keeping its path). Then click **Find my assets**.
 
 ## Design note
 

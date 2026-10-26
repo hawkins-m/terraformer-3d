@@ -143,7 +143,10 @@ desktop app:
 - **Unreal tab:** *Build city in Unreal* on top runs `ap ue build` as a CPU job (stages and Stop
   in the Jobs panel; it asks first when the estimate is long). Options: *Use Active versions*
   (`--use-active`), *Keep my hand moves in Unreal* (on by default; off is `--reset-layout` and
-  asks first), *Render shots after* (`--render`). It won't start while the editor has the
+  asks first), *Render shots after* (`--render`). Under it, *World dressing*: Ground textures,
+  Rocks and Vegetation (with density sliders), Water (Off, Simple sea, Ocean), Use Megascans
+  assets and *Find my assets…* (scan and edit the role → asset mapping); each option shows a
+  Light / Medium / Heavy tag and a one-line tooltip, and the choice is saved per project. It won't start while the editor has the
   project open. The last build's report stays on the tab: assets placed, stand-ins left, time,
   the placement check and warnings. Under *Advanced steps* (collapsed) are the single
   numbered steps, each enabled only when it can run and saying why not beside
@@ -468,6 +471,17 @@ renders, and prints a short report (builds placed, slots still greybox, time, wa
   level). A light setting you change in Unreal is kept on later builds.
 - The outer ring replaces its greybox once `ap terrain outer` has built it. A Landscape stays
   optional and manual (see "Terrain beyond the city").
+- **World dressing** (Unreal tab › World dressing, or flags): `--ground`, `--rocks`
+  (`--rock-density X`), `--dress-vegetation` (`--vegetation-density X`), `--water simple|ocean`,
+  `--megascans`, `--dress-seed N`, each with a `--no-` form; `--no-dressing` turns all off. Flags
+  left out keep the project's last-used choice (project.json `unreal.dressing`). Placement is
+  deterministic per seed and only reruns when the options, the greybox or the seed change; an
+  option unticked removes what it placed. Rocks keep out of building slots, streets, plazas and
+  water (a top-down class render of the greybox); vegetation replaces the greybox's placeholder
+  trees (hidden, not deleted) and the street-tree slots with tree meshes, and adds shrubs and
+  grass in green zones only. CC0 assets download on first use; Megascans: README
+  "World dressing and Megascans", `ap ue scan-assets my-project [--folder /Game/X] [--apply]`.
+  Everything lands under `/Game/AP/Dressing` and in actors `AP_Dress_<role>`.
 - What goes in: per-building builds, an entry's own build in a slot holding a single building
   that no per-building build covers, TRELLIS props on their greybox pieces (a market's tents,
   huts, canopy tables: the piece and its posts or tables leave the greybox), and attached pieces

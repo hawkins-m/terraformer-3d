@@ -311,6 +311,21 @@
           <label class="check" title="Place each asset's Active version, approved or not."><input type="checkbox" id="ueb-active"> Use Active versions (preview, not only approved)</label>
           <label class="check" title="Off: every actor goes back to the plan's spot (reset layout)."><input type="checkbox" id="ueb-keep" checked> Keep my hand moves in Unreal</label>
           <label class="check" title="Render each shot camera when the build is done."><input type="checkbox" id="ueb-render"> Render shots after</label>
+          <fieldset id="ue-dress"><legend>World dressing</legend>
+            <p class="hint tab-help">Optional; pick what your machine can take. Remembered per project. <button type="button" class="help-q" title="Each option is cheap by default. Unticking one removes what it placed on the next build; placement only reruns when the options, the plan or the seed change. Free CC0 assets are downloaded on first use; Megascans replace them where you map them." aria-label="More about world dressing">?</button></p>
+            <div class="dress-opt"><label class="check"><input type="checkbox" id="dr-ground"> Ground textures</label><span class="perf" data-perf="ground"></span></div>
+            <div class="dress-opt"><label class="check"><input type="checkbox" id="dr-rocks"> Rocks</label><span class="perf" data-perf="rocks"></span>
+              <span class="slider dress-density"><input type="range" id="dr-rock-density" min="0.25" max="3" step="0.25" aria-label="Rock density"><output for="dr-rock-density"></output></span></div>
+            <div class="dress-opt"><label class="check"><input type="checkbox" id="dr-vegetation"> Vegetation</label><span class="perf" data-perf="vegetation"></span>
+              <span class="slider dress-density"><input type="range" id="dr-veg-density" min="0.25" max="3" step="0.25" aria-label="Vegetation density"><output for="dr-veg-density"></output></span></div>
+            <div class="dress-opt" role="radiogroup" aria-label="Water"><span class="dress-water-label">Water:</span>
+              <label class="check"><input type="radio" name="dr-water" value="off"> Off</label>
+              <label class="check"><input type="radio" name="dr-water" value="simple"> Simple sea</label><span class="perf" data-perf="water_simple"></span>
+              <label class="check"><input type="radio" name="dr-water" value="ocean"> Ocean (Water plugin, experimental)</label><span class="perf" data-perf="water_ocean"></span></div>
+            <div class="dress-opt"><label class="check"><input type="checkbox" id="dr-megascans"> Use Megascans assets</label>
+              <button type="button" id="dr-find">Find my assets…</button></div>
+            <p class="hint" id="dr-state" aria-live="polite"></p>
+          </fieldset>
           <div id="ue-build-report" class="ue-report" aria-live="polite" hidden></div>
         </fieldset>
         <details id="ue-advanced"><summary title="The single steps the build runs for you.">Advanced steps</summary>

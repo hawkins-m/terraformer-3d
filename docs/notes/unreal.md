@@ -107,3 +107,31 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   position (hundreds of metres from their slots, below ground, slot yaw missing). Set the world
   transform first (the slot actor's current transform x the relative one), then attach with
   KEEP_WORLD; the position is right whether or not the attachment holds.
+
+## World dressing (2026-10-25)
+- **A scratch AP_ROOT still builds into the real Unreal project** unless `AP_UE_PROJECTS` (and
+  `AP_UE_BACKUPS`) point at the scratch copy: the user config's `[unreal] projects_dir` wins over
+  the scratch root's `backends.local.toml`. Export both before any scratch `ap ue ...` run.
+- The dressing runs inside the import's commandlet (`ap_import.py` → `ap_dressing.apply`), so it
+  costs no extra editor start: the first full run with everything on took 37 s of import, later
+  ones ~30 s (instances unchanged, materials re-applied).
+- **`-nullrhi` doesn't compile shaders**, so a material that fails to compile only shows at render:
+  the ground material fell back to the default because its roughness samplers (Masks) defaulted to
+  the sRGB `WhiteSquareTexture` ("Sampler type is Masks, should be Color"). Defaults must match the
+  sampler (a generated linear white map); check `ap_shot_render.log` for "Failed to compile".
+- Interchange imports every mesh node of a glTF / GLB as its own static mesh (Poly Haven sets lay
+  several variants side by side); the dressing uses each as a variant and recentres it on its
+  bounds, base down, so the file's layout doesn't matter.
+- Macro noise built from summed sines (integer wave numbers, for tiling) drew parallel stripes on
+  the terrain seen from the air; FFT-shaped white noise (1/f^beta, periodic by construction) doesn't.
+- HISM per variant with cull distances (grass 40-60 m, shrubs 150-200 m, small rocks 300-400 m) and
+  no collision: ~80k instances (55k of them grass) rendered offscreen on GPU 0 at 1920x1080 in ~45 s
+  including the shader wait.
+- **The Water plugin's ocean can't be placed headless in UE 5.8**: spawning `WaterBodyOcean` in the
+  commandlet makes the WaterEditor module set up a landscape brush (`AWaterLandscapeBrush::
+  SetTargetLandscape`), which asserts `CurrentBaseApplication.IsValid()` (no Slate) and kills the
+  editor with SIGSEGV; Python can't catch it. The dressing never tries headless: Ocean enables the
+  plugin in the .uproject (it loads fine) and falls back to the simple sea, saying so in the report.
+- `ue.pick_gpu` falls over to GPU 1 when GPU 0 holds more than 4 GB, without asking whether
+  ComfyUI runs there (2026-10-25: a dressing preview render landed on GPU 1 next to a running,
+  idle ComfyUI; it finished in 44 s and ComfyUI was undisturbed). Check both before a render.

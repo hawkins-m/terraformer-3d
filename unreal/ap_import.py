@@ -4,7 +4,7 @@ Run headless by `ap ue import` (UnrealEditor-Cmd ... -run=pythonscript), or insi
 editor: `py /path/to/ap_import.py /path/to/args.json`. args.json:
     {"manifest": ".../export/manifest.json", "report": ".../import_report.json",
      "reset_layout": false, "prune": false, "prune_expect": null, "prune_max": 10,
-     "reset_only": null, "mask_default": ".../T_AP_White_M.png"}
+     "reset_only": null, "mask_default": ".../T_AP_White_M.png", "dressing": ".../dressing.json"}
 
 What it builds (all under /Game/AP):
     Materials/M_AP_PBR                       master material: BaseColorTex x Tint;
@@ -26,6 +26,8 @@ What it builds (all under /Game/AP):
                                MI_AP_TerrainAuto (manifest "terrain"); a Landscape stays a
                                manual import (report["landscape"]: whether the level has one)
     Cinematics/LS_<Name>                     Level Sequence, one camera cut per shot
+    Dressing/...           world dressing (args "dressing": ap_dressing.py): ground and sea materials,
+                           AP_Dress_<role> instanced rocks and plants, placeholder trees hidden
     CityLibrary/SM_<lib id>                  library builds (manifest library_assets, `ap export
                                              --assets`): Nanite, skipped while the GLB's content
                                              hash is unchanged, the entry's material instances
@@ -847,6 +849,14 @@ def main(args):
     sequence(man, cams, report)
     if args.get("vegetation"):
         place_vegetation(root, eas, report)
+    if args.get("dressing"):                     # world dressing (ap_dressing.py); a failure there isn't the import's
+        try:
+            import ap_dressing
+            ap_dressing.apply(args["dressing"], eas, report)
+        except Exception as e:  # noqa: BLE001
+            report["dressing"] = {"error": f"{type(e).__name__}: {e}", "traceback": traceback.format_exc()}
+            report["warnings"].append(f"dressing failed: {type(e).__name__}: {e}")
+            unreal.log_error(report["dressing"]["traceback"])
     known = {s["id"] for s in man["slots"]} | {s["id"] for s in man["shots"]}
     orphans = []
     for a in eas.get_all_level_actors():

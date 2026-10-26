@@ -27,7 +27,7 @@ class Hub:
         self.files = {"org/tiny": {"w.safetensors": A, "config.json": B}, "org/cached": {"m.safetensors": C},
                       "org/gated": {"g.safetensors": G}}
         self.gated = {"org/gated": "secret-token"}
-        self.ranges, self.requests = [], 0
+        self.ranges, self.requests, self.auths = [], 0, []
         hub = self
 
         class H(BaseHTTPRequestHandler):
@@ -36,6 +36,7 @@ class Hub:
 
             def do_GET(self):
                 hub.requests += 1
+                hub.auths.append(self.headers.get("Authorization"))
                 parts = self.path.lstrip("/").split("/")
                 repo, path = "/".join(parts[:2]), "/".join(parts[4:])
                 tok = hub.gated.get(repo)
@@ -237,8 +238,40 @@ def test_the_real_manifest_is_complete():
     ms = models.load()
     assert len({m.id for m in ms}) == len(ms)
     for m in ms:
-        assert m.need in models.NEEDS and m.root in ("comfyui", "models", "hf_cache") and m.license and m.revision
+        assert m.need in models.NEEDS and m.root in ("comfyui", "models", "hf_cache", "dressing") and m.license and m.revision
         assert m.files and all(f.size > 0 and (f.sha256 or f.git_sha1) for f in m.files), m.id
+        site = m.repo.partition(":")[0]
+        assert (site in models.SITE_PAGES) == all(f.url.startswith("https://") for f in m.files), m.id   # off the hub: direct urls
+        assert m.root != "dressing" or (m.license == "CC0-1.0" and m.feature == "dressing" and m.select), m.id
         assert m.need != "local.model" or m.select, m.id
     vlm = {m.select for m in ms if m.need == "local.model"}
     assert set(config.backends()["local"]["models"]) <= vlm       # every configured vision model has an entry
+
+
+def test_direct_url_files_skip_the_hub_and_its_token(hub, tmp_path, monkeypatch):
+    """CC0 world-dressing assets (ambientCG, Poly Haven) download from their own url, checksummed like
+    the rest, into <storage>/dressing, and never get the Hugging Face token."""
+    hub.files["site/cc0"] = {"t.zip": A}
+    man = tmp_path / "cc0.toml"
+    man.write_text(f"""[[model]]
+id = "cc0-t"
+title = "T"
+used_by = "tests"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:T001"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "ground_grass"
+files = [ {{ src = "t.zip", dest = "ambientcg/T001/t.zip", size = {len(A)}, sha256 = "{hashlib.sha256(A).hexdigest()}", url = "{hub.url}/site/cc0/resolve/x/t.zip" }} ]
+""")
+    monkeypatch.setattr(models, "MANIFEST", man)
+    monkeypatch.setenv("HF_TOKEN", "never-sent")
+    m = models.get("cc0-t")
+    assert m.page == "https://ambientcg.com/view?id=T001"
+    r = models.download([m], emit=lambda *a, **k: None)
+    assert r["installed"] == ["cc0-t"] and (tmp_path / "root/dressing/ambientcg/T001/t.zip").read_bytes() == A
+    assert hub.auths == [None]

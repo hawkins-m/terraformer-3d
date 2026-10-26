@@ -29,6 +29,8 @@ STREETS = ("way-", "radial-", "ring-", "street-", "plaza-", "square-", "avenue-"
 
 
 def kind(o):
+    if o.name == "terrain" or o.get("ap_piece") == "terrain":     # every terrain ring is open ground
+        return "other"
     n = (o.name + " " + str(o.get("ap_piece", ""))).lower()
     for k, words in KINDS:
         if any(w in n for w in words):

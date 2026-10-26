@@ -145,6 +145,13 @@ geometry is fixed first; images are generated onto it.
 
    After the import the UE level is the layout source of truth. Actor names and tags stay
    stable for editing over an Unreal MCP server.
+   - **World dressing** (optional, per project, 2026-10-25): ground textures, rocks, vegetation,
+     water, each cheap by default and tagged Light to Heavy; free CC0 assets (ambientCG, Poly
+     Haven, via the model manifest) by default, stylised Blender meshes where no CC0 asset fits,
+     Megascans where the user maps them (Unreal-only license: scanned in the project, never
+     fetched or committed). Placement is deterministic per seed from a top-down class render of
+     the greybox and the terrain; the import applies it in the same run and removes what an
+     unticked option placed (`asset_pipeline/dressing.py`, `unreal/ap_dressing.py`).
 
 Status (2026-10-06):
 

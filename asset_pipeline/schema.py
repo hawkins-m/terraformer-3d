@@ -74,10 +74,31 @@ class FrameSettings(BaseModel):
         return self.model_copy(update=upd | {"views": {}})
 
 
+class DressingOptions(BaseModel):
+    """World dressing `ap ue build` adds (asset_pipeline/dressing.py), the last-used choice per
+    project. Each option is cheap by default; density multiplies the default count."""
+    ground: bool = False                    # slope- and height-blended ground textures (Light)
+    rocks: bool = False                     # scattered rock clusters (Light-Medium)
+    rock_density: float = Field(default=1.0, ge=0.1, le=4.0)
+    vegetation: bool = False                # real trees for the placeholders, shrubs and grass (Medium-Heavy)
+    vegetation_density: float = Field(default=1.0, ge=0.1, le=4.0)
+    water: Literal["off", "simple", "ocean"] = "off"   # simple sea material (Light) or the Water plugin's ocean (Heavy)
+    megascans: bool = False                 # the dressing library's Megascans assets where a role has one
+    seed: int = 1
+
+    def any(self) -> bool:
+        return self.ground or self.rocks or self.vegetation or self.water != "off"
+
+
 class UnrealSettings(BaseModel):
     """`ap ue build` placement and its check (project.json "unreal"). Ground rule: which ground
     under a library build's footprint it stands on (ground.RULES). Tolerances (metres, degrees)
-    for the check at the end of every build."""
+    for the check at the end of every build. Dressing: the last-used world dressing; its library
+    maps roles (dressing.ROLES) to Unreal asset paths (Megascans), scanned from these folders
+    as well as /Game/Fab, /Game/Megascans and /Game/Quixel."""
+    dressing: DressingOptions = Field(default_factory=DressingOptions)
+    dressing_library: dict[str, str] = Field(default_factory=dict)
+    dressing_folders: list[str] = Field(default_factory=list)
     ground_rule: Literal["lowest", "centre", "mean", "highest"] = "lowest"
     sunk_m: float = Field(default=0.3, ge=0)        # base below the ground rule's height by more: sunk
     floating_m: float = Field(default=0.3, ge=0)    # base above it by more: floating

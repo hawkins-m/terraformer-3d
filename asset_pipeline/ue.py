@@ -129,6 +129,24 @@ def init(store: ProjectStore) -> Path:
     return up
 
 
+def enable_plugin(store: ProjectStore, name: str) -> bool:
+    """Enable an engine plugin in the project's .uproject (e.g. Water for the dressing's ocean); it
+    loads on the next editor start. True when this call added it."""
+    up = init(store)
+    data = json.loads(up.read_text())
+    plugins = data.setdefault("Plugins", [])
+    have = next((p for p in plugins if p.get("Name") == name), None)
+    if have and have.get("Enabled"):
+        return False
+    if have:
+        have["Enabled"] = True
+    else:
+        plugins.append({"Name": name, "Enabled": True})
+    up.write_text(json.dumps(data, indent=2) + "\n")
+    store.log_run({"stage": "ue.plugin", "enabled": name})
+    return True
+
+
 def run_script(store: ProjectStore, script: str, args: dict, what: str) -> dict:
     """Run unreal/<script> in the headless editor; returns its JSON report."""
     up = init(store)
@@ -204,7 +222,7 @@ def orphan_breakdown(orphans: list[dict]) -> dict[str, int]:
 
 def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False, expect: int | None = None,
             confirm=None, reset_only: list[str] | None = None, vegetation: bool = False,
-            lighting: dict | None = None) -> dict:
+            lighting: dict | None = None, dressing: Path | None = None) -> dict:
     """Import export/manifest.json into the project's UE level.
 
     prune deletes the pipeline actors missing from the manifest, but the editor script only
@@ -212,16 +230,18 @@ def import_(store: ProjectStore, reset_layout: bool = False, prune: bool = False
     nothing is deleted, and confirm(count, breakdown) decides: True reruns the import pruning
     exactly that count. confirm=None (headless) never deletes past the check.
     reset_only: with reset_layout, move back only these slot ids (e.g. the stale ones).
-    lighting: look.city_lighting's preset for the level's AP_Env actors (`ap ue build`)."""
-    rep = _import(store, reset_layout, prune, expect, reset_only, vegetation=vegetation, lighting=lighting)
+    lighting: look.city_lighting's preset for the level's AP_Env actors (`ap ue build`).
+    dressing: export/dressing.json (dressing.prepare) for unreal/ap_dressing.py."""
+    rep = _import(store, reset_layout, prune, expect, reset_only, vegetation=vegetation, lighting=lighting, dressing=dressing)
     n = rep.get("prune_refused")
     if prune and n is not None and confirm is not None and confirm(n, orphan_breakdown(rep["orphans"])):
-        rep = _import(store, reset_layout, True, n, reset_only, vegetation=vegetation, lighting=lighting)
+        rep = _import(store, reset_layout, True, n, reset_only, vegetation=vegetation, lighting=lighting, dressing=dressing)
     return rep
 
 
 def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | None,
-            reset_only: list[str] | None = None, vegetation: bool = False, lighting: dict | None = None) -> dict:
+            reset_only: list[str] | None = None, vegetation: bool = False, lighting: dict | None = None,
+            dressing: Path | None = None) -> dict:
     man_path = s7_export.export_dir(store) / "manifest.json"
     if not man_path.is_file():
         raise FileNotFoundError("no export/manifest.json (run `ap export` first)")
@@ -241,7 +261,8 @@ def _import(store: ProjectStore, reset_layout: bool, prune: bool, expect: int | 
     rep = run_script(store, "ap_import.py", {"manifest": str(man_path), "reset_layout": reset_layout,
                                              "prune": prune, "prune_expect": expect, "prune_max": PRUNE_MAX,
                                              "reset_only": reset_only, "vegetation": vegetation,
-                                             "mask_default": str(mask), "lighting": lighting},
+                                             "mask_default": str(mask), "lighting": lighting,
+                                             "dressing": str(dressing) if dressing else None},
                      "UE import")
     if "error" in rep:
         raise RuntimeError(f"UE import failed: {rep['error']}\n{rep.get('traceback', '')}")

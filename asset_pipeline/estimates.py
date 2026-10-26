@@ -46,7 +46,7 @@ DEFAULTS = {
 # `ap ue build`'s parts (recorded by ue_build after each build): per height variant, per imported
 # asset, and each stage's fixed part (Blender and editor start-up, the level read, the light...)
 UE_BUILD_DEFAULTS = {"ue.height_variant": 20, "ue.import_asset": 4, "ue.build.backup": 30, "ue.build.export": 90,
-                     "ue.build.terrain": 120, "ue.build.lighting": 5, "ue.build.import": 180, "ue.build.check": 10}
+                     "ue.build.terrain": 120, "ue.build.dressing": 20, "ue.build.lighting": 5, "ue.build.import": 180, "ue.build.check": 10}
 MODE_FACTOR = {"512": 0.6}      # TRELLIS 512 against 1024_cascade, until 512 runs are recorded
 # job kind -> the stage name it logs in runs.jsonl, and what one logged run covers (its items)
 RUN_STAGES = {

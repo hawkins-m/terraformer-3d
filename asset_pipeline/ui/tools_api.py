@@ -9,6 +9,7 @@ anything slow is a job (kinds and lanes below).
     POST      /api/projects/{slug}/library/{pending,silhouette,review/done}, GET review/tasks
     POST      /api/projects/{slug}/frames/lock, /shots/add, /site/vegetation, /site/overlap
     GET/POST  /api/projects/{slug}/ue/...                             jobs ue.* (cpu); ue/build = `ap ue build`
+    GET/POST  /api/projects/{slug}/ue/dressing[/scan|/library]        world dressing options, Megascans scan and mapping
     POST      /api/projects/{slug}/terrain/{action}                   job terrain.* (cpu)
     POST      /api/demo                                               job demo (cpu, script log -> note)
     POST      /api/vlm/up, /api/vlm/down                              jobs vlm.up / vlm.down (gpu0)
@@ -28,6 +29,7 @@ from pydantic import BaseModel
 from .. import areas, config, kit_proc, launcher, preflight, review, ue, vlm
 from ..jobs import check_canceled, current_job
 from ..project import ProjectStore, read_json, write_json
+from ..schema import DressingOptions
 from ..stages import s0_frames, s2_refs, s5_3d, sw_library, sw_shots, sw_site
 
 SLUG = re.compile(r"[a-z0-9][a-z0-9_-]*")
@@ -128,6 +130,16 @@ class UeBuildReq(BaseModel):
     use_active: bool = False             # Active versions, approved or not (previews)
     keep_hand_moves: bool = True         # False: reset layout (every actor back to the manifest)
     render: bool = False
+    dressing: DressingOptions | None = None   # None: the project's last-used dressing
+
+
+class DressScanReq(BaseModel):
+    folders: list[str] | None = None     # extra /Game/... folders to scan (remembered); None: the saved ones
+
+
+class DressLibraryReq(BaseModel):
+    library: dict[str, str] = {}         # role -> Unreal asset path ("" clears it)
+    folders: list[str] | None = None
 
 
 class UeRenderReq(BaseModel):
@@ -573,7 +585,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
                     job.tag["stage"] = stages.index(ue_build.STAGE_OF[name])
             log = (lambda s: setattr(job, "note", str(s)[:200])) if job else print
             r = ue_build.build(store, use_active=req.use_active, reset_layout=not req.keep_hand_moves,
-                               render=req.render, log=log, on_step=on_step, progress=job.tag if job else None)
+                               render=req.render, log=log, on_step=on_step, progress=job.tag if job else None,
+                               dressing=req.dressing)
             out = r | {"keep_hand_moves": req.keep_hand_moves, "finished": time.time(),
                        "placement_lines": None if r["placement"] is None else placement_check.lines(r["placement"]),
                        "lines": ue_build.report_lines(r)}
@@ -582,6 +595,42 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         return jobs.submit("ue.build", slug, run, lane="cpu",
                            tag={"stages": stages, "stage": 0, "use_active": req.use_active,
                                 "reset": not req.keep_hand_moves, "render": req.render, "work": work}).public()
+
+    @app.get("/api/projects/{slug}/ue/dressing")
+    def ue_dressing(slug: str):
+        """The dressing options (last used), the Megascans mapping and scan folders, what each option
+        is (label, performance tag, tooltip), the CC0 defaults' state and the Fab plugin check."""
+        from .. import dressing, models
+        store = store_of(slug)
+        u = dressing._unreal(store)
+        cc0 = {r: {"id": m.id, "title": m.title, "state": models.status(m)["state"], "page": m.page}
+               for r, m in dressing.cc0_models().items()}
+        return {"options": u.dressing.model_dump(), "library": u.dressing_library, "folders": u.dressing_folders,
+                "roles": {r: {"option": o, "kind": k, "what": w} for r, (o, k, w) in dressing.ROLES.items()},
+                "labels": {k: {"label": a, "perf": b, "tip": c} for k, (a, b, c) in dressing.OPTIONS.items()},
+                "cc0": cc0, "plugin": dressing.plugin_status()}
+
+    @app.post("/api/projects/{slug}/ue/dressing")
+    def ue_dressing_save(slug: str, req: DressingOptions):
+        from .. import dressing
+        dressing.save(store_of(slug), req)
+        return {"ok": True}
+
+    @app.post("/api/projects/{slug}/ue/dressing/scan")
+    def ue_dressing_scan(slug: str, req: DressScanReq):
+        """Find Megascans in the UE project (a Windows project through its WSL path) and propose roles."""
+        from .. import dressing
+        store = store_of(slug)
+        if req.folders is not None:
+            dressing.save(store, folders=req.folders)
+        return dressing.scan(store) | {"library": dressing._unreal(store).dressing_library}
+
+    @app.post("/api/projects/{slug}/ue/dressing/library")
+    def ue_dressing_library(slug: str, req: DressLibraryReq):
+        from .. import dressing
+        store = store_of(slug)
+        dressing.save(store, library=req.library, folders=req.folders)
+        return {"library": dressing._unreal(store).dressing_library}
 
     @app.post("/api/projects/{slug}/ue/render")
     def ue_render(slug: str, req: UeRenderReq):

@@ -178,7 +178,7 @@ def _wait(client, job):
 def test_build_steps_run_in_order_and_report_their_stages(stub_build):
     seen = []
     r = ue_build.build(stub_build.store, log=lambda *a: None, on_step=seen.append)
-    assert seen == ["backup", "export", "lighting", "level read", "import", "check"]   # no outer ring: no terrain step
+    assert seen == ["backup", "export", "dressing", "lighting", "level read", "import", "check"]   # no outer ring: no terrain step
     idx = [ue_build.STAGES.index(ue_build.STAGE_OF[s]) for s in seen]
     assert idx == sorted(idx)                                       # the Jobs panel's stages never go back
     imp = next(c for c in stub_build.calls if c[0] == "import")[1]
@@ -240,7 +240,7 @@ def test_progress_shows_build_stages_and_counts_the_export_meshes(stub_build):
     p = ui_app._progress(stub_build.store, job, t0, t0 + 5)
     assert p["stages"][:2] == ["Backup", "Export"] and p["stage"] == 1 and p["stage_label"] == "Export"
     assert (p["done"], p["total"]) == (1, 4) and p["line"] == "export…"
-    job.tag["stage"] = 4
+    job.tag["stage"] = ue_build.STAGES.index("import")
     p = ui_app._progress(stub_build.store, job, t0, t0 + 5)
     assert p["stage_label"] == "Import" and p["done"] is None
 
@@ -336,9 +336,9 @@ def test_progress_time_left_follows_the_stage_not_the_old_median(stub_build):
     later = sum(x["seconds"] for x in estimates.ue_build_stages(tag)[2:])
     assert (p["done"], p["total"]) == (10, 100)
     assert p["eta_s"] == round(90 * 50 + later) and not p["over"]
-    tag["stage"] = 4                                          # import: its own counted log line
+    tag["stage"] = ue_build.STAGES.index("import")           # import: its own counted log line
     (ue_build.ue.work_dir(stub_build.store)).mkdir(parents=True, exist_ok=True)
     (ue_build.ue.work_dir(stub_build.store) / "ap_import.log").write_text("LogPython: library: imported 30 of 40 (3.0 s each)\n")
     p = ui_app._progress(stub_build.store, job, t0 - 700, t0 + 1)
-    check = estimates.ue_build_stages(tag)[5]["seconds"]
+    check = estimates.ue_build_stages(tag)[ue_build.STAGES.index("check")]["seconds"]
     assert (p["done"], p["total"]) == (30, 40) and p["eta_s"] == round(10 * 3.0 + check)
