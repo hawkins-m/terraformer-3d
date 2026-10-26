@@ -258,6 +258,17 @@ class CutReq(BaseModel):
     sheet: str | None = None      # None: every starred sheet without views
 
 
+class RecutReq(BaseModel):         # Views and 3D › Re-cut views… on one asset's row
+    plan: str
+    asset: str
+    sheet: str | None = None      # None: the asset's newest starred sheet
+    whole: bool = False           # the whole sheet as one view (one object across the sheet)
+
+
+class ViewDeleteReq(BaseModel):
+    key: str
+
+
 class ChooseReq(BaseModel):
     plan: str
     asset: str
@@ -1015,6 +1026,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             for a in (p.assets if p else []):
                 if not a.include or a.category == "terrain":
                     continue
+                rs = s3_views.recut_sheets(store, name, a.id)
                 assets.append({"plan": name, "asset": a.model_dump(mode="json", include={
                     "id", "name", "category", "count", "dimensions", "kit", "usage"}),
                     "views": s3_views.views(store, name, a.id),
@@ -1027,7 +1039,11 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     # library props (TRELLIS route): the same review status as Library › Asset review
                     "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None,
                     "reroll": name == sw_library.PLAN_NAME and _rerollable(store, a.id),
-                    "procedural": name == sw_library.PLAN_NAME and _procedural(store, a.id)})
+                    "procedural": name == sw_library.PLAN_NAME and _procedural(store, a.id),
+                    # the row's buttons follow the build method: Brief & build needs the route, the
+                    # form and a starred sheet; Re-cut views… the starred sheets
+                    "next": library_entries.next_step(store, name, a.id) if name == sw_library.PLAN_NAME else None,
+                    "starred": rs})
         return {"pending_sheets": pending, "assets": assets,
                 "starred_sheets": sum(1 for k, v in stars.items() if v and k.startswith(s2_refs.REFS + "/"))}
 
@@ -1046,6 +1062,29 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             tag = {"starred": True,
                    "sheets": [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)]}
         return jobs.submit("views.cut", slug, fn, lane="comfy", tag=tag).public()
+
+    @app.post("/api/projects/{slug}/views/recut")
+    def views_recut(slug: str, req: RecutReq):
+        """Re-cut one asset's views from its starred sheet; the old ones go to the trash."""
+        store = _store(slug)
+        sheets = s3_views.recut_sheets(store, req.plan, req.asset)
+        sheet = req.sheet or (sheets[-1]["sheet"] if sheets else None)
+        if not sheet or sheet not in [x["sheet"] for x in sheets]:
+            raise HTTPException(400, f"{req.asset} has no starred sheet: star one in Library › Reference sheets first"
+                                if not sheets else f"{sheet} is not a starred sheet of {req.asset}")
+        if req.whole and next(x["kind"] for x in sheets if x["sheet"] == sheet) != "object":
+            raise HTTPException(400, "only an asset's own sheet can be cut as one view (not a kit sheet)")
+        fn = lambda: len(s3_views.recut(store, req.plan, req.asset, sheet, whole=req.whole))  # noqa: E731
+        return jobs.submit("views.cut", slug, fn, lane="cpu" if req.whole else "comfy",
+                           tag={"sheet": sheet, "asset": req.asset, "recut": True}).public()
+
+    @app.post("/api/projects/{slug}/views/delete")
+    def views_delete(slug: str, req: ViewDeleteReq):
+        store = _store(slug)
+        try:
+            return s3_views.delete_view(store, req.key)
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(400, str(e))
 
     @app.post("/api/projects/{slug}/review/choose")
     def choose(slug: str, req: ChooseReq):
