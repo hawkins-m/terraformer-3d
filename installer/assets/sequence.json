@@ -1,0 +1,18 @@
+{
+  "display": [
+    500,
+    250
+  ],
+  "image_seconds": 15,
+  "transition_seconds": 1,
+  "images": [
+    "01-courtyard.png",
+    "05-dome-courtyard.png",
+    "02-bridge.png",
+    "07-column-detail.png",
+    "03-domed-hall.png",
+    "06-garden-arcade.png",
+    "04-pool-courtyard.png",
+    "08-stair-pavilion.png"
+  ]
+}

@@ -1,3 +1,22 @@
 # Images the privacy hook (scripts/git-hooks/pre-commit) lets into docs/images/: one file name per
 # line. Only the repo owner adds names here; agents ask first. Every other image is refused.
 terraformer-main.png    # main window, starter city (demo-a), approved 2026-10-18
+installer/assets/01-courtyard.png
+installer/assets/02-bridge.png
+installer/assets/03-domed-hall.png
+installer/assets/04-pool-courtyard.png
+installer/assets/05-dome-courtyard.png
+installer/assets/06-garden-arcade.png
+installer/assets/07-column-detail.png
+installer/assets/08-stair-pavilion.png
+installer/assets/5a-green-wave-128.png
+installer/assets/5a-green-wave-16.png
+installer/assets/5a-green-wave-24.png
+installer/assets/5a-green-wave-256.png
+installer/assets/5a-green-wave-32.png
+installer/assets/5a-green-wave-48.png
+installer/assets/5a-green-wave-64.png
+installer/assets/5a-green-wave.ico
+installer/assets/concept-banner-preview.mp4
+installer/assets/terraformer-5a-header-110.png
+installer/assets/terraformer-installer-sidebanner-1x1-9.png
