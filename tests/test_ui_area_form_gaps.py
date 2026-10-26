@@ -58,7 +58,7 @@ with sync_playwright() as p:
     pg.click("#area-fix-next"); pg.wait_for_timeout(400)
     out["next"] = pg.evaluate("""() => { const c = document.querySelector('#assets-list [data-entry="blob-x"]'), r = c && c.getBoundingClientRect();
       const l = document.querySelector('#assets-list').getBoundingClientRect();
-      return {tab: currentTab, sub: localStorage.getItem('ap.sub'), card: !!c, flash: !!c && c.classList.contains('flash'),
+      return {tab: currentTab, sub: localStorage.getItem('ap.sub'), card: !!c, flash: !!c && c.classList.contains('jump-hit'),
               inView: !!c && r.top >= l.top && r.bottom <= l.bottom}; }""")
     out["errors"] = errs
     b.close()

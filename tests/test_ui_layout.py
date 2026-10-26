@@ -103,11 +103,12 @@ with sync_playwright() as p:
     out["after_reload"] = [pg.locator("#refs-list").evaluate("e => e.scrollTop"), pg.locator("#lib-filter").input_value()]
     j = pg.locator("#refs-jump"); j.fill("academy-prop-12"); j.press("Enter"); pg.wait_for_timeout(300)
     u = pg.locator('#refs-list .unit[data-unit="academy-prop-12"]')
-    out["jump_offset"] = round(u.bounding_box()["y"] - rl.bounding_box()["y"])
+    mid = lambda l: l.bounding_box()["y"] + l.bounding_box()["height"] / 2
+    out["jump_offset"] = round(mid(u) - mid(rl))                               # centred in its list
     u.locator(".jump-link").click(); pg.wait_for_timeout(400)
     c = pg.locator('#assets-list .asset-card[data-entry="academy-prop-12"]')
     out["link_sub"] = pg.locator("#lib-tabs [aria-selected=true]").inner_text()
-    out["link_offset"] = round(c.bounding_box()["y"] - pg.locator("#assets-list").bounding_box()["y"])
+    out["link_offset"] = round(mid(c) - mid(pg.locator("#assets-list")))
     out["errors"] = errs
     b.close()
 print("RESULT " + json.dumps(out))
@@ -155,10 +156,98 @@ def test_fixed_headers_scroll_memory_jump_and_links_in_a_browser(tmp_path, monke
     assert out["assets_back"] == 600 and out["refs_back"] == 450                   # one position per sub-tab
     assert out["reload_sub"] == "Areas"
     assert out["after_reload"] == [450, "all"]                                     # remembered, with the filter
-    assert 0 <= out["jump_offset"] <= 8
-    assert out["link_sub"] == "Asset review" and 0 <= out["link_offset"] <= 8
+    assert abs(out["jump_offset"]) <= 8
+    assert out["link_sub"] == "Asset review" and abs(out["link_offset"]) <= 8
     assert out["errors"] == []
 
+
+
+def test_one_shared_jump_highlight_for_every_tab():
+    js = (STATIC / "jump.js").read_text()
+    assert js.count("function jumpHighlight(") == 1 and "jumpHighlight(row.el, k, id)" in js
+    assert '"#lib-filter"' in js and '"#refs-filter"' in js and '"#views-filter"' in js     # each Show filter
+    assert 'data-list="areas"' in (STATIC / "areas.js").read_text()                         # Areas has a box too
+    assert "jumpHighlight(card" in (STATIC / "areas.js").read_text()                        # its Decide… step too
+    css = (STATIC / "style.css").read_text()
+    assert ".jump-hit {" in css and "@keyframes jump-pulse" in css
+    assert "@media (prefers-reduced-motion: reduce) { .jump-pulse" in css
+
+
+JUMP_SCRIPT = r'''
+import json, sys
+from playwright.sync_api import sync_playwright
+url = sys.argv[1]
+out = {}
+MARK = """() => [...document.querySelectorAll('.jump-hit')].map(e => [e.dataset.entry || e.dataset.unit || e.dataset.asset,
+  e.tagName === 'TR' ? (getComputedStyle(e.cells[0]).boxShadow.includes('3px') ? '3px' : '0px') : getComputedStyle(e).outlineWidth, getComputedStyle(e.tagName === 'TR' ? e.cells[0] : e).animationName,
+  getComputedStyle(e.tagName === 'TR' ? e.cells[0] : e).backgroundImage !== 'none'])"""
+CENTRE = """([row, list]) => { const r = document.querySelector(row).getBoundingClientRect(),
+  l = document.querySelector(list).getBoundingClientRect(); return Math.round(r.top + r.height / 2 - (l.top + l.height / 2)); }"""
+def jump(pg, box, text):
+    j = pg.locator(box); j.fill(text); j.press("Enter"); pg.wait_for_timeout(300)
+with sync_playwright() as p:
+    b = p.chromium.launch(channel="chrome")
+    for motion in ("no-preference", "reduce"):
+        pg = b.new_page(viewport={"width": 1400, "height": 800}, reduced_motion=motion)
+        errs = []
+        pg.on("pageerror", lambda e: errs.append(str(e)))
+        pg.goto(url); pg.wait_for_selector("#assets-list .asset-card", state="attached", timeout=20000)
+        pg.click("button[data-tab=library]"); pg.click("button[data-sub=assets]"); pg.wait_for_timeout(500)
+        r = out[motion] = {}
+        # Asset review: the current area hides academy assets, so the Show filter switches
+        jump(pg, "#assets-jump", "academy-prop-12")
+        r["assets"] = [pg.locator("#lib-filter").input_value(), pg.locator("#assets-jump-msg").inner_text(), pg.evaluate(MARK),
+                       pg.evaluate(CENTRE, ['#assets-list [data-entry="academy-prop-12"]', "#assets-list"])]
+        pg.wait_for_timeout(2200)
+        r["after_pulse"] = pg.evaluate(MARK)
+        pg.mouse.click(5, 795); pg.wait_for_timeout(100)                    # a click elsewhere
+        r["cleared"] = pg.evaluate(MARK)
+        # Reference sheets: a Show filter that hides every row
+        pg.click("button[data-sub=refs]"); pg.wait_for_timeout(300)
+        pg.locator("#refs-filter").select_option("missing"); pg.wait_for_timeout(300)
+        jump(pg, "#refs-jump", "harbour-prop-20")
+        r["refs"] = [pg.locator("#refs-filter").input_value(), pg.locator("#refs-jump-msg").inner_text(), pg.evaluate(MARK),
+                     pg.evaluate(CENTRE, ['#refs-list [data-unit="harbour-prop-20"]', "#refs-list"])]
+        jump(pg, "#refs-jump", "academy-prop-03")                              # the next jump moves the mark
+        r["refs_next"] = [m[0] for m in pg.evaluate(MARK)]
+        # Views and 3D
+        pg.click("button[data-tab=views]"); pg.wait_for_timeout(500)
+        jump(pg, "#views-jump", "harbour-prop-15")
+        r["views"] = [pg.evaluate(MARK), pg.evaluate(CENTRE, ['#review-list [data-asset="harbour-prop-15"]', "#review-list"])]
+        # Areas: its table rows; an asset outside the area says so
+        pg.click("button[data-tab=library]"); pg.click("button[data-sub=areas]")
+        pg.wait_for_selector("#area-table tr[data-asset]", timeout=10000)
+        jump(pg, "#areas-jump", "harbour-prop-10")
+        r["areas"] = [pg.evaluate(MARK), pg.evaluate(CENTRE, ['#area-table tr[data-asset="harbour-prop-10"]', "#areas-tab"]),
+                      pg.locator("#areas-tab").evaluate("e => [e.scrollTop, e.scrollHeight, e.clientHeight]")]
+        jump(pg, "#areas-jump", "academy-prop-01")
+        r["areas_out"] = pg.locator("#areas-jump-msg").inner_text()
+        r["errors"] = errs
+        pg.close()
+    b.close()
+print("RESULT " + json.dumps(out))
+'''
+
+
+@pytest.mark.skipif(not BROWSER_PY.exists(), reason="needs the browser-test env (Playwright + system Chrome)")
+def test_jump_to_centres_marks_and_switches_the_show_filter_in_a_browser(tmp_path, monkeypatch):
+    out = _browse(tmp_path, monkeypatch, JUMP_SCRIPT)
+    for motion, pulse in (("no-preference", "jump-pulse"), ("reduce", "none")):
+        r = out[motion]
+        f, msg, mark, off = r["assets"]
+        assert f == "all" and msg.startswith("Show filter switched to All assets") and "Area: harbour-area" in msg
+        assert mark == [["academy-prop-12", "3px", pulse, True]] and abs(off) <= 8
+        assert r["after_pulse"] == [["academy-prop-12", "3px", "none", True]]       # the pulse ends, the mark stays
+        assert r["cleared"] == []
+        f, msg, mark, off = r["refs"]
+        assert f == "all" and '"No sheets yet"' in msg and mark[0][0] == "harbour-prop-20" and abs(off) <= 8
+        assert r["refs_next"] == ["academy-prop-03"]
+        mark, off = r["views"]
+        assert [m[0] for m in mark] == ["harbour-prop-15"] and abs(off) <= 8
+        mark, off, dbg = r["areas"]
+        assert [m[0] for m in mark] == ["harbour-prop-10"] and mark[0][2] == pulse and abs(off) <= 8, (off, dbg)
+        assert "isn't in this area" in r["areas_out"]
+        assert r["errors"] == []
 
 POLL_SCRIPT = r'''
 import json, sys

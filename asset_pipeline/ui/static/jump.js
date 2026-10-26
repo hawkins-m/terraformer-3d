@@ -1,10 +1,10 @@
 // Library and Views and 3D lists: the header (tabs, instructions, toolbar) stays fixed and only the
 // list scrolls (style.css). Each list keeps its own scroll position per project, across sub-tab
-// switches, re-renders and reloads. "Jump to" boxes scroll a list to an asset; an asset's name in
-// Asset review opens its row in Reference sheets, and the other way round.
+// switches, re-renders and reloads. "Jump to" boxes (Areas too) centre and mark an asset's row; an
+// asset's name in Asset review opens its row in Reference sheets, and the other way round.
 // Loaded after library.js, refs.js, review.js, shell.js (render functions, showSub, showTab).
 const JUMP_LISTS = {assets: "#assets-list", refs: "#refs-list", views: "#review-list"};
-const jumpState = {pos: {}, slug: null, saveT: null};
+const jumpState = {pos: {}, slug: null, saveT: null, hit: null};   // hit: the jumped-to row {el, k, id}
 
 function jumpLoadPositions() {
   if (jumpState.slug === slug) return;
@@ -39,6 +39,7 @@ for (const [fn, k] of [["renderLibrary", "assets"], ["renderRefs", "refs"], ["re
     const r = orig.apply(this, args);
     jumpRestore(k);
     jumpOptions(k);
+    jumpRemark(k);
     if (el) requestAnimationFrame(() => { delete el.dataset.restoring; });
     return r;
   };
@@ -62,6 +63,7 @@ function jumpRows(k) {
   if (k === "assets") return [...document.querySelectorAll("#assets-list .asset-card[data-entry]")]
     .map(el => ({id: el.dataset.entry, el}));
   if (k === "refs") return [...document.querySelectorAll("#refs-list .unit[data-unit]")].map(el => ({id: el.dataset.unit, el}));
+  if (k === "areas") return [...document.querySelectorAll("#area-table tr[data-asset]")].map(el => ({id: el.dataset.asset, el}));
   return [...document.querySelectorAll("#review-list .asset-review[data-asset]")].map(el => ({id: el.dataset.asset, el}));
 }
 const jumpLabel = id => (typeof assetName === "function" ? assetName(id) : id);
@@ -90,31 +92,66 @@ function jumpFind(k, id) {
 }
 function jumpMsg(k, html) { const m = $(`#${k}-jump-msg`); if (m) m.innerHTML = html; }
 
+// the Show filter of each list: a jump to a row it hides switches it to "all"
+const JUMP_FILTERS = {assets: "#lib-filter", refs: "#refs-filter", views: "#views-filter"};
+function jumpSetFilter(sel, value) { const f = $(sel); f.value = value; f.dispatchEvent(new Event("change")); }
+
+// The one highlight for every tab: the row is scrolled to the middle of its list, pulses briefly
+// (not with reduced motion: style.css) and stays marked until a click elsewhere or the next jump.
+function jumpHighlight(el, k = null, id = null) {
+  jumpClear();
+  const list = el.closest(".scroll-list");
+  if (list) {
+    const r = el.getBoundingClientRect(), lr = list.getBoundingClientRect();
+    const pad = Math.max(4, (list.clientHeight - r.height) / 2);      // taller than the list: its top
+    list.scrollTop += r.top - lr.top - pad;
+  } else el.scrollIntoView({block: "center"});
+  el.classList.add("jump-hit", "jump-pulse");
+  setTimeout(() => el.classList.remove("jump-pulse"), 2000);
+  jumpState.hit = {el, k, id};
+}
+function jumpClear() {
+  const h = jumpState.hit; jumpState.hit = null;
+  if (h) h.el.classList.remove("jump-hit", "jump-pulse");
+}
+// a re-render that rebuilt the marked row marks its new row (without the pulse)
+function jumpRemark(k) {
+  const h = jumpState.hit;
+  if (!h || h.k !== k || h.el.isConnected) return;
+  const row = jumpFind(k, h.id);
+  if (row) { row.el.classList.add("jump-hit"); h.el = row.el; } else jumpState.hit = null;
+}
+document.addEventListener("pointerdown", e => { const h = jumpState.hit; if (h && !h.el.contains(e.target)) jumpClear(); }, true);
+
 function jumpTo(k, id) {
   jumpMsg(k, "");
-  const row = jumpFind(k, id);
+  let row = jumpFind(k, id), note = "";
+  const fsel = JUMP_FILTERS[k], f = fsel && $(fsel);
+  if (!row && f && f.value !== "all") {          // hidden by the Show filter? show all, and say so
+    const was = f.value, wasText = (f.selectedOptions[0] || {}).textContent || was;
+    jumpSetFilter(fsel, "all");
+    row = jumpFind(k, id);
+    if (row) note = `Show filter switched to All assets: ${esc(jumpLabel(id))} was hidden by "${esc(wasText.replace(/\s*\(\d+\)$/, ""))}".`;
+    else jumpSetFilter(fsel, was);
+  }
   if (!row) {
-    const hidden = k === "assets" && libEntries().some(e => e.id === (assetEntry(id) || id));
-    jumpMsg(k, hidden ? `${esc(jumpLabel(id))} is hidden by the Show filter. <button type="button" class="small" id="jump-show-all">Show all</button>`
-                      : `${esc(jumpLabel(id))} has no row here${k === "refs" ? " (it isn't decided into the library plan)" : ""}.`);
-    const b = $("#jump-show-all");
-    if (b) b.onclick = () => { $("#lib-filter").value = "all"; $("#lib-filter").dispatchEvent(new Event("change")); jumpTo(k, id); };
+    jumpMsg(k, `${esc(jumpLabel(id))} has no row here${k === "refs" ? " (it isn't decided into the library plan)" : k === "areas" ? " (it isn't in this area)" : ""}.`);
     return false;
   }
-  const list = $(JUMP_LISTS[k]);
-  list.scrollTop += row.el.getBoundingClientRect().top - list.getBoundingClientRect().top - 4;
-  row.el.classList.add("jump-flash");
-  setTimeout(() => row.el.classList.remove("jump-flash"), 1500);
+  jumpMsg(k, note);
+  jumpHighlight(row.el, k, id);
   return true;
 }
 
-document.querySelectorAll(".jump-box").forEach(inp => {
-  const k = inp.dataset.list;
-  const go = () => { const id = jumpResolve(k, inp.value); if (id) jumpTo(k, id); else if (inp.value.trim()) jumpMsg(k, "No asset matches."); };
-  inp.addEventListener("change", go);
-  inp.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); go(); } });
-  inp.addEventListener("focus", () => jumpOptions(k));
-});
+// Jump to boxes (Areas builds its own after load): delegated
+const jumpBox = t => t && t.classList && t.classList.contains("jump-box") ? t : null;
+// Enter jumps every time; the change event a later blur sends for the same text doesn't jump again
+const jumpGo = inp => { inp.dataset.done = inp.value; const k = inp.dataset.list, id = jumpResolve(k, inp.value);
+  if (id) jumpTo(k, id); else if (inp.value.trim()) jumpMsg(k, "No asset matches."); };
+document.addEventListener("input", e => { const inp = jumpBox(e.target); if (inp) delete inp.dataset.done; });
+document.addEventListener("change", e => { const inp = jumpBox(e.target); if (inp && inp.dataset.done !== inp.value) jumpGo(inp); });
+document.addEventListener("keydown", e => { const inp = jumpBox(e.target); if (inp && e.key === "Enter") { e.preventDefault(); jumpGo(inp); } });
+document.addEventListener("focusin", e => { const inp = jumpBox(e.target); if (inp) jumpOptions(inp.dataset.list); });
 
 // an asset's name in one Library sub-tab opens the same asset in the other
 document.addEventListener("click", e => {

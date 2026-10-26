@@ -537,7 +537,18 @@ details summary { cursor: default; }
 .scroll-list > :first-child h3, .scroll-list > .refs-plan:first-child > h3 { margin-top: 2px; }
 .jump { margin-left: auto; }
 .jump-box { width: 16em; }
-.jump-flash { outline: 2px solid var(--select); outline-offset: 2px; transition: outline-color 1.2s; }
+/* the jumped-to row (jump.js jumpHighlight): the selected-version look, thicker; it pulses, then stays */
+.jump-hit { outline: 3px solid var(--select); outline-offset: -3px; background-image: linear-gradient(var(--jump-fill), var(--jump-fill)); }
+.jump-hit, #area-table tr.jump-hit > td { --jump-fill: color-mix(in srgb, var(--select) 10%, transparent); }
+#area-table tr.jump-hit { outline: 0; background-image: none; }
+#area-table tr.jump-hit > td { background-image: linear-gradient(var(--jump-fill), var(--jump-fill));
+  box-shadow: inset 0 3px var(--select), inset 0 -3px var(--select); }
+#area-table tr.jump-hit > td:first-child { box-shadow: inset 3px 0 var(--select), inset 0 3px var(--select), inset 0 -3px var(--select); }
+#area-table tr.jump-hit > td:last-child { box-shadow: inset -3px 0 var(--select), inset 0 3px var(--select), inset 0 -3px var(--select); }
+.jump-pulse, #area-table tr.jump-pulse > td { animation: jump-pulse .6s ease-in-out 3; }
+@property --jump-fill { syntax: "<color>"; inherits: false; initial-value: transparent; }
+@keyframes jump-pulse { 50% { --jump-fill: color-mix(in srgb, var(--select) 40%, transparent); } }
+@media (prefers-reduced-motion: reduce) { .jump-pulse, #area-table tr.jump-pulse > td { animation: none; } }
 .jump-link { color: inherit; text-decoration: none; }
 .jump-link:hover { text-decoration: underline; }
 .sheet-cap { display: grid; gap: 1px; padding: 3px 2px 1px; font-size: 11px; line-height: 1.3; color: var(--muted); }
@@ -701,13 +712,12 @@ details summary { cursor: default; }
 .doctor-window code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .su-info { flex: 1; margin: 0; }
 /* Library › Areas: a fixed form gap's row and Brief cell, briefly (areaFlash) */
-#area-table tr.flash, #area-table td.flash, .asset-card.flash { animation: area-flash 2.4s ease-out; }
-.asset-card.flash { outline: 2px solid var(--ready); }
+#area-table tr.flash, #area-table td.flash { animation: area-flash 2.4s ease-out; }
 #area-table td.flash { outline: 2px solid var(--ready); outline-offset: -2px; }
 @keyframes area-flash { from { background: var(--stale); } to { background: transparent; } }
 .area-fixed { margin: 0 0 4px; color: var(--ready); }
 .area-fixed button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
-@media (prefers-reduced-motion: reduce) { #area-table tr.flash, #area-table td.flash, .asset-card.flash { animation: none; } }
+@media (prefers-reduced-motion: reduce) { #area-table tr.flash, #area-table td.flash { animation: none; } }
 /* Unreal › World dressing: options with a performance tag and a density slider */
 #ue-dress { margin: 8px 0 4px; }
 #ue-dress .dress-opt { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 0; }
