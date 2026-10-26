@@ -204,8 +204,8 @@
               <button id="lib-new" type="button" title="Add an entry of your own (kept through re-plans)">New entry…</button>
               <button id="lib-check" type="button" title="SAM 3.1 on ComfyUI (GPU 1): about 2 minutes for a handful of frames">Check crops (SAM)</button>
               <label>Show: <select id="lib-filter"></select></label>
-              <label class="jump">Jump to: <input type="search" id="assets-jump" class="jump-box" data-list="assets" list="assets-jump-list"
-                placeholder="asset name or id" autocomplete="off"></label><datalist id="assets-jump-list"></datalist>
+              <label class="jump">Jump to: <input type="search" id="assets-jump" class="jump-box" data-list="assets" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
+                placeholder="asset name or id" autocomplete="off"></label>
               <span class="hint jump-msg" id="assets-jump-msg" style="margin:0" aria-live="polite"></span>
             </div>
             <div class="lib-batch" id="lib-batch">
@@ -269,8 +269,8 @@
               <label>Sheets per asset: <input id="refs-n" type="number" min="1" max="8" value="2"></label>
               <label>Show: <select id="refs-filter"></select></label>
               <span id="refs-summary" class="hint" style="margin:0"></span>
-              <label class="jump">Jump to: <input type="search" id="refs-jump" class="jump-box" data-list="refs" list="refs-jump-list"
-                placeholder="asset name or id" autocomplete="off"></label><datalist id="refs-jump-list"></datalist>
+              <label class="jump">Jump to: <input type="search" id="refs-jump" class="jump-box" data-list="refs" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
+                placeholder="asset name or id" autocomplete="off"></label>
               <span class="hint jump-msg" id="refs-jump-msg" style="margin:0" aria-live="polite"></span>
             </div>
             <div id="refs-list" class="scroll-list"></div>
@@ -291,8 +291,8 @@
             <label title="TRELLIS resolution for Make 3D: 1024_cascade is detailed (about 2.5 min), 512 is quicker and coarser.">3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
             <label>Show: <select id="views-filter"></select></label>
             <span id="review-summary" class="hint" style="margin:0"></span>
-            <label class="jump">Jump to: <input type="search" id="views-jump" class="jump-box" data-list="views" list="views-jump-list"
-                placeholder="asset name or id" autocomplete="off"></label><datalist id="views-jump-list"></datalist>
+            <label class="jump">Jump to: <input type="search" id="views-jump" class="jump-box" data-list="views" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
+                placeholder="asset name or id" autocomplete="off"></label>
               <span class="hint jump-msg" id="views-jump-msg" style="margin:0" aria-live="polite"></span>
           </div>
         </fieldset>

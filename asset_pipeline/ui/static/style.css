@@ -537,6 +537,13 @@ details summary { cursor: default; }
 .scroll-list > :first-child h3, .scroll-list > .refs-plan:first-child > h3 { margin-top: 2px; }
 .jump { margin-left: auto; }
 .jump-box { width: 16em; }
+/* its suggestion list (jump.js): a classic list box, square, 1px dark frame, white, navy selected row */
+.jump-pop { position: fixed; z-index: 150; margin: 0; padding: 0; list-style: none; overflow-y: auto; max-width: 32em;
+  background: #fff; border: 1px solid #000; border-radius: 0; box-shadow: none; font: 12px/1.35 var(--ui); color: var(--text); }
+.jump-pop li { padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: default; border-radius: 0; }
+.jump-pop li[aria-selected="true"] { background: var(--select); color: var(--select-text); }
+.jump-pop .jump-id { color: var(--muted); font-size: 11px; }
+.jump-pop li[aria-selected="true"] .jump-id { color: inherit; }
 /* the jumped-to row (jump.js jumpHighlight): the selected-version look, thicker; it pulses, then stays */
 .jump-hit { outline: 3px solid var(--select); outline-offset: -3px; background-image: linear-gradient(var(--jump-fill), var(--jump-fill)); }
 .jump-hit, #area-table tr.jump-hit > td { --jump-fill: color-mix(in srgb, var(--select) 10%, transparent); }

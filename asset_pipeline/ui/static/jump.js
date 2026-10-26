@@ -67,11 +67,18 @@ function jumpRows(k) {
   return [...document.querySelectorAll("#review-list .asset-review[data-asset]")].map(el => ({id: el.dataset.asset, el}));
 }
 const jumpLabel = id => (typeof assetName === "function" ? assetName(id) : id);
-function jumpOptions(k) {
-  const dl = $(`#${k}-jump-list`); if (!dl) return;
-  dl.innerHTML = jumpRows(k).map(r => { const n = jumpLabel(r.id);
-    return `<option value="${esc(n === r.id ? r.id : `${n} (${r.id})`)}"></option>`; }).join("");
+// the suggestions for a box's text: every row of its list whose name or id contains it
+function jumpItems(k, text) {
+  const low = text.trim().toLowerCase(), seen = new Set(), out = [];
+  for (const r of jumpRows(k)) {
+    if (seen.has(r.id)) continue; seen.add(r.id);
+    const name = jumpLabel(r.id), value = name === r.id ? r.id : `${name} (${r.id})`;
+    if (!low || value.toLowerCase().includes(low)) out.push({id: r.id, name, value});
+  }
+  return out.slice(0, 200);
 }
+// a re-render of a list refreshes its open suggestions
+function jumpOptions(k) { const inp = jumpPick.inp; if (inp && !jumpPop.hidden && inp.dataset.list === k) jumpOpen(inp); }
 // a typed or picked text -> the asset id it means
 function jumpResolve(k, text) {
   const t = text.trim(); if (!t) return null;
@@ -143,15 +150,64 @@ function jumpTo(k, id) {
   return true;
 }
 
-// Jump to boxes (Areas builds its own after load): delegated
+// Jump to boxes (Areas builds its own after load): delegated. One suggestion list for every box, in the
+// classic list-box look (style.css .jump-pop): it filters as you type; arrows move, Enter or a click jumps.
 const jumpBox = t => t && t.classList && t.classList.contains("jump-box") ? t : null;
+const jumpPop = Object.assign(document.createElement("ul"), {id: "jump-pop", className: "jump-pop", hidden: true});
+jumpPop.setAttribute("role", "listbox");
+document.body.append(jumpPop);
+const jumpPick = {inp: null, items: [], i: -1};
+function jumpOpen(inp) {
+  const items = jumpItems(inp.dataset.list, inp.value);
+  if (!items.length) return jumpPopClose();
+  Object.assign(jumpPick, {inp, items, i: -1});
+  jumpPop.innerHTML = items.map((it, i) => `<li role="option" id="jump-opt-${i}" data-i="${i}" aria-selected="false">${esc(it.name)}${
+    it.name !== it.id ? ` <span class="jump-id">${esc(it.id)}</span>` : ""}</li>`).join("");
+  const r = inp.getBoundingClientRect();
+  Object.assign(jumpPop.style, {left: `${r.left}px`, top: `${r.bottom}px`, minWidth: `${r.width}px`,
+    maxHeight: `${Math.max(80, Math.min(320, innerHeight - r.bottom - 8))}px`});
+  jumpPop.hidden = false; jumpPop.scrollTop = 0;
+  inp.setAttribute("aria-expanded", "true"); inp.removeAttribute("aria-activedescendant");
+}
+function jumpPopClose() {
+  jumpPop.hidden = true;
+  const inp = jumpPick.inp; jumpPick.inp = null;
+  if (inp) { inp.setAttribute("aria-expanded", "false"); inp.removeAttribute("aria-activedescendant"); }
+}
+function jumpSelect(i) {
+  const lis = jumpPop.children; if (!lis.length) return;
+  i = Math.max(0, Math.min(lis.length - 1, i));
+  if (lis[jumpPick.i]) lis[jumpPick.i].setAttribute("aria-selected", "false");
+  jumpPick.i = i; lis[i].setAttribute("aria-selected", "true");
+  jumpPick.inp.setAttribute("aria-activedescendant", lis[i].id);
+  lis[i].scrollIntoView({block: "nearest"});
+}
 // Enter jumps every time; the change event a later blur sends for the same text doesn't jump again
-const jumpGo = inp => { inp.dataset.done = inp.value; const k = inp.dataset.list, id = jumpResolve(k, inp.value);
+const jumpGo = inp => { jumpPopClose(); inp.dataset.done = inp.value; const k = inp.dataset.list, id = jumpResolve(k, inp.value);
   if (id) jumpTo(k, id); else if (inp.value.trim()) jumpMsg(k, "No asset matches."); };
-document.addEventListener("input", e => { const inp = jumpBox(e.target); if (inp) delete inp.dataset.done; });
+const jumpPicked = i => { const inp = jumpPick.inp, it = jumpPick.items[i]; if (inp && it) { inp.value = it.value; jumpGo(inp); } };
+document.addEventListener("input", e => { const inp = jumpBox(e.target); if (inp) { delete inp.dataset.done; jumpOpen(inp); } });
 document.addEventListener("change", e => { const inp = jumpBox(e.target); if (inp && inp.dataset.done !== inp.value) jumpGo(inp); });
-document.addEventListener("keydown", e => { const inp = jumpBox(e.target); if (inp && e.key === "Enter") { e.preventDefault(); jumpGo(inp); } });
-document.addEventListener("focusin", e => { const inp = jumpBox(e.target); if (inp) jumpOptions(inp.dataset.list); });
+document.addEventListener("click", e => { const inp = jumpBox(e.target); if (inp && jumpPop.hidden) jumpOpen(inp); });
+document.addEventListener("focusout", e => { if (jumpBox(e.target) && e.target === jumpPick.inp) jumpPopClose(); });
+document.addEventListener("keydown", e => {
+  const inp = jumpBox(e.target); if (!inp) return;
+  const open = !jumpPop.hidden && jumpPick.inp === inp;
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    if (!open) { jumpOpen(inp); if (!jumpPop.hidden) jumpSelect(0); }
+    else jumpSelect(jumpPick.i < 0 ? 0 : jumpPick.i + (e.key === "ArrowDown" ? 1 : -1));
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    if (open && jumpPick.i >= 0) jumpPicked(jumpPick.i); else jumpGo(inp);
+  } else if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); jumpPopClose(); }
+});
+jumpPop.addEventListener("pointerdown", e => e.preventDefault());          // the box keeps the focus
+jumpPop.addEventListener("mousemove", e => { const li = e.target.closest("li[data-i]"); if (li && +li.dataset.i !== jumpPick.i) jumpSelect(+li.dataset.i); });
+jumpPop.addEventListener("click", e => { const li = e.target.closest("li[data-i]"); if (li) jumpPicked(+li.dataset.i); });
+// the list sits under its box: a scroll elsewhere or a resize closes it
+document.addEventListener("scroll", e => { if (!jumpPop.hidden && e.target !== jumpPop) jumpPopClose(); }, true);
+addEventListener("resize", () => jumpPopClose());
 
 // an asset's name in one Library sub-tab opens the same asset in the other
 document.addEventListener("click", e => {

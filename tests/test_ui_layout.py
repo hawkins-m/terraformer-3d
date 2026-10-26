@@ -249,6 +249,80 @@ def test_jump_to_centres_marks_and_switches_the_show_filter_in_a_browser(tmp_pat
         assert "isn't in this area" in r["areas_out"]
         assert r["errors"] == []
 
+def test_jump_boxes_share_one_custom_suggestion_list():
+    html, areas = (STATIC / "index.html").read_text(), (STATIC / "areas.js").read_text()
+    assert "<datalist" not in html and "<datalist" not in areas and ' list="' not in areas
+    for k in ("assets", "refs", "views"):
+        assert f'id="{k}-jump" class="jump-box" data-list="{k}" role="combobox"' in html
+    assert 'id="areas-jump" class="jump-box" data-list="areas" role="combobox"' in areas
+    js = (STATIC / "jump.js").read_text()
+    assert js.count("function jumpOpen(") == 1 and "jumpTo(k, id)" in js
+    css = (STATIC / "style.css").read_text()
+    assert ".jump-pop {" in css and "border: 1px solid #000; border-radius: 0" in css
+    assert '.jump-pop li[aria-selected="true"] { background: var(--select); color: var(--select-text); }' in css
+
+
+SUGGEST_SCRIPT = r"""
+import json, sys
+from playwright.sync_api import sync_playwright
+url = sys.argv[1]
+out = {}
+MARK = "() => [...document.querySelectorAll('.jump-hit')].map(e => e.dataset.entry || e.dataset.unit || e.dataset.asset)"
+OPTS = "() => document.querySelector('#jump-pop').hidden ? null : [...document.querySelectorAll('#jump-pop li')].map(li => li.textContent)"
+SEL = "() => [...document.querySelectorAll('#jump-pop li[aria-selected=true]')].map(li => li.textContent)"
+LOOK = '''() => { const p = getComputedStyle(document.querySelector('#jump-pop')),
+  s = getComputedStyle(document.querySelector('#jump-pop li[aria-selected=true]'));
+  return [p.borderTopWidth, p.borderTopStyle, p.borderTopColor, p.borderRadius, p.backgroundColor, p.fontFamily.split(',')[0],
+          s.backgroundColor, s.color, s.borderRadius]; }'''
+def pick(pg, box, text):          # type part of a name, then one click on its suggestion
+    b = pg.locator(box); b.click(); b.fill(""); b.press_sequentially(text); pg.wait_for_timeout(100)
+    pg.locator("#jump-pop li", has_text=text).first.click(); pg.wait_for_timeout(300)
+with sync_playwright() as p:
+    b = p.chromium.launch(channel="chrome")
+    pg = b.new_page(viewport={"width": 1400, "height": 800})
+    errs = []
+    pg.on("pageerror", lambda e: errs.append(str(e)))
+    pg.goto(url); pg.wait_for_selector("#assets-list .asset-card", state="attached", timeout=20000)
+    pg.click("button[data-tab=library]"); pg.click("button[data-sub=assets]"); pg.wait_for_timeout(500)
+    box = pg.locator("#assets-jump")
+    box.click(); box.press_sequentially("harbour-prop-1"); pg.wait_for_timeout(100)
+    out["filtered"] = pg.evaluate(OPTS)
+    box.press("ArrowDown"); box.press("ArrowDown"); out["selected"] = pg.evaluate(SEL); out["look"] = pg.evaluate(LOOK)
+    box.press("Escape"); out["escaped"] = [pg.evaluate(OPTS), box.input_value()]
+    pick(pg, "#assets-jump", "harbour-prop-07")                       # a single click jumps: no Enter
+    out["clicked"] = [pg.evaluate(MARK), pg.evaluate(OPTS)]
+    box.fill(""); box.press_sequentially("harbour-prop-2"); box.press("ArrowDown"); box.press("Enter"); pg.wait_for_timeout(300)
+    out["arrow_enter"] = [pg.evaluate(MARK), pg.evaluate(OPTS)]
+    box.fill(""); box.press_sequentially("harbour-prop-11"); box.press("Enter"); pg.wait_for_timeout(300)
+    out["typed"] = pg.evaluate(MARK)                                  # a full name and Enter, nothing selected
+    pg.click("button[data-sub=refs]"); pg.wait_for_timeout(300)
+    pick(pg, "#refs-jump", "harbour-prop-20"); out["refs"] = pg.evaluate(MARK)
+    pg.click("button[data-tab=views]"); pg.wait_for_timeout(500)
+    pick(pg, "#views-jump", "harbour-prop-15"); out["views"] = pg.evaluate(MARK)
+    pg.click("button[data-tab=library]"); pg.click("button[data-sub=areas]")
+    pg.wait_for_selector("#area-table tr[data-asset]", timeout=10000)
+    pick(pg, "#areas-jump", "harbour-prop-10"); out["areas"] = pg.evaluate(MARK)
+    out["errors"] = errs
+    b.close()
+print("RESULT " + json.dumps(out))
+"""
+
+
+@pytest.mark.skipif(not BROWSER_PY.exists(), reason="needs the browser-test env (Playwright + system Chrome)")
+def test_jump_suggestion_click_jumps_without_enter_in_a_browser(tmp_path, monkeypatch):
+    out = _browse(tmp_path, monkeypatch, SUGGEST_SCRIPT)
+    assert out["filtered"] and all("harbour-prop-1" in o for o in out["filtered"])      # filtered as typed
+    assert out["selected"] == [out["filtered"][1]]                                      # arrows move
+    assert out["look"] == ["1px", "solid", "rgb(0, 0, 0)", "0px", "rgb(255, 255, 255)", "Tahoma",
+                           "rgb(49, 106, 197)", "rgb(255, 255, 255)", "0px"]
+    assert out["escaped"] == [None, "harbour-prop-1"]                                   # Escape closes, keeps the text
+    assert out["clicked"] == [["harbour-prop-07"], None]                                 # one click jumps
+    assert out["arrow_enter"] == [["harbour-prop-20"], None]
+    assert out["typed"] == ["harbour-prop-11"]
+    assert out["refs"] == ["harbour-prop-20"] and out["views"] == ["harbour-prop-15"] and out["areas"] == ["harbour-prop-10"]
+    assert out["errors"] == []
+
+
 POLL_SCRIPT = r'''
 import json, sys
 from playwright.sync_api import sync_playwright

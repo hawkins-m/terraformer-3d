@@ -79,8 +79,8 @@ async function areasPanel(host) {
   body.innerHTML = `<div class="row"><label for="area-select">Area:</label><select id="area-select"></select>
       <button type="button" id="area-new" class="small">New area…</button>
       <button type="button" id="area-refresh" class="small">Refresh</button>
-      <label class="jump">Jump to: <input type="search" id="areas-jump" class="jump-box" data-list="areas" list="areas-jump-list"
-        placeholder="asset name or id" autocomplete="off"></label><datalist id="areas-jump-list"></datalist>
+      <label class="jump">Jump to: <input type="search" id="areas-jump" class="jump-box" data-list="areas" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
+        placeholder="asset name or id" autocomplete="off"></label>
       <span class="hint jump-msg" id="areas-jump-msg" style="margin:0" aria-live="polite"></span></div>
     <div id="area-define" hidden></div>
     <div id="area-gaps" hidden></div>
