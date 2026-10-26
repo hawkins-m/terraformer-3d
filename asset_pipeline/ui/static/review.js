@@ -71,7 +71,8 @@ function renderReview() {
     key: a => `${a.plan}/${a.asset.id}`,
     sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name), a.plan === "library" ? verRev(a.asset.id) : 0,
       a.plan === "library" ? [variantOf(a.asset.id), variantOf(a.asset.id) && assetName(variantOf(a.asset.id)), (libraryData && libraryData.splits || {})[a.asset.id] || null] : 0,
-      ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status)), rowNote(a)]),
+      ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status)),
+      ["views.cut", "library.brief_build", "library.reroll"].map(k => activeJobs(k, {asset: a.asset.id}).map(j => j.status)), rowNote(a)]),
     build: assetReview,
   });
   if (reviewData.assets.length && !shownV.length)
@@ -85,6 +86,8 @@ function assetReview(a) {
   // the header names the asset (and what it is a variant of); the version number only stands by the
   // Active badge, so "v2 canopy table copy" no longer reads as a version of canopy table
   const lib = a.plan === "library", vof = lib ? variantOf(x.id) : null;
+  // the buttons follow the entry's build method (Manage entry…), not whether views exist
+  const nx = a.next, noForm = !!(a.procedural && nx && nx.form && !nx.form.form);
   const places = lib && libraryData && libraryData.splits && libraryData.splits[x.id]
     ? `<span class="asset-split" title="${esc(splitTip(x.id))}">${esc(splitText(x.id))}</span>`
     : vof ? `shares ${esc(assetName(vof))}'s places` : `×${x.count}`;
@@ -96,9 +99,11 @@ function assetReview(a) {
       <span class="hint">${places} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
-      <span class="actions">${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}
-        <button type="button" class="make3d" data-needs="${a.procedural ? "blender" : "trellis"}">Make 3D</button>
-        <label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Without it, Make 3D from the same view and mode repeats the same version."><input type="checkbox" class="new-seed-box"> New seed</label>
+      <span class="actions">${a.procedural ? `<button type="button" class="${a.reroll ? "secondary " : ""}brief-build" data-needs="vlm blender">${noForm ? "Choose form…" : "Brief & build"}</button>` : ""}
+        ${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}
+        <button type="button" class="make3d" data-needs="trellis">Make 3D</button>
+        ${a.procedural ? "" : `<label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Without it, Make 3D from the same view and mode repeats the same version."><input type="checkbox" class="new-seed-box"> New seed</label>`}
+        <button type="button" class="secondary recut">Re-cut views…</button>
         <button type="button" class="secondary cleanup" title="Scale the Active version to the plan size and set its pivot at the base${x.usage === "game" ? ", then decimate and bake it for game use" : ""}.">Clean up</button>
         ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
           <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>
@@ -136,25 +141,47 @@ function assetReview(a) {
 
   const g = document.createElement("div"); g.className = "grid views";
   if (!a.views.length) g.innerHTML = `<span class="hint no-views" title="Star a sheet in Library › Reference sheets, then click Extract reference views at the top of this tab.">No views yet: star a sheet, then Extract reference views</span>`;
+  const viewName = v => `${v.sheet.split("/").pop().replace(".png", "").replace("sheet_", "s")} v${v.position}`;
   for (const v of a.views) {
+    const cell = document.createElement("span"); cell.className = "view-cell"; cell.dataset.key = v.key;
     const b = document.createElement("button");
     b.type = "button"; b.className = "view" + (v.key === a.chosen ? " chosen" : "");
     b.setAttribute("aria-pressed", v.key === a.chosen);
     b.title = `${v.key === a.chosen ? "Make 3D builds from this view; click to unchoose it." : "Click to build from this view with Make 3D."} ${v.sheet}, view ${v.position}${v.asked ? ` (asked: ${v.asked})` : ""}`;
     b.innerHTML = `<img loading="lazy" alt="" src="${fileUrl(v.key)}">
-      <span class="label">${v.key === a.chosen ? "✓ " : ""}${esc(v.sheet.split("/").pop().replace(".png", "").replace("sheet_", "s"))} v${v.position}</span>`;
+      <span class="label">${v.key === a.chosen ? "✓ " : ""}${v.odd ? "⚠ " : ""}${esc(viewName(v))}</span>`;
+    if (v.odd) { b.classList.add("odd"); b.title += ` ${v.odd}`; }
     b.onclick = async () => {
       try { await api(`/api/projects/${slug}/review/choose`, {plan: a.plan, asset: x.id, view: v.key === a.chosen ? null : v.key}); await load(); }
       catch (err) { alert(errorText(err)); }
     };
-    g.append(b);
+    // delete: to the trash, asked first; the chosen view stays until another is picked
+    const del = document.createElement("button"); del.type = "button"; del.className = "wclose view-del";
+    del.textContent = "x"; del.setAttribute("aria-label", `Delete view ${viewName(v)}`);
+    del.title = v.key === a.chosen ? "This is the chosen view: pick another view first, then delete it." : "Delete this view (it moves to the project's trash).";
+    del.onclick = async ev => {
+      ev.stopPropagation();
+      if (v.key === a.chosen) { alert("This is the chosen view: pick another view first (or click it to unchoose it), then delete it."); return; }
+      if (!(await askDialog("Delete view", `Delete view ${viewName(v)} of ${assetName(x.id, x.name)}? It moves to the project's trash folder.`, "Delete"))) return;
+      try { await api(`/api/projects/${slug}/views/delete`, {key: v.key}); await load(); }
+      catch (err) { alert(errorText(err)); }
+    };
+    cell.append(b, del);
+    g.append(cell);
   }
   el.append(g);
+  const odd = a.views.filter(v => v.odd);
+  if (odd.length) {
+    const n = document.createElement("p"); n.className = "hint odd-views";
+    n.textContent = odd.map(v => `${viewName(v)}: ${v.odd}`).join(" ");
+    el.append(n);
+  }
 
   const jobs3d = activeJobs("3d.trellis", {plan: a.plan, asset: x.id});
   const make = $(".make3d", el);
-  make.disabled = !a.chosen || !!jobs3d.length;
-  make.title = a.chosen ? "Build a 3D model with TRELLIS from the chosen view; it becomes a new version." : "Choose a reference view first.";
+  make.disabled = a.procedural || !a.chosen || !!jobs3d.length;
+  make.title = a.procedural ? "This entry's build method is procedural: Brief & build or Reroll make its versions. To use Make 3D (TRELLIS), set Build method to TRELLIS in Manage entry…."
+    : a.chosen ? "Build a 3D model with TRELLIS from the chosen view; it becomes a new version." : "Choose a reference view first.";
   if (jobs3d.length) {
     make.textContent = jobs3d[0].status === "queued" ? "Queued…" : "Building…";
     make.after(stopButton(jobs3d));
@@ -169,6 +196,28 @@ function assetReview(a) {
     }
     catch (err) { alert(errorText(err)); }
   };
+
+  // procedural: Brief & build from the newest starred sheet (its own, as Library › Reference sheets
+  // uses); no form yet: Choose form… opens the same dialog with the Form field focused
+  const bb = $(".brief-build", el);
+  if (bb) {
+    const own = a.starred.filter(s => s.sheet.split("/")[2] === x.id), sheet = (own.length ? own : a.starred).map(s => s.sheet).at(-1);
+    const bbJobs = activeJobs("library.brief_build", {asset: x.id});
+    bb.disabled = !sheet || !nx || !!bbJobs.length;
+    bb.title = !sheet ? `Star a sheet of this asset in Library › Reference sheets first${noForm ? " (or set the form in Manage entry…)" : ""}.`
+      : noForm ? `No building form yet: choose it (and the size), then brief from ${sheet.split("/").pop()} and build.`
+      : `Brief from ${sheet.split("/").pop()} with the vision model, then build in Blender (a new version).`;
+    if (bbJobs.length) { bb.textContent = bbJobs[0].status === "queued" ? "Queued…" : "Building…"; bb.after(stopButton(bbJobs)); }
+    bb.onclick = () => refsBriefBuild({key: x.id, title: assetName(x.id, x.name), sheets: a.starred.map(s => s.sheet)}, sheet, nx,
+      noForm ? {focus: "form"} : null);
+  }
+
+  const rc = $(".recut", el), rcJobs = activeJobs("views.cut", {asset: x.id});
+  rc.disabled = !a.starred.length || !!rcJobs.length;
+  rc.title = a.starred.length ? "Cut this asset's views again from its starred sheet; the old ones move to the trash."
+    : "Star a sheet of this asset in Library › Reference sheets first.";
+  if (rcJobs.length) { rc.textContent = rcJobs[0].status === "queued" ? "Queued…" : "Cutting…"; rc.after(stopButton(rcJobs)); }
+  rc.onclick = () => recutDialog(a);
 
   const rr = $(".reroll", el);
   if (rr) {
@@ -191,7 +240,7 @@ function assetReview(a) {
   const cleanJobs = activeJobs("cleanup", {plan: a.plan, asset: x.id});
   const clean = $(".cleanup", el);
   clean.disabled = !a.results.length || !!cleanJobs.length;
-  if (!a.results.length) clean.title = "Make 3D first.";
+  if (!a.results.length) clean.title = a.procedural ? "Build a version first (Brief & build)." : "Make 3D first.";
   if (cleanJobs.length) {
     clean.textContent = cleanJobs[0].status === "queued" ? "Queued…" : "Cleaning…";
     clean.after(stopButton(cleanJobs));
@@ -208,7 +257,7 @@ function assetReview(a) {
   if (a.plan === "library") {
     const vs = document.createElement("fieldset"); vs.className = "version-strip"; body.append(vs);
     if (a.results.length || a.current) versionStrip(vs, x.id, () => load());
-    else vs.innerHTML = `<legend>Versions</legend><span class="hint">No builds yet: Make 3D${a.reroll ? " or Reroll" : ""}.</span>`;
+    else vs.innerHTML = `<legend>Versions</legend><span class="hint">No builds yet: ${a.procedural ? `${noForm ? "Choose form…, then " : ""}Brief & build${a.reroll ? " or Reroll" : ""}` : "Make 3D"}.</span>`;
   }
   const models = document.createElement("div"); models.className = "ar-models"; body.append(models);
   if (a.results.length) {
@@ -244,6 +293,34 @@ function assetReview(a) {
   }
   if (!a.results.length && !a.cleanups.length) models.innerHTML = `<span class="hint">No 3D model yet.</span>`;
   return el;
+}
+
+// Re-cut views…: one of the asset's starred sheets (the newest by default) cut again, its old views to
+// the trash; or the whole sheet as one view, for one object drawn across the sheet
+function recutDialog(a) {
+  const x = a.asset, short = k => k.split("/").pop(), newest = a.starred.at(-1);
+  const body = document.createElement("div"); body.id = "recut-body";
+  body.innerHTML = `<p>Cut the views of <b>${esc(assetName(x.id, x.name))}</b> again from its starred sheet. The views cut from that sheet now
+      move to the project's trash folder${a.views.some(v => v.key === a.chosen) ? " (a chosen one among them is unchosen)" : ""}.</p>
+    <p>${a.starred.length > 1 ? `<label>Sheet: <select id="recut-sheet">${a.starred.map(s =>
+      `<option value="${esc(s.sheet)}"${s === newest ? " selected" : ""}>${esc(short(s.sheet))}${s.kind === "kit" ? " (kit sheet)" : ""}</option>`).join("")}</select></label>`
+      : `Sheet: <code>${esc(short(newest.sheet))}</code>`}</p>
+    <label class="check"><input type="checkbox" id="recut-whole"> Cut the whole sheet as one view</label>
+    <p class="hint">For an asset drawn as one object across the sheet (a long stepped quay, say) instead of three separate views.</p>`;
+  const sel = $("#recut-sheet", body), whole = $("#recut-whole", body);
+  const sync = () => {
+    const kit = a.starred.find(s => s.sheet === (sel ? sel.value : newest.sheet)).kind === "kit";
+    whole.disabled = kit; if (kit) whole.checked = false;
+    whole.parentElement.title = kit ? "A kit sheet holds several pieces: it can't be one view." : "";
+  };
+  if (sel) sel.onchange = sync;
+  sync();
+  dialog({title: "Re-cut views", body, buttons: [
+    {label: "Re-cut", default: true, onClick: async () => {
+      try { await api(`/api/projects/${slug}/views/recut`, {plan: a.plan, asset: x.id, sheet: sel ? sel.value : newest.sheet, whole: whole.checked}); await load(); }
+      catch (err) { alert(errorText(err)); return false; }
+    }},
+    {label: "Cancel"}]}).win.id = "recut-dialog";
 }
 
 $("#cut-views").onclick = async () => {

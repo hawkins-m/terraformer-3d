@@ -253,6 +253,10 @@ button.remove { min-width: 0; width: 22px; height: 20px; padding: 0; }
 .asset-review .row-note > span { flex: 1; min-width: 0; }
 .asset-review .row-note.warn { border-color: var(--stale-line); background: var(--stale); }
 .view .label { position: absolute; left: 2px; bottom: 2px; padding: 0 3px; background: var(--field); border: 1px solid var(--border); }
+.view-cell { position: relative; display: block; min-width: 0; }
+.view-cell > .view { width: 100%; }
+.view-cell > .view-del { position: absolute; top: 2px; right: 2px; }
+.view.odd { border-color: var(--stale-line); }
 .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 6px; }
 .result { border: 1px solid var(--border); padding: 6px; display: grid; gap: 4px; }
 .result model-viewer { width: 100%; height: 220px; background: var(--viewer); }
