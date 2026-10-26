@@ -78,7 +78,10 @@ async function areasPanel(host) {
   const body = document.createElement("div"); body.id = "areas-body";
   body.innerHTML = `<div class="row"><label for="area-select">Area:</label><select id="area-select"></select>
       <button type="button" id="area-new" class="small">New area…</button>
-      <button type="button" id="area-refresh" class="small">Refresh</button></div>
+      <button type="button" id="area-refresh" class="small">Refresh</button>
+      <label class="jump">Jump to: <input type="search" id="areas-jump" class="jump-box" data-list="areas" list="areas-jump-list"
+        placeholder="asset name or id" autocomplete="off"></label><datalist id="areas-jump-list"></datalist>
+      <span class="hint jump-msg" id="areas-jump-msg" style="margin:0" aria-live="polite"></span></div>
     <div id="area-define" hidden></div>
     <div id="area-gaps" hidden></div>
     <div id="area-table-box" class="hint">Loading…</div>
@@ -260,11 +263,7 @@ async function areaDoStep(r, d, table) {
       if (!$(sel)) { const f = $("#lib-filter"); f.value = "todo"; f.dispatchEvent(new Event("change")); }   // the Show filter hid it
       if (!$(sel)) { const f = $("#lib-filter"); f.value = "all"; f.dispatchEvent(new Event("change")); }
       const card = $(sel);
-      if (card) {
-        card.scrollIntoView({block: "center"});
-        card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
-        setTimeout(() => card.classList.remove("flash"), 2500);
-      }
+      if (card) jumpHighlight(card, "assets", r.entry);
       return;
     }
     if (step === "form") {
