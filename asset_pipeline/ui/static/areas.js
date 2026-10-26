@@ -164,7 +164,9 @@ function areaGaps(d, table) {
   box.hidden = !gaps.length && !fx;
   if (!gaps.length && !fx) { box.replaceChildren(); return; }
   // the last fix stays said here (its row has left the list), with Undo
-  const done = fx ? `<p class="area-fixed" role="status">✓ ${esc(fx.text)} <button type="button" class="link" id="area-fix-undo">Undo</button></p>` : "";
+  const next = fx && fx.row && areaStep(fx.row).kind !== "done" ? areaStep(fx.row) : null;   // the row's Next, as a link
+  const done = fx ? `<p class="area-fixed" role="status">✓ ${esc(fx.text)}${next ? ` Next: <button type="button" class="link" id="area-fix-next"
+    title="${esc(fx.row.next)}">${esc(next.label.replace(/…$/, ""))}</button>` : ""} <button type="button" class="link" id="area-fix-undo">Undo</button></p>` : "";
   box.innerHTML = `<fieldset id="area-gap-list"><legend>Form gaps (${gaps.length})</legend>${done}
     ${gaps.length ? `<p class="hint" style="margin-top:0">Can't be briefed yet. ${helpQ("These can't be briefed yet. The first button is the suggested fix.", "form gaps")}</p>` : ""}
     ${gaps.map((g, i) => `<div class="row area-gap" data-asset="${esc(g.asset)}"><b style="min-width:13em" title="${esc(g.asset)}">${esc(assetName(g.asset))}</b>
@@ -174,6 +176,7 @@ function areaGaps(d, table) {
       <button type="button" class="small area-fix-manage" data-g="${i}">Manage entry…</button></div>`).join("")}</fieldset>`;
   box.querySelectorAll(".area-fix").forEach(b => b.onclick = () => areaFix(gaps[+b.dataset.g], gaps[+b.dataset.g].fixes[+b.dataset.f], d, table));
   box.querySelectorAll(".area-fix-manage").forEach(b => b.onclick = () => areaFix(gaps[+b.dataset.g], {kind: "manage"}, d, table));
+  if (next) $("#area-fix-next", box).onclick = () => areaDoStep(fx.row, d, table);
   if (fx) $("#area-fix-undo", box).onclick = async () => {
     try { await fx.undo(); } catch (err) { alert(errorText(err)); return; }
     areaState.fixed = null; await load(); await table(); areaFlash(d, fx.asset);
@@ -213,7 +216,7 @@ async function areaFix(g, f, d, table) {
   } catch (err) { alert(errorText(err)); return; }
   await load(); await table();
   const row = areaState.rows.find(r => r.asset === g.asset);
-  if (row && areaState.fixed) { areaState.fixed.text += ` Next: ${areaStep(row).label.replace(/…$/, "")}`; areaGaps(d, table); }
+  if (row && areaState.fixed) { areaState.fixed.row = row; areaGaps(d, table); }
   areaFlash(d, g.asset);
 }
 
@@ -253,8 +256,15 @@ async function areaDoStep(r, d, table) {
   try {
     if (step === "decide") {
       d.close(); showTab("library"); showSub("assets");
-      const card = document.querySelector(`#assets-list [data-entry="${CSS.escape(r.entry)}"]`);
-      if (card) { card.scrollIntoView({block: "center"}); card.classList.add("flash"); }
+      const sel = `#assets-list [data-entry="${CSS.escape(r.entry)}"]`;
+      if (!$(sel)) { const f = $("#lib-filter"); f.value = "todo"; f.dispatchEvent(new Event("change")); }   // the Show filter hid it
+      if (!$(sel)) { const f = $("#lib-filter"); f.value = "all"; f.dispatchEvent(new Event("change")); }
+      const card = $(sel);
+      if (card) {
+        card.scrollIntoView({block: "center"});
+        card.classList.remove("flash"); void card.offsetWidth; card.classList.add("flash");
+        setTimeout(() => card.classList.remove("flash"), 2500);
+      }
       return;
     }
     if (step === "form") {

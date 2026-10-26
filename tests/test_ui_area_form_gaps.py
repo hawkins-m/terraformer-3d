@@ -53,6 +53,13 @@ with sync_playwright() as p:
     pg.wait_for_selector(".area-fixed", timeout=10000); pg.wait_for_timeout(300)
     out["trellis"] = {"note": pg.inner_text(".area-fixed"), "route": pg.inner_text(ROW.format("blob-x") + " td:nth-child(3)"),
                       "flash": pg.evaluate(BRIEF, "blob-x")["rowFlash"]}
+    # the line's "Next: Decide" is a link: Asset review, scrolled to the card, highlighted
+    out["next_link"] = pg.inner_text("#area-fix-next")
+    pg.click("#area-fix-next"); pg.wait_for_timeout(400)
+    out["next"] = pg.evaluate("""() => { const c = document.querySelector('#assets-list [data-entry="blob-x"]'), r = c && c.getBoundingClientRect();
+      const l = document.querySelector('#assets-list').getBoundingClientRect();
+      return {tab: currentTab, sub: localStorage.getItem('ap.sub'), card: !!c, flash: !!c && c.classList.contains('flash'),
+              inView: !!c && r.top >= l.top && r.bottom <= l.bottom}; }""")
     out["errors"] = errs
     b.close()
 print("RESULT " + json.dumps(out))
@@ -72,4 +79,6 @@ def test_a_form_gap_fix_says_what_it_did_and_can_be_undone(tmp_path, monkeypatch
     assert u["note"] == 0 and sorted(u["gaps"]) == ["blob-x", "hall-a"] and u["brief"] == "no form"
     assert out["trellis"]["note"].startswith("✓ blob x: build method set to TRELLIS.") and "Next: Decide" in out["trellis"]["note"]
     assert out["trellis"]["route"] == "trellis" and out["trellis"]["flash"]
+    assert out["next_link"] == "Decide"
+    assert out["next"] == {"tab": "library", "sub": "assets", "card": True, "flash": True, "inView": True}
     assert out["errors"] == []
