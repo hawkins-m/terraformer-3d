@@ -1154,6 +1154,25 @@ def cmd_library_show(a) -> None:
     print(sw_library.summary(data))
 
 
+def cmd_library_smooth(a) -> None:
+    from . import smooth
+    store = ProjectStore.open(a.project)
+    if a.list:
+        todo = smooth.candidates(store)
+        print("\n".join(todo) if todo else "no unsmoothed TRELLIS models in use")
+        return
+    if a.all == bool(a.assets):
+        raise SystemExit("name assets, or --all for every asset whose Active version is an unsmoothed TRELLIS model")
+    if a.version is not None:
+        if len(a.assets) != 1:
+            raise SystemExit("--version goes with one asset")
+        r = smooth.smooth_version(store, a.assets[0], a.version, angle_deg=a.angle)
+        print(f"{r['asset']}: v{r['from']} -> v{r['n']} ({r['welded']} vertices welded, {r['seconds']} s)")
+        return
+    rep = smooth.smooth_all(store, None if a.all else a.assets)
+    print(f"{len(rep['done'])} smoothed, {len(rep['failed'])} failed")
+
+
 def cmd_frames_show(a) -> None:
     from .stages import s0_frames, sw_site
     store = ProjectStore.open(a.project)
@@ -1901,6 +1920,15 @@ def main(argv: list[str] | None = None) -> None:
     p = libsub.add_parser("show", help="the library plan, by district")
     p.add_argument("project")
     p.set_defaults(fn=cmd_library_show)
+    p = libsub.add_parser("smooth", help="TRELLIS models: weld and shade smooth by angle, as a new version "
+                                         "(the Active one when its source was); seconds, no regeneration")
+    p.add_argument("project")
+    p.add_argument("assets", nargs="*")
+    p.add_argument("--all", action="store_true", help="every asset whose Active version is an unsmoothed TRELLIS model")
+    p.add_argument("--list", action="store_true", help="only list those assets")
+    p.add_argument("--version", type=int, help="smooth this version instead of the Active one (one asset)")
+    p.add_argument("--angle", type=float, help="degrees (default [trellis] smooth_angle, 30)")
+    p.set_defaults(fn=cmd_library_smooth)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
     p.add_argument("action", choices=["build", "init", "import", "stale", "render", "look", "pull-layout", "backup",
                                       "scan-assets"],

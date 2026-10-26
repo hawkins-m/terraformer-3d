@@ -85,7 +85,7 @@ async function versionsChanged(asset, onChange) {
 }
 
 // load(): a job that makes or switches versions has finished since the last load -> refresh its asset
-const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build"]);
+const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build", "library.smooth"]);
 let verJobsSeen = null;
 async function versionsAfterLoad() {
   const done = data.jobs.filter(j => VERSION_JOBS.has(j.kind) && j.tag && j.tag.asset && (j.tag.plan || "library") === "library" && !isActive(j));
@@ -116,6 +116,7 @@ function versionStripDraw(box, asset, d, onChange) {
           <div class="hint ver-changes" style="margin:0" title="${esc(v.changes ? `What changed in the brief:\n${v.changes.replace(/^Changed: /, "").replace(/; | · /g, "\n")}` : "")}">${esc(v.changes_short || v.changes || "") || "&nbsp;"}</div>
           <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div></div>
         <div class="ver-btns">${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
+          ${v.smoothable ? `<button type="button" class="small ver-smooth" title="Weld the model and shade it smooth by angle (30°: curves smooth, sharp edges crisp), as a new version; a few seconds, no regeneration.">Smooth shading</button>` : ""}
           <button type="button" class="small ver-pin" title="${v.pinned ? "Let retention remove this version again once it is old." : "Never remove this version, however many newer ones you make."}">${v.pinned ? "Stop keeping" : "Keep"}</button>
           <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button></div></div>`).join("")}</div>
       <div class="row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"} title="Show the two ticked versions side by side with what differs.">Compare</button>
@@ -128,6 +129,13 @@ function versionStripDraw(box, asset, d, onChange) {
       };
       const use = $(".ver-restore", row);
       if (use) use.onclick = () => versionRestore(asset, v, onChange);
+      const sm = $(".ver-smooth", row);
+      if (sm) sm.onclick = async () => {
+        sm.disabled = true;
+        try { await jobDone(await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/smooth`, {})); }
+        catch (err) { alert(errorText(err)); }
+        await versionsChanged(asset, onChange);
+      };
       $(".ver-pin", row).onclick = async () => {
         try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/${v.pinned ? "unpin" : "pin"}`, {}); }
         catch (err) { alert(errorText(err)); }
@@ -290,8 +298,23 @@ async function settingsDialog() {
   dlg.win.id = "settings-dialog";
 }
 
-Object.assign(ACTIONS, {storage: {run: storageDialog, enabled: () => !!slug}, settings: {run: settingsDialog, enabled: () => !!slug}});
+// Pipeline › Smooth TRELLIS models…: every asset whose Active version is an unsmoothed TRELLIS model
+async function smoothAllDialog() {
+  let c;
+  try { c = await api(`/api/projects/${slug}/library/smooth`, undefined, "GET"); } catch (err) { alert(errorText(err)); return; }
+  if (!c.assets.length) { alert("Every TRELLIS model in use is smooth already."); return; }
+  if (!await confirmDialog({title: "Smooth TRELLIS models", button: `Smooth ${c.assets.length}`, id: "smooth-all-dialog",
+    body: `<p>Welds and shades smooth by angle (${c.angle}°) the Active TRELLIS model of: ${c.assets.map(esc).join(", ")}.</p>
+      <p>Each becomes a new version, Active in place of the old one (still there to go back to). A few seconds each.</p>`})) return;
+  try { await api(`/api/projects/${slug}/library/smooth`, {}); } catch (err) { alert(errorText(err)); }
+  await load();
+}
+
+Object.assign(ACTIONS, {storage: {run: storageDialog, enabled: () => !!slug}, settings: {run: settingsDialog, enabled: () => !!slug},
+  smoothAll: {run: smoothAllDialog, enabled: () => !!slug}});
 {
   const tools = MENUS.find(m => m[0] === "Tools")[2];
   tools.splice(tools.length, 0, "-", ["Storage…", "storage"], ["Settings…", "settings"]);
+  const pipe = MENUS.find(m => m[0] === "Pipeline")[2];
+  pipe.splice(pipe.findIndex(x => x[1] === "make3d") + 1, 0, ["Smooth TRELLIS models…", "smoothAll"]);
 }

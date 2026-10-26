@@ -332,3 +332,18 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   `library_entries.sync_plan` (new decisions become sheet units, excluded leave), so Generate missing updates.
   `sync_plan` now also rewrites the plan when its last included entry leaves.
 - Test: tests/test_library_batch_decide.py (API and browser).
+
+## TRELLIS shading (2026-10-25)
+- A TRELLIS GLB carries continuous per-vertex normals (creases at 0.01% of positions on the rotunda
+  v2 test) but its vertices are split along UV seams (1.29x). Unreal shaded it faceted because
+  Interchange built it with `recompute_normals` on and glTF has no smoothing groups.
+- Fix: every TRELLIS result (and Clean up) is welded and shaded smooth by angle in Blender
+  (`smooth.py`, `scripts/blender_smooth_glb.py`, `[trellis] smooth_angle` 30 like the procedural
+  builds), and Unreal builds every imported mesh with the GLB's normals (`ap_import.keep_normals`;
+  existing TRELLIS models in CityLibrary switch on the next build). A ~1M-face model takes ~3 s.
+- Existing versions: `ap library smooth PROJECT ASSET | --all` (UI: Smooth shading on a TRELLIS
+  version card, Pipeline › Smooth TRELLIS models…) writes `<stem>_smooth.glb` as a new version that
+  takes over as Active when its source was; the original stays.
+- The 30 deg pass leaves real creases on ~18% of a TRELLIS mesh's positions (its noisy surface plus
+  cornices and steps); in clay renders the dome's facet bands go, what remains is the remesh's own
+  geometry (a slightly polygonal silhouette), which normals can't change.

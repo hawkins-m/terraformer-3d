@@ -354,8 +354,10 @@ def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
     cur = current(store, asset, plan)
     pr = prune(store, asset, dry_run=True, plan=plan)
     lines = change_lines(store, asset, rows, plan)
+    from .smooth import is_smoothed
     return {"asset": asset, "keep": keep_limit(store), "current": cur,
             "versions": [_view(store, r, cur) | lines.get(r["n"], {})
+                         | {"smoothable": r["kind"] == "trellis" and bool(r["files"]) and not is_smoothed(store, r)}
                          for r in sorted(rows, key=lambda r: -r["n"])],
             "bytes": sum(r["bytes"] for r in rows), "prunable": pr["remove"], "prunable_bytes": pr["bytes"]}
 

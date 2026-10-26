@@ -165,6 +165,32 @@ def master_material():
     return m
 
 
+def mesh_editor():
+    """StaticMeshEditorSubsystem. The commandlet doesn't load its module, and without it the old
+    EditorStaticMeshLibrary setters silently do nothing (2026-10-25): load it first."""
+    ss = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    if ss is None:
+        unreal.SystemLibrary.execute_console_command(None, "Module Load StaticMeshEditor")
+        ss = unreal.get_editor_subsystem(unreal.StaticMeshEditorSubsystem)
+    if ss is None:
+        raise RuntimeError("StaticMeshEditorSubsystem unavailable: can't set mesh build settings")
+    return ss
+
+
+def keep_normals(mesh) -> bool:
+    """Build the mesh with the GLB's own normals (tangents from MikkTSpace): Interchange's default
+    recomputes them, and glTF has no smoothing groups, so a TRELLIS model came out faceted
+    (2026-10-25). Nanite builds from the same normals. True when it changed (the mesh rebuilds)."""
+    lib = mesh_editor()
+    b = lib.get_lod_build_settings(mesh, 0)
+    if not b.get_editor_property("recompute_normals"):
+        return False
+    b.set_editor_property("recompute_normals", False)
+    b.set_editor_property("recompute_tangents", True)
+    lib.set_lod_build_settings(mesh, 0, b)
+    return True
+
+
 def _fmt(v):
     return ",".join(f"{x:.4f}" for x in v) if isinstance(v, (list, tuple)) else f"{v:.4f}"
 
@@ -260,6 +286,7 @@ def import_mesh(asset, root, mi, report):
     ns = mesh.get_editor_property("nanite_settings")
     ns.enabled = True
     mesh.set_editor_property("nanite_settings", ns)
+    keep_normals(mesh)
     for i in range(len(mesh.get_editor_property("static_materials"))):
         mesh.set_material(i, mi)
     eal.set_metadata_tag(mesh, "ap:glb_sha", digest)
@@ -641,6 +668,7 @@ def import_library(man, root, master, args, report):
             ns = mesh.get_editor_property("nanite_settings")
             ns.enabled = True
             mesh.set_editor_property("nanite_settings", ns)
+            keep_normals(mesh)
             eal.set_metadata_tag(mesh, "ap:glb_sha", digests[a["id"]])
             meshes[a["id"]] = mesh
             report["assets"]["imported"].append(a["id"])
@@ -654,6 +682,9 @@ def import_library(man, root, master, args, report):
         if not ns.enabled:                        # kept from before, but Nanite was off
             ns.enabled = True
             mesh.set_editor_property("nanite_settings", ns)
+            dirty = True
+        if a.get("generated") and keep_normals(mesh):   # imported before 2026-10-25 with recomputed normals
+            report.setdefault("normals_fixed", []).append(a["id"])
             dirty = True
         if "baked" in a:                          # its own baked maps, in M_AP_PBR instances
             maps = fresh_maps.get(a["id"])

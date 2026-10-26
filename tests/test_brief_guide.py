@@ -146,7 +146,11 @@ def test_make_3d_new_seed_passes_a_non_default_seed_and_records_it(proj, monkeyp
         write_json(to / f"{stem}.json", {"glb_faces": 9})          # a result without a seed
         return SimpleNamespace(pid=0, returncode=0, poll=lambda: 0)
     monkeypatch.setattr(s5_3d.subprocess, "Popen", fake_popen)
+    from asset_pipeline import smooth
+    smoothed = []
+    monkeypatch.setattr(smooth, "postprocess", lambda glb, stats: smoothed.append(glb.name))   # every result is smoothed
     rec = s5_3d.run(proj, "library", "canopy-table", seed=None)
+    assert smoothed == [f"sheet_000_v1_1024_cascade_s{rec['seed']}.glb"]
     seed = int(cmds[0][cmds[0].index("--seed") + 1])
     assert seed != 42 and rec["seed"] == seed
     assert read_json(out / f"sheet_000_v1_1024_cascade_s{seed}.json")["seed"] == seed

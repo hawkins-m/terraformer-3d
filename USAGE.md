@@ -600,6 +600,8 @@ ap ue look my-project my-shot          # build + render from site/look_tests/my-
 ```
 ap library silhouette my-project my-entry --shot my-shot   # any entry, approved or not
 ap library pending my-project --shot my-shot               # slots without an approved build, by frame share
+ap library smooth my-project my-asset                      # a TRELLIS model welded + smooth by angle, as a new version
+ap library smooth my-project --all                         # every TRELLIS model in use (--list to see them)
 ap library pending my-project --shot my-shot --no-draft    # without the vision model's draft briefs
 ```
 

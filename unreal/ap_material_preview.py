@@ -272,6 +272,7 @@ def import_glb(asset, glb):
     ns = mesh.get_editor_property("nanite_settings")
     ns.enabled = True
     mesh.set_editor_property("nanite_settings", ns)
+    ap_import.keep_normals(mesh)
     return mesh
 
 

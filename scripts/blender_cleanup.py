@@ -16,11 +16,14 @@
    it (Cycles on the CPU, so it never competes with GPU jobs). Metallic becomes the
    original's average. --quad tries quad retopology first (voxel remesh + QuadriFlow);
    experimental: QuadriFlow rejected TRELLIS meshes as non-manifold even after a remesh.
+   Before any of it, the mesh is welded and shaded smooth by angle (--smooth-angle, default 30;
+   0 keeps the file's shading): blender_shading.weld_and_smooth, as TRELLIS outputs get it.
 4. Warnings in the report: a flat result (a dimension < 5% of the plan's) and
    proportions far from the plan (an axis < 0.67x or > 1.5x after the fit).
 """
 import json
 import math
+import os
 import sys
 import time
 
@@ -38,6 +41,7 @@ src, dst, report_path = opt("--in"), opt("--out"), opt("--report")
 plan_w, plan_d, plan_h = (float(v) for v in opt("--dims").split(","))
 fit = opt("--fit", "height")
 retopo = int(opt("--retopo", "0"))
+smooth_angle = float(opt("--smooth-angle", "30"))
 tex_size = int(opt("--texture-size", "2048"))
 threads = int(opt("--threads", "0"))
 t0 = time.time()
@@ -78,6 +82,11 @@ obj.name = "asset"
 bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
 bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
 report["input_faces"] = len(obj.data.polygons)
+if smooth_angle > 0:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from blender_shading import weld_and_smooth
+    report["shading"] = weld_and_smooth(obj, smooth_angle) | {"angle": smooth_angle}
+    log(f"welded {report['shading']['welded']} vertices, smooth by angle {smooth_angle:g} deg")
 
 # --- scale to plan dimensions ------------------------------------------------------------
 lo, hi = bbox(obj)

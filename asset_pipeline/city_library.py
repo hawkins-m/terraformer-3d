@@ -682,7 +682,8 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
         dst.write_bytes(strip_textures(raw) if p["entry"] in own and not p.get("active") else raw)
         assets[aid] = {"id": aid, "kind": "library", "entry": p["entry"], "glb": f"{LIB_DIR}/{aid}.glb",
                        "source": p["glb"], "bounds": pl["bounds"][p["glb"]],
-                       "stripped_kb": round((len(raw) - dst.stat().st_size) / 1024)}
+                       "stripped_kb": round((len(raw) - dst.stat().st_size) / 1024),
+                       "generated": bool(p.get("active") or p.get("prop"))}    # a TRELLIS model: its normals matter most
         if p["entry"] not in own or p.get("active"):   # its own baked maps go into its material instances
             assets[aid]["baked"] = baked_materials(raw)
     for s in m["slots"]:

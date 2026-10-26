@@ -113,6 +113,11 @@ llm = "local"      # local | gemini | claude
 # pythonscript commandlet (-nullrhi: no GPU). Optional: without it the Unreal tab explains
 # and the rest works. Set it in Setup, or AP_UE_EDITOR_CMD
 # (<UnrealEngine>/Engine/Binaries/Linux/UnrealEditor-Cmd).
+# Generated models (TRELLIS.2 results, Clean up): welded and shaded smooth by this angle in degrees
+# (the procedural builds' default), so curved surfaces don't shade faceted; 0 = keep the file's.
+[trellis]
+smooth_angle = 30
+
 [unreal]
 editor_cmd = ""
 # Active UE projects (<projects_dir>/<slug>/), and where `ap ue backup` snapshots them. Keep

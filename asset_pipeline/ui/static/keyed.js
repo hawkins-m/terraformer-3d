@@ -80,3 +80,26 @@ function keyedSections(container, groups, {heading, cls = "", rowsCls = "", ...r
     keyedList(sec.querySelector(":scope > .keyed-rows"), groups[i].items, rows);
   });
 }
+
+// Every 3D preview shows its whole model on load: model-viewer's own fit stays unless the model's
+// height (seen from its 75° orbit, plus half its depth in front) wouldn't fit the element's height,
+// then the camera backs off until it does, so a tall model (a dome over its drum, a tower) shows top
+// to bottom in a short card. Zooming out stays possible (max radius 4x).
+function frameModel(mv) {
+  if (!mv.getDimensions || !mv.clientHeight) return;
+  const d = mv.getDimensions(), c = mv.getBoundingBoxCenter(), orbit = mv.getCameraOrbit();
+  const fov = mv.getFieldOfView() * Math.PI / 180, pitch = orbit.phi;
+  const tall = d.y * Math.sin(pitch) + Math.max(d.x, d.z) * Math.abs(Math.cos(pitch));
+  const need = 1.08 * (tall / 2 / Math.tan(fov / 2) + Math.max(d.x, d.z) / 2);
+  if (!(need > orbit.radius)) return;
+  mv.cameraTarget = `${c.x}m ${c.y}m ${c.z}m`;
+  mv.cameraOrbit = `${orbit.theta}rad ${pitch}rad ${need}m`;
+  mv.maxCameraOrbit = `auto auto ${4 * need}m`;
+  mv.jumpCameraToGoal();
+}
+const framedResize = typeof ResizeObserver === "function" ? new ResizeObserver(es => es.forEach(e => frameModel(e.target))) : null;
+document.addEventListener("load", e => {
+  if (!e.target || e.target.tagName !== "MODEL-VIEWER") return;
+  frameModel(e.target);
+  if (framedResize) framedResize.observe(e.target);           // a card resized later fits again
+}, true);

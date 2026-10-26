@@ -166,6 +166,7 @@ def import_static(glb, folder, name):
     ns = mesh.get_editor_property("nanite_settings")
     ns.enabled = True
     mesh.set_editor_property("nanite_settings", ns)
+    ap_import.keep_normals(mesh)
     eal.set_metadata_tag(mesh, "ap:glb_sha", digest)
     return mesh
 

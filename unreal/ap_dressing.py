@@ -453,6 +453,7 @@ def import_meshes(role, path):
             ns = m.get_editor_property("nanite_settings")
             ns.enabled = True
             m.set_editor_property("nanite_settings", ns)
+            ap_import.keep_normals(m)
         eal.save_directory(folder, only_if_is_dirty=False, recursive=True)
         log(f"imported {role}: {len(got)} mesh(es) from {os.path.basename(path)}")
     return got

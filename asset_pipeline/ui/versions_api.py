@@ -73,6 +73,37 @@ def register(app: FastAPI, jobs, store_of) -> None:
         return jobs.submit("library.restore", slug, lambda: versions.restore(store, asset, n), lane="cpu",
                            tag={"asset": asset, "version": n}).public()
 
+    @app.post(base + "/{n}/smooth")
+    def versions_smooth(slug: str, asset: str, n: int):
+        """A TRELLIS version welded and shaded smooth by angle, as a new version (smooth.py)."""
+        from .. import smooth
+        store = store_of(slug)
+        r = _call(versions.get, store, asset, n)
+        if r["kind"] != "trellis" or smooth.is_smoothed(store, r):
+            raise HTTPException(400, f"v{n} is not an unsmoothed TRELLIS model")
+        return jobs.submit("library.smooth", slug, lambda: smooth.smooth_version(store, asset, n), lane="cpu",
+                           tag={"asset": asset, "version": n}).public()
+
+    @app.get("/api/projects/{slug}/library/smooth")
+    def smooth_candidates(slug: str):
+        from .. import smooth
+        return {"assets": smooth.candidates(store_of(slug)), "angle": smooth.angle()}
+
+    @app.post("/api/projects/{slug}/library/smooth")
+    def smooth_all(slug: str):
+        """Every asset whose Active version is an unsmoothed TRELLIS model (one job, one version each)."""
+        from .. import smooth
+        from ..jobs import current_job
+        store = store_of(slug)
+        todo = smooth.candidates(store)
+        if not todo:
+            raise HTTPException(400, "no TRELLIS model in use needs smoothing")
+
+        def run():
+            job = current_job()
+            return smooth.smooth_all(store, todo, log=(lambda m: setattr(job, "note", m[:200])) if job else print)
+        return jobs.submit("library.smooth_all", slug, run, lane="cpu", tag={"assets": todo}).public()
+
     @app.post(base + "/{n}/pin")
     def versions_pin(slug: str, asset: str, n: int):
         return _call(versions.pin, store_of(slug), asset, n)

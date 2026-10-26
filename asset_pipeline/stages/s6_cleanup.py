@@ -71,7 +71,8 @@ def run(store: ProjectStore, plan: str, asset_id: str, glb: str | None = None,
     report = dst.with_suffix(".json")
     args = ["--in", src, "--out", dst, "--report", report,
             "--dims", f"{d.width},{d.depth},{d.height}", "--fit", fit,
-            "--retopo", retopo, "--texture-size", texture_size]
+            "--retopo", retopo, "--texture-size", texture_size,
+            "--smooth-angle", str(float(config.get("trellis.smooth_angle", 30)))]
     t = time.time()
     blender.run(SCRIPT, args, out / "blender.log", f"cleanup of {plan}/{asset_id}", exe=BLENDER)
     if not report.is_file():

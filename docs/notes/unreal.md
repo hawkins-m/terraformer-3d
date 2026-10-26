@@ -140,3 +140,8 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   ComfyUI's GPU while ComfyUI has a job running or queued (its `/queue` through ComfyClient), any
   GPU with a TRELLIS lock or the vision model answering, and one over the VRAM limit; otherwise it
   waits, then refuses with the reasons.
+- **Mesh build settings headless (2026-10-25)**: Interchange builds glTF meshes with
+  `recompute_normals` on (faceted TRELLIS models). `StaticMeshEditorSubsystem` doesn't exist in the
+  commandlet until `Module Load StaticMeshEditor` (console command), and the old
+  `EditorStaticMeshLibrary.set_lod_build_settings` silently does nothing without it.
+  `ap_import.mesh_editor()` loads it; `keep_normals` builds with the GLB's normals (Nanite too).
