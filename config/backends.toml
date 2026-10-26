@@ -117,6 +117,20 @@ llm = "local"      # local | gemini | claude
 # (the procedural builds' default), so curved surfaces don't shade faceted; 0 = keep the file's.
 [trellis]
 smooth_angle = 30
+# Ground slabs (a reference view's shadow or floor turned into a thin plate under the model): removed
+# from every TRELLIS result and in Clean up. A slab is the model's lowest layer, at most
+# ground_max_thickness of its height thick, reaching more than ground_min_overhang of its footprint's
+# size beyond the footprint (convex hull of what stands on it) over at least ground_min_area of the
+# footprint's area. Plinths, podiums and steps have height and match the footprint, so they stay.
+remove_ground = true
+ground_max_thickness = 0.05
+ground_min_overhang = 0.06
+ground_min_area = 0.04
+
+# Reference views (stage 3): the floor and cast shadow under an object SAM found are matted out to
+# pure white before TRELLIS sees the view, so new builds get fewer ground slabs.
+[views]
+matte_ground = true
 
 [unreal]
 editor_cmd = ""

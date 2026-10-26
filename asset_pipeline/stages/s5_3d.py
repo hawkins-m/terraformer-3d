@@ -165,14 +165,14 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
             raise gpu_policy.GpuMemoryError(gpu_policy.oom_message(need, free, holders, lighter))
         raise RuntimeError(f"TRELLIS failed (exit code {proc.returncode}): {_failure_line(run_log.splitlines())}. "
                            f"The full log is {OUT}/{plan}/{asset_id}/trellis.log.")
-    try:                                                # smooth shading before it becomes a version
+    try:                                                # smooth shading, no ground slab, before it becomes a version
         from .. import smooth
         if job:
-            job.note = "Smoothing the shading (Blender)…"
+            job.note = "Smoothing the shading and removing any ground slab (Blender)…"
         smooth.postprocess(stage / f"{stem}.glb", stage / f"{stem}.json")
     except Exception as e:  # noqa: BLE001 - a raw result is still a result
         with (out / "trellis.log").open("a") as log:
-            log.write(f"smooth shading failed, keeping the raw model: {e}\n")
+            log.write(f"smooth shading / ground removal failed, keeping the raw model: {e}\n")
     for f in sorted(stage.iterdir()):
         filestore.detach(out / f.name)                  # a rerun's old files: own files, not shared ones
         os.replace(f, out / f.name)

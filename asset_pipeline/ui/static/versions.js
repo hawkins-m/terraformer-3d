@@ -85,7 +85,7 @@ async function versionsChanged(asset, onChange) {
 }
 
 // load(): a job that makes or switches versions has finished since the last load -> refresh its asset
-const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build", "library.smooth"]);
+const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build", "library.smooth", "library.ground"]);
 let verJobsSeen = null;
 async function versionsAfterLoad() {
   const done = data.jobs.filter(j => VERSION_JOBS.has(j.kind) && j.tag && j.tag.asset && (j.tag.plan || "library") === "library" && !isActive(j));
@@ -114,9 +114,11 @@ function versionStripDraw(box, asset, d, onChange) {
           <div class="ver-marks">${v.current ? `<span class="mark ver-used" title="This version is the one later steps (Cleanup, Unreal look scenes) will use.">Active</span>` : ""}${v.approved ? `<span class="mark m-ok" title="The version that was Active when the asset was approved; never removed.">approved</span>` : ""}${v.pinned ? `<span class="mark m-new" title="Marked Keep: never removed">kept</span>` : ""}</div>
           <div class="hint ver-src" style="margin:0">${esc(verSource(v)) || "&nbsp;"}</div>
           <div class="hint ver-changes" style="margin:0" title="${esc(v.changes ? `What changed in the brief:\n${v.changes.replace(/^Changed: /, "").replace(/; | · /g, "\n")}` : "")}">${esc(v.changes_short || v.changes || "") || "&nbsp;"}</div>
-          <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div></div>
+          <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div>
+          ${v.ground ? `<div class="hint ver-ground" style="margin:0">${esc(v.ground)}</div>` : ""}</div>
         <div class="ver-btns">${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
           ${v.smoothable ? `<button type="button" class="small ver-smooth" title="Weld the model and shade it smooth by angle (30°: curves smooth, sharp edges crisp), as a new version; a few seconds, no regeneration.">Smooth shading</button>` : ""}
+          ${v.groundable ? `<button type="button" class="small ver-ground-rm" title="Cut off a thin ground slab TRELLIS built under the model from the sheet's shadow or floor, and stand the model on its own base, as a new version; plinths, podiums and steps stay. A few seconds.">Remove ground</button>` : ""}
           <button type="button" class="small ver-pin" title="${v.pinned ? "Let retention remove this version again once it is old." : "Never remove this version, however many newer ones you make."}">${v.pinned ? "Stop keeping" : "Keep"}</button>
           <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button></div></div>`).join("")}</div>
       <div class="row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"} title="Show the two ticked versions side by side with what differs.">Compare</button>
@@ -133,6 +135,13 @@ function versionStripDraw(box, asset, d, onChange) {
       if (sm) sm.onclick = async () => {
         sm.disabled = true;
         try { await jobDone(await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/smooth`, {})); }
+        catch (err) { alert(errorText(err)); }
+        await versionsChanged(asset, onChange);
+      };
+      const gr = $(".ver-ground-rm", row);
+      if (gr) gr.onclick = async () => {
+        gr.disabled = true;
+        try { await jobDone(await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/ground`, {})); }
         catch (err) { alert(errorText(err)); }
         await versionsChanged(asset, onChange);
       };
@@ -298,23 +307,31 @@ async function settingsDialog() {
   dlg.win.id = "settings-dialog";
 }
 
-// Pipeline › Smooth TRELLIS models…: every asset whose Active version is an unsmoothed TRELLIS model
-async function smoothAllDialog() {
+// Pipeline › Smooth TRELLIS models… / Remove ground from TRELLIS models…: every asset whose Active
+// version is a TRELLIS model that still needs it; a tick adds the other fix in the same pass
+async function fixAllDialog(mode) {
   let c;
   try { c = await api(`/api/projects/${slug}/library/smooth`, undefined, "GET"); } catch (err) { alert(errorText(err)); return; }
-  if (!c.assets.length) { alert("Every TRELLIS model in use is smooth already."); return; }
-  if (!await confirmDialog({title: "Smooth TRELLIS models", button: `Smooth ${c.assets.length}`, id: "smooth-all-dialog",
-    body: `<p>Welds and shades smooth by angle (${c.angle}°) the Active TRELLIS model of: ${c.assets.map(esc).join(", ")}.</p>
-      <p>Each becomes a new version, Active in place of the old one (still there to go back to). A few seconds each.</p>`})) return;
-  try { await api(`/api/projects/${slug}/library/smooth`, {}); } catch (err) { alert(errorText(err)); }
+  const ground = mode === "ground", mine = ground ? c.ground : c.assets, other = ground ? c.assets : c.ground;
+  if (!mine.length) { alert(ground ? "Every TRELLIS model in use has had its ground removed or checked." : "Every TRELLIS model in use is smooth already."); return; }
+  const body = document.createElement("div");
+  body.innerHTML = (ground
+    ? `<p>Cuts off a thin ground slab (a shadow or floor TRELLIS built under the model) from the Active TRELLIS model of: ${mine.map(esc).join(", ")}. Plinths, podiums and steps stay.</p>`
+    : `<p>Welds and shades smooth by angle (${c.angle}°) the Active TRELLIS model of: ${mine.map(esc).join(", ")}.</p>`)
+    + `<p>Each becomes a new version, Active in place of the old one (still there to go back to). A few seconds each.${ground ? " Where no ground is found, nothing changes and the version says so." : ""}</p>`
+    + (other.length ? `<label class="check"><input type="checkbox" id="fix-also"> ${ground ? "Smooth the shading first, in the same pass" : "Also remove the ground, in the same pass"} (${other.length} model${other.length === 1 ? "" : "s"})</label>` : "");
+  if (!await confirmDialog({title: ground ? "Remove ground from TRELLIS models" : "Smooth TRELLIS models",
+    button: `${ground ? "Remove ground from" : "Smooth"} ${mine.length}`, id: ground ? "ground-all-dialog" : "smooth-all-dialog", body})) return;
+  const also = !!(body.querySelector("#fix-also") || {}).checked;
+  try { await api(`/api/projects/${slug}/library/smooth`, {smooth: !ground || also, ground: ground || also}); } catch (err) { alert(errorText(err)); }
   await load();
 }
 
 Object.assign(ACTIONS, {storage: {run: storageDialog, enabled: () => !!slug}, settings: {run: settingsDialog, enabled: () => !!slug},
-  smoothAll: {run: smoothAllDialog, enabled: () => !!slug}});
+  smoothAll: {run: () => fixAllDialog("smooth"), enabled: () => !!slug}, groundAll: {run: () => fixAllDialog("ground"), enabled: () => !!slug}});
 {
   const tools = MENUS.find(m => m[0] === "Tools")[2];
   tools.splice(tools.length, 0, "-", ["Storage…", "storage"], ["Settings…", "settings"]);
   const pipe = MENUS.find(m => m[0] === "Pipeline")[2];
-  pipe.splice(pipe.findIndex(x => x[1] === "make3d") + 1, 0, ["Smooth TRELLIS models…", "smoothAll"]);
+  pipe.splice(pipe.findIndex(x => x[1] === "make3d") + 1, 0, ["Smooth TRELLIS models…", "smoothAll"], ["Remove ground from TRELLIS models…", "groundAll"]);
 }

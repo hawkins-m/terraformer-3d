@@ -1173,6 +1173,25 @@ def cmd_library_smooth(a) -> None:
     print(f"{len(rep['done'])} smoothed, {len(rep['failed'])} failed")
 
 
+def cmd_library_remove_ground(a) -> None:
+    from . import smooth
+    store = ProjectStore.open(a.project)
+    if a.list:
+        todo = smooth.candidates(store, op="ground")
+        print("\n".join(todo) if todo else "every TRELLIS model in use has had its ground looked for")
+        return
+    if a.all == bool(a.assets):
+        raise SystemExit("name assets, or --all for every asset whose Active version is a TRELLIS model not checked yet")
+    if a.version is not None:
+        if len(a.assets) != 1:
+            raise SystemExit("--version goes with one asset")
+        r = smooth.fix_version(store, a.assets[0], a.version, smooth=a.smooth, ground=True)
+        print(f"{r['asset']} v{r['from']}: {smooth.ground_line(r['ground'])}" + (f" -> v{r['n']}" if r["n"] else ""))
+        return
+    rep = smooth.fix_all(store, None if a.all else a.assets, smooth=a.smooth, ground=True)
+    print(f"{len(rep['done'])} checked, {sum(1 for r in rep['done'] if r['n'])} new versions, {len(rep['failed'])} failed")
+
+
 def cmd_frames_show(a) -> None:
     from .stages import s0_frames, sw_site
     store = ProjectStore.open(a.project)
@@ -1929,6 +1948,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--version", type=int, help="smooth this version instead of the Active one (one asset)")
     p.add_argument("--angle", type=float, help="degrees (default [trellis] smooth_angle, 30)")
     p.set_defaults(fn=cmd_library_smooth)
+    p = libsub.add_parser("remove-ground", help="TRELLIS models: cut off a thin ground slab (a shadow or floor "
+                                                "TRELLIS built under the model) as a new version; plinths and steps stay")
+    p.add_argument("project")
+    p.add_argument("assets", nargs="*")
+    p.add_argument("--all", action="store_true", help="every asset whose Active version is a TRELLIS model not checked yet")
+    p.add_argument("--list", action="store_true", help="only list those assets")
+    p.add_argument("--version", type=int, help="this version instead of the Active one (one asset)")
+    p.add_argument("--smooth", action="store_true", help="smooth the shading in the same pass (where not done yet)")
+    p.set_defaults(fn=cmd_library_remove_ground)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
     p.add_argument("action", choices=["build", "init", "import", "stale", "render", "look", "pull-layout", "backup",
                                       "scan-assets"],

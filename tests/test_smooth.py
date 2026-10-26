@@ -1,6 +1,7 @@
-"""Smooth shading for TRELLIS models (asset_pipeline/smooth.py): an existing version smoothed as a new
-version that takes over as Active, the batch over every unsmoothed TRELLIS model in use, the
-post-process switch, and (with Blender) the weld and smooth-by-angle on a real GLB."""
+"""Smooth shading and ground removal for TRELLIS models (asset_pipeline/smooth.py): an existing version
+fixed as a new version that takes over as Active, "no ground found" recorded without a version, the
+batch over every TRELLIS model in use, the post-process switches, and (with Blender) the weld and
+smooth-by-angle and the slab cut on real GLBs (a slab goes, a podium stays)."""
 import json
 import shutil
 import struct
@@ -28,12 +29,15 @@ def store(tmp_path, monkeypatch):
     return st
 
 
-def fake_blender(monkeypatch, calls):
-    def run(src, dst, angle_deg=None, log_path=None):
-        calls.append((src.name, dst.name, angle_deg))
+def fake_blender(monkeypatch, calls, removed=1234):
+    def run(src, dst, angle_deg=None, ground=None, log_path=None):
+        calls.append((src.name, angle_deg, ground is not None))
         shutil.copyfile(src, dst)
-        return {"angle": angle_deg or 30.0, "welded": 5, "sharp_edges": 3, "seconds": 0.1}
-    monkeypatch.setattr(smooth, "smooth_glb", run)
+        rep = {"angle": angle_deg, "welded": 5, "sharp_edges": 3, "seconds": 0.1}
+        if ground is not None:
+            rep["ground"] = {"removed_faces": removed} if removed else {"removed_faces": 0, "reason": "none"}
+        return rep
+    monkeypatch.setattr(smooth, "fix_glb", run)
 
 
 def test_a_version_is_smoothed_as_a_new_active_version(store, monkeypatch):
@@ -41,7 +45,8 @@ def test_a_version_is_smoothed_as_a_new_active_version(store, monkeypatch):
     fake_blender(monkeypatch, calls)
     assert versions.current(store, "dome") == 1 and smooth.candidates(store) == ["dome"]
     r = smooth.smooth_version(store, "dome")
-    assert (r["from"], r["n"]) == (1, 2) and calls == [("view_1024_cascade_s7.glb", "view_1024_cascade_s7_smooth.glb", None)]
+    assert (r["from"], r["n"]) == (1, 2) and calls == [("view_1024_cascade_s7.glb", 30.0, False)]
+    assert versions.get(store, "dome", 2)["files"][0].endswith("view_1024_cascade_s7_smooth.glb")
     assert versions.current(store, "dome") == 2                        # took over as Active
     row = versions.get(store, "dome", 2)
     assert row["kind"] == "trellis" and "smooth shading" in row["note"] and row["source"]["seed"] == 7
@@ -77,10 +82,56 @@ def test_postprocess_follows_the_setting(store, monkeypatch, tmp_path):
     glb, stats = tmp_path / "x.glb", tmp_path / "x.json"
     glb.write_bytes(b"g")
     stats.write_text("{}")
-    monkeypatch.setattr(config, "get", lambda k, d=None: 0 if k == "trellis.smooth_angle" else d)
+    cfg = {"trellis.smooth_angle": 0, "trellis.remove_ground": False}
+    monkeypatch.setattr(config, "get", lambda k, d=None: cfg.get(k, d))
     assert smooth.postprocess(glb, stats) is None and calls == []
-    monkeypatch.setattr(config, "get", lambda k, d=None: 25 if k == "trellis.smooth_angle" else d)
-    assert smooth.postprocess(glb, stats)["angle"] == 25 and json.loads(stats.read_text())["smoothed"]["welded"] == 5
+    cfg["trellis.smooth_angle"] = 25
+    assert smooth.postprocess(glb, stats)["smoothed"]["angle"] == 25 and calls == [("x.glb", 25, False)]
+    assert json.loads(stats.read_text())["smoothed"]["welded"] == 5
+    cfg["trellis.remove_ground"] = True                                 # the default: one pass does both
+    out = smooth.postprocess(glb, stats)
+    assert calls[-1] == ("x.glb", 25, True) and out["ground"]["removed_faces"] == 1234
+    assert smooth.ground_line(json.loads(stats.read_text())["ground"]) == "Ground removed: 1,234 faces"
+
+
+def test_ground_removed_as_a_new_active_version(store, monkeypatch):
+    calls = []
+    fake_blender(monkeypatch, calls)
+    assert smooth.candidates(store, op="ground") == ["dome"]
+    r = smooth.ground_version(store, "dome")
+    assert (r["from"], r["n"]) == (1, 2) and calls == [("view_1024_cascade_s7.glb", 0, True)]   # shading kept
+    row = versions.get(store, "dome", 2)
+    assert row["files"][0].endswith("view_1024_cascade_s7_noground.glb") and "ground removed (1,234 faces)" in row["note"]
+    assert versions.current(store, "dome") == 2 and smooth.candidates(store, op="ground") == []
+    listing = {v["n"]: v for v in versions.listing(store, "dome")["versions"]}
+    assert listing[2]["ground"] == "Ground removed: 1,234 faces" and not listing[2]["groundable"]
+    assert listing[1]["groundable"] and listing[1]["ground"] == ""
+    with pytest.raises(ValueError, match="looked for already"):
+        smooth.ground_version(store, "dome", 2)
+
+
+def test_no_ground_found_makes_no_version_and_says_so(store, monkeypatch):
+    fake_blender(monkeypatch, [], removed=0)
+    f = store.root / "3d/library/dome/view_1024_cascade_s7.json"
+    t = f.stat().st_mtime - 100
+    import os
+    os.utime(f, (t, t))
+    r = smooth.ground_version(store, "dome")
+    assert r["n"] is None and len(versions.load(store, "dome")) == 1
+    assert f.stat().st_mtime == t                                       # not made to look like a newer result
+    v = versions.listing(store, "dome")["versions"][0]
+    assert v["ground"] == "No ground found" and not v["groundable"] and v["smoothable"]
+
+
+def test_batch_smooths_and_removes_ground_in_one_pass(store, monkeypatch):
+    calls = []
+    fake_blender(monkeypatch, calls)
+    rep = smooth.fix_all(store, log=lambda *a: None, smooth=True, ground=True)
+    assert [r["n"] for r in rep["done"]] == [2] and calls == [("view_1024_cascade_s7.glb", 30.0, True)]
+    row = versions.get(store, "dome", 2)
+    assert row["files"][0].endswith("_s7_smooth_noground.glb") and row["note"] == \
+        "v1 with smooth shading (30 deg), the ground removed (1,234 faces)"
+    assert smooth.candidates(store) == [] and smooth.candidates(store, op="ground") == []
 
 
 def _glb(path, pos, idx):
@@ -136,3 +187,37 @@ def test_weld_and_smooth_by_angle_in_blender(tmp_path, monkeypatch):
     assert ridge.any() and np.allclose(n[ridge], n[ridge][0], atol=1e-3)            # smooth across 10 deg
     corner = np.isclose(p[:, 0], 0) & np.isclose(p[:, 1], 1) & np.isclose(p[:, 2], 0)
     assert len({tuple(np.round(v, 2)) for v in n[corner]}) >= 2                     # crisp at 90 deg
+
+
+def _boxes(boxes):
+    """Axis-aligned boxes (x0, y0, z0, x1, y1, z1), z up, as one split-vertex mesh in glTF axes."""
+    pos, idx = [], []
+    for x0, y0, z0, x1, y1, z1 in boxes:
+        c = [(x, y, z) for z in (z0, z1) for y in (y0, y1) for x in (x0, x1)]
+        k = len(pos)
+        pos += [(x, z, -y) for x, y, z in c]
+        for a, b, cc, d in ((0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1), (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)):
+            idx += [k + a, k + b, k + cc, k + a, k + cc, k + d]
+    return pos, idx
+
+
+@pytest.mark.skipif(shutil.which(str(config.get("tools.blender") or "blender")) is None, reason="needs Blender")
+def test_a_slab_is_cut_off_and_a_podium_stays_in_blender(tmp_path, monkeypatch):
+    """Two piers on a thin plate three times wider (a TRELLIS shadow slab): the plate goes, the piers
+    stand at z=0. A temple-like podium (as wide as what stands on it, a fifth of the height) stays."""
+    monkeypatch.setattr(blender, "blender_bin", lambda: config.get("tools.blender") or "blender")
+    g = smooth.ground_settings()
+    src, dst = tmp_path / "slab.glb", tmp_path / "slab_out.glb"
+    _glb(src, *_boxes([(-3, -3, 0, 3, 3, 0.1), (-1, -0.3, 0.1, -0.5, 0.3, 4), (0.5, -0.3, 0.1, 1, 0.3, 4)]))
+    rep = smooth.fix_glb(src, dst, 0, g)
+    assert rep["ground"]["removed_faces"] > 0
+    b = dst.read_bytes()
+    n = struct.unpack("<I", b[12:16])[0]
+    acc = json.loads(b[20:20 + n])["accessors"][0]
+    lo, hi = acc["min"], acc["max"]                                      # glTF: y up, z = -plan y
+    assert abs(lo[1]) < 1e-3 and 3.8 < hi[1] < 4.0                      # re-seated, the plate's thickness gone
+    assert -1.01 < lo[0] and hi[0] < 1.01 and -0.31 < lo[2] and hi[2] < 0.31   # only the piers are left
+    src, dst = tmp_path / "podium.glb", tmp_path / "podium_out.glb"
+    _glb(src, *_boxes([(-2, -2, 0, 2, 2, 0.8), (-1.5, -1.5, 0.8, 1.5, 1.5, 4)]))
+    rep = smooth.fix_glb(src, dst, 0, g)
+    assert rep["ground"]["removed_faces"] == 0 and smooth.ground_line(rep["ground"]) == "No ground found"

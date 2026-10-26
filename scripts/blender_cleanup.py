@@ -18,6 +18,8 @@
    experimental: QuadriFlow rejected TRELLIS meshes as non-manifold even after a remesh.
    Before any of it, the mesh is welded and shaded smooth by angle (--smooth-angle, default 30;
    0 keeps the file's shading): blender_shading.weld_and_smooth, as TRELLIS outputs get it.
+   Then a ground slab under the model is removed (--ground MAX_THICKNESS,MIN_OVERHANG,MIN_AREA;
+   left out = kept): blender_ground.remove_ground, before the fit so it doesn't count in the size.
 4. Warnings in the report: a flat result (a dimension < 5% of the plan's) and
    proportions far from the plan (an axis < 0.67x or > 1.5x after the fit).
 """
@@ -42,6 +44,7 @@ plan_w, plan_d, plan_h = (float(v) for v in opt("--dims").split(","))
 fit = opt("--fit", "height")
 retopo = int(opt("--retopo", "0"))
 smooth_angle = float(opt("--smooth-angle", "30"))
+ground = opt("--ground")
 tex_size = int(opt("--texture-size", "2048"))
 threads = int(opt("--threads", "0"))
 t0 = time.time()
@@ -87,6 +90,13 @@ if smooth_angle > 0:
     from blender_shading import weld_and_smooth
     report["shading"] = weld_and_smooth(obj, smooth_angle) | {"angle": smooth_angle}
     log(f"welded {report['shading']['welded']} vertices, smooth by angle {smooth_angle:g} deg")
+if ground:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from blender_ground import remove_ground
+    g = remove_ground(obj, *(float(v) for v in ground.split(",")))
+    report["ground"] = {k: g[k] for k in ("removed_faces", "thickness", "overhang", "cut_height", "reason") if k in g}
+    bpy.context.view_layer.update()  # bound_box is cached until the depsgraph updates
+    log(f"ground removed: {g['removed_faces']} faces" if g["removed_faces"] else f"no ground found ({g.get('reason')})")
 
 # --- scale to plan dimensions ------------------------------------------------------------
 lo, hi = bbox(obj)

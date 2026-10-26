@@ -14,7 +14,7 @@
     GET/PUT /api/projects/{slug}/settings                                {versions_keep}
 TRELLIS-route props use the same routes: their versions are the TRELLIS results.
 """
-from fastapi import FastAPI, HTTPException
+from fastapi import Body, FastAPI, HTTPException
 from pydantic import BaseModel
 
 from .. import disk_usage, filestore, versions
@@ -84,25 +84,44 @@ def register(app: FastAPI, jobs, store_of) -> None:
         return jobs.submit("library.smooth", slug, lambda: smooth.smooth_version(store, asset, n), lane="cpu",
                            tag={"asset": asset, "version": n}).public()
 
+    @app.post(base + "/{n}/ground")
+    def versions_ground(slug: str, asset: str, n: int):
+        """A TRELLIS version with its ground slab removed, as a new version (smooth.py); none when
+        there is no ground (the version then says so)."""
+        from .. import smooth
+        store = store_of(slug)
+        r = _call(versions.get, store, asset, n)
+        if r["kind"] != "trellis" or smooth.ground_checked(store, r):
+            raise HTTPException(400, f"v{n} is not a TRELLIS model whose ground is still to look for")
+        return jobs.submit("library.ground", slug, lambda: smooth.ground_version(store, asset, n), lane="cpu",
+                           tag={"asset": asset, "version": n}).public()
+
     @app.get("/api/projects/{slug}/library/smooth")
     def smooth_candidates(slug: str):
         from .. import smooth
-        return {"assets": smooth.candidates(store_of(slug)), "angle": smooth.angle()}
+        store = store_of(slug)
+        return {"assets": smooth.candidates(store), "ground": smooth.candidates(store, op="ground"),
+                "angle": smooth.angle()}
 
     @app.post("/api/projects/{slug}/library/smooth")
-    def smooth_all(slug: str):
-        """Every asset whose Active version is an unsmoothed TRELLIS model (one job, one version each)."""
+    def smooth_all(slug: str, body: dict = Body(default={})):
+        """Every asset whose Active version is a TRELLIS model still to smooth ({"smooth": true}, the
+        default) and/or to remove the ground from ({"ground": true}): one job, one pass and one new
+        version per asset, smoothing first."""
         from .. import smooth
         from ..jobs import current_job
+        sm, gr = bool(body.get("smooth", True)), bool(body.get("ground", False))
         store = store_of(slug)
-        todo = smooth.candidates(store)
+        todo = list(dict.fromkeys((smooth.candidates(store) if sm else []) + (smooth.candidates(store, op="ground") if gr else [])))
         if not todo:
-            raise HTTPException(400, "no TRELLIS model in use needs smoothing")
+            raise HTTPException(400, "no TRELLIS model in use needs that")
 
         def run():
             job = current_job()
-            return smooth.smooth_all(store, todo, log=(lambda m: setattr(job, "note", m[:200])) if job else print)
-        return jobs.submit("library.smooth_all", slug, run, lane="cpu", tag={"assets": todo}).public()
+            return smooth.fix_all(store, todo, log=(lambda m: setattr(job, "note", m[:200])) if job else print,
+                                  smooth=sm, ground=gr)
+        return jobs.submit("library.smooth_all", slug, run, lane="cpu",
+                           tag={"assets": todo, "smooth": sm, "ground": gr}).public()
 
     @app.post(base + "/{n}/pin")
     def versions_pin(slug: str, asset: str, n: int):

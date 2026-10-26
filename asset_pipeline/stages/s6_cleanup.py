@@ -13,7 +13,7 @@ import json
 import time
 from pathlib import Path
 
-from .. import blender, config
+from .. import blender, config, smooth
 from ..project import ProjectStore
 from . import s1_plan, s5_3d
 
@@ -73,6 +73,8 @@ def run(store: ProjectStore, plan: str, asset_id: str, glb: str | None = None,
             "--dims", f"{d.width},{d.depth},{d.height}", "--fit", fit,
             "--retopo", retopo, "--texture-size", texture_size,
             "--smooth-angle", str(float(config.get("trellis.smooth_angle", 30)))]
+    if smooth.ground_on_build():
+        args += ["--ground", ",".join(str(v) for v in smooth.ground_settings().values())]
     t = time.time()
     blender.run(SCRIPT, args, out / "blender.log", f"cleanup of {plan}/{asset_id}", exe=BLENDER)
     if not report.is_file():

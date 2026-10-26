@@ -1,4 +1,4 @@
-"""Shared by blender_smooth_glb.py and blender_cleanup.py: weld a generated mesh and shade it smooth
+"""Shared by blender_fix_glb.py and blender_cleanup.py: weld a generated mesh and shade it smooth
 by angle (asset_pipeline/smooth.py has the why)."""
 import math
 

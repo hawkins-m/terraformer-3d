@@ -338,7 +338,7 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   v2 test) but its vertices are split along UV seams (1.29x). Unreal shaded it faceted because
   Interchange built it with `recompute_normals` on and glTF has no smoothing groups.
 - Fix: every TRELLIS result (and Clean up) is welded and shaded smooth by angle in Blender
-  (`smooth.py`, `scripts/blender_smooth_glb.py`, `[trellis] smooth_angle` 30 like the procedural
+  (`smooth.py`, `scripts/blender_fix_glb.py`, `[trellis] smooth_angle` 30 like the procedural
   builds), and Unreal builds every imported mesh with the GLB's normals (`ap_import.keep_normals`;
   existing TRELLIS models in CityLibrary switch on the next build). A ~1M-face model takes ~3 s.
 - Existing versions: `ap library smooth PROJECT ASSET | --all` (UI: Smooth shading on a TRELLIS
@@ -347,3 +347,29 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - The 30 deg pass leaves real creases on ~18% of a TRELLIS mesh's positions (its noisy surface plus
   cornices and steps); in clay renders the dome's facet bands go, what remains is the remesh's own
   geometry (a slightly polygonal silhouette), which normals can't change.
+
+## TRELLIS ground slabs (2026-10-26)
+- TRELLIS often builds the sheet's cast shadow or floor into a thin plate under the model (an arch
+  test: a plate reaching 1.3x the arch's footprint beyond it). `scripts/blender_ground.py` finds it on a plan
+  grid: footprint = geometry between `ground_max_thickness` (5% of height) and 30% of height, taken
+  as its convex hull (courtyards, pools, the passage between piers count as inside); a slab = the
+  low layer reaching more than `ground_min_overhang` (6% of the footprint's size) beyond that hull
+  over at least `ground_min_area` (4% of its area). The cut is at the slab top (90th percentile of
+  the overhang's heights) plus a margin; bisect keeps UVs, stray bits of plate go, the cut under
+  piers is closed, the model is re-seated at z=0. ~0.6 s detection on a 1M-face model, ~15 s with
+  Blender's import/export.
+- Sweep of 23 TRELLIS models from a real project: 3 slabs (a plate, a tiled base, a pavement apron);
+  kept: stepped and plain podiums, a statue plinth, a courtyard pool, a tent's floor inside its
+  walls. The first version (bare footprint, no hull) also flagged the pool and a
+  stall's deck: the hull fixed those. Sampling triangles by 3D area matters (coarse walls).
+- Runs on every TRELLIS result after smoothing (`[trellis] remove_ground`) and in Clean up (before
+  the fit). Existing versions: `ap library remove-ground PROJECT ASSET|--all [--smooth]`, the version
+  card's Remove ground, Pipeline › Remove ground from TRELLIS models… (a tick smooths in the same
+  Blender pass; one new version per asset). No ground found: no version, the source's stats JSON
+  records it (its mtime kept: `result_time` reads it) and the card says so.
+- Prevention: stage 3 mattes the floor and shadow under SAM-found views (`s3_views.matte_ground`,
+  `[views] matte_ground`): below the lowest quarter of the mask, outside the mask grown 3%, only
+  grey and smooth pixels (shadows) and their rims. A bare "outside the mask" matte ate plinths SAM
+  missed; a view whose mask covers < 90% of its band's content is left alone. A floor strip SAM
+  includes in the mask stays, so the mesh pass still matters.
+
