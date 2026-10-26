@@ -738,3 +738,7 @@ details summary { cursor: default; }
 #ue-dress .dress-water-label { min-width: 3.5em; }
 .dress-map td, .dress-map th { padding: 2px 6px; text-align: left; vertical-align: middle; }
 .dress-map select, .dress-map input { width: 100%; min-width: 260px; }
+
+/* Views and 3D: Clean up outputs of versions that aren't Active, until Show older cleanups */
+.results > .old-cleanup { display: none; }
+.results.show-old > .old-cleanup { display: grid; }

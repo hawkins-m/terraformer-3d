@@ -381,4 +381,5 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   (`s6_cleanup.for_source`), else the raw GLB; the mesh is `active_<entry>_v<n>_<usage>` and the
   build report's line per entry says which ("Cleaned (game, decimate) 30,000 faces" / "raw GLB").
 - A Clean up of an older version doesn't count: a new version (smoothed, ground removed) needs its
-  own Clean up. Views and 3D lists every Clean up output of the asset, of any version.
+  own Clean up. Views and 3D labels each Clean up card "Cleaned from vN" (Active marked) and hides
+  other versions' behind Show older cleanups (remembered per asset until reload).

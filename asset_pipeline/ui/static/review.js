@@ -1,5 +1,8 @@
 // Stages 3-4 (Review): cut views from starred sheets, choose one per asset, tag
 // game / cine / hero, and send it to 3D (TRELLIS.2 on GPU 0).
+
+// assets whose older cleanups are shown (Show older cleanups), kept across redraws
+const OLD_CLEANUPS = new Set();
 const USAGES = ["game", "cine", "hero"];
 const USAGE_TIPS = {game: "Game use: Clean up decimates and bakes this asset for real time.",
   cine: "Cinematic use: Clean up keeps the full mesh and textures.", hero: "Hero use: full mesh and textures, for the assets seen closest in shots."};
@@ -228,17 +231,28 @@ function assetReview(a) {
     models.append(r);
   }
   if (a.cleanups.length) {
-    const r = document.createElement("div"); r.className = "results";
+    // library: each card says which version it was cleaned from; other versions' cleanups wait
+    // behind a toggle, so the one beside the Active version is always its own
+    const key = `${a.plan}/${x.id}`, lib = a.plan === "library";
+    const old = lib ? a.cleanups.filter(c => !c.active) : [];
+    const r = document.createElement("div"); r.className = "results" + (OLD_CLEANUPS.has(key) ? " show-old" : "");
     for (const c of a.cleanups) {
       const d = c.output_dims_m.map(v => v.toFixed(2)).join(" × ");
-      const box = document.createElement("div"); box.className = "result";
+      const box = document.createElement("div"); box.className = "result" + (lib && !c.active ? " old-cleanup" : "");
       box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls ${MV_LOOK}
           alt="Cleaned model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
-        <span>Cleaned (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})</span>
+        <span>Cleaned${lib ? (c.version ? ` from v${c.version}` : " from a removed version") : ""} (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})${c.active ? ` <span class="mark ver-used" title="Cleaned from the Active version: what Unreal places for this tier.">Active</span>` : ""}</span>
         <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
         ${c.warnings.length ? `<span class="error">${c.warnings.map(esc).join("; ")}</span>` : ""}
         <span><a href="${fileUrl(c.glb)}" download title="Download the cleaned 3D model (GLB).">GLB</a></span>`;
       r.append(box);
+    }
+    if (old.length) {
+      const t = document.createElement("label"); t.className = "check old-cleanups-toggle";
+      t.innerHTML = `<input type="checkbox" ${OLD_CLEANUPS.has(key) ? "checked" : ""}> Show older cleanups (${old.length})`;
+      t.title = "Clean up outputs of versions that aren't Active (Unreal doesn't place them).";
+      $("input", t).onchange = ev => { ev.target.checked ? OLD_CLEANUPS.add(key) : OLD_CLEANUPS.delete(key); r.classList.toggle("show-old", ev.target.checked); };
+      models.append(t);
     }
     models.append(r);
   }

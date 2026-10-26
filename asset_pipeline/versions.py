@@ -539,6 +539,19 @@ def _rel_or_none(store, p):
     return _rel(store, p) if p else None
 
 
+def cleanup_sources(store: ProjectStore, asset: str, cleanups: list[dict], plan: str = PLAN) -> list[dict]:
+    """Clean up reports (s6_cleanup.results) with the version each was made from ("version": n, None
+    when no version has that model any more) and whether that is the Active one ("active")."""
+    cur = current(store, asset, plan)
+    src = {}
+    for r in sorted(load(store, asset, plan), key=lambda r: r["n"] != cur):     # the Active one wins a shared file
+        g = version_glb(store, asset, r, plan)
+        if g is not None:
+            src.setdefault(g.relative_to(store.root).as_posix(), r["n"])
+    return [c | {"version": src.get(c.get("source")), "active": cur is not None and src.get(c.get("source")) == cur}
+            for c in cleanups]
+
+
 def version_glb(store: ProjectStore, asset: str, r: dict, plan: str = PLAN) -> Path | None:
     """A version's 3D model, if it has one: a TRELLIS version's GLB; a procedural one's pinned copy,
     or the asset's build on disk when that build is this version's (same brief, procedural.json)."""

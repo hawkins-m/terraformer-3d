@@ -221,3 +221,14 @@ def test_a_slab_is_cut_off_and_a_podium_stays_in_blender(tmp_path, monkeypatch):
     _glb(src, *_boxes([(-2, -2, 0, 2, 2, 0.8), (-1.5, -1.5, 0.8, 1.5, 1.5, 4)]))
     rep = smooth.fix_glb(src, dst, 0, g)
     assert rep["ground"]["removed_faces"] == 0 and smooth.ground_line(rep["ground"]) == "No ground found"
+
+
+def test_cleanups_say_which_version_they_came_from(store, monkeypatch):
+    """Views and 3D labels each Clean up output with its source version and marks the Active one's."""
+    fake_blender(monkeypatch, [])
+    smooth.smooth_version(store, "dome")                                  # v2, Active
+    v1, v2 = (versions.get(store, "dome", n)["files"][0] for n in (1, 2))
+    reps = [{"glb": "cleanup/a.glb", "source": v1}, {"glb": "cleanup/b.glb", "source": v2},
+            {"glb": "cleanup/c.glb", "source": "3d/library/dome/gone.glb"}]
+    out = versions.cleanup_sources(store, "dome", reps)
+    assert [(c["version"], c["active"]) for c in out] == [(1, False), (2, True), (None, False)]

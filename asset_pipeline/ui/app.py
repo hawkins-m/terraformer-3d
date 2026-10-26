@@ -1022,7 +1022,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                     # library assets: one card per version with a 3D model, the one in use first
                     "results": versions.cards(store, a.id) if name == sw_library.PLAN_NAME else s5_3d.results(store, name, a.id),
                     "current": _current_brief(store, a.id) if name == sw_library.PLAN_NAME else None,
-                    "cleanups": s6_cleanup.results(store, name, a.id),
+                    "cleanups": versions.cleanup_sources(store, a.id, s6_cleanup.results(store, name, a.id))
+                    if name == sw_library.PLAN_NAME else s6_cleanup.results(store, name, a.id),
                     # library props (TRELLIS route): the same review status as Library › Asset review
                     "review": (library_review.get(store, a.id) or {}).get("status") if name == sw_library.PLAN_NAME else None,
                     "reroll": name == sw_library.PLAN_NAME and _rerollable(store, a.id),
