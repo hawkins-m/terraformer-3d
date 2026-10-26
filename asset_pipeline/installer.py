@@ -447,6 +447,14 @@ def launch_app() -> str:
 LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
+class Server(ThreadingHTTPServer):
+    """Quiet when the browser drops a connection (the video's range requests, a closed tab)."""
+
+    def handle_error(self, request, client_address):
+        if not isinstance(sys.exc_info()[1], ConnectionError):
+            super().handle_error(request, client_address)
+
+
 def make_handler(inst: Installer, server_state: dict):
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -572,7 +580,7 @@ def serve(port: int | None = None, open_page: bool = True, profile: str = "", in
         inst.st["values"]["hardware_profile"] = profile
     for p in range(port, port + 10):                # the configured port, or the next free one
         try:
-            httpd = ThreadingHTTPServer(("127.0.0.1", p), make_handler(inst, server_state))
+            httpd = Server(("127.0.0.1", p), make_handler(inst, server_state))
             break
         except OSError:
             continue

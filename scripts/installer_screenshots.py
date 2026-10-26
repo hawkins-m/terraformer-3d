@@ -112,9 +112,8 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         installer, demo = synthetic(Path(td), Path(a.assets).resolve() if a.assets else None)
-        from http.server import ThreadingHTTPServer
         state = {"profile": ""}
-        httpd = ThreadingHTTPServer(("127.0.0.1", 0), installer.make_handler(demo, state))
+        httpd = installer.Server(("127.0.0.1", 0), installer.make_handler(demo, state))
         state["httpd"] = httpd
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         url = f"http://localhost:{httpd.server_address[1]}/"
