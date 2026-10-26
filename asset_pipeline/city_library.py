@@ -10,7 +10,8 @@ prop and kit-slot placements, split evenly and the same between builds.
 Which builds: Approved in library review (default), or every built asset's Active build
 (`use_active`, for previews). An entry whose Active version isn't procedural (a TRELLIS model)
 stands with that model at every one of its placements, scaled to each footprint and height,
-instead of its procedural builds (`use_active_models`; the build report names them).
+instead of its procedural builds (`use_active_models`; the build report names them): its Clean up
+output for the asset's tier when one exists for that version, else the raw model.
 
 Slots assigned to a facade kit (kit_assembly: corner, bay, end and filler modules around the slot's
 footprint outline) are assembled from the kit's modules: every module placement, each its own
@@ -431,8 +432,11 @@ def apply_variants(store: ProjectStore, placements: list[dict], assign: dict, en
 
 def active_model(store: ProjectStore, entry: str) -> dict | None:
     """An entry's Active version when it isn't a procedural build (a TRELLIS model):
-    {n, kind, glb (project-relative)}; None when it is procedural or has no model."""
+    {n, kind, glb (project-relative), raw, cleaned}; None when it is procedural or has no model.
+    glb is the version's Clean up output for the asset's tier when there is one (decimated and
+    baked for game), else the raw model; cleaned says which ({usage, faces, method} or None)."""
     from . import versions
+    from .stages import s6_cleanup
     n = versions.current(store, entry)
     if n is None:
         return None
@@ -440,7 +444,18 @@ def active_model(store: ProjectStore, entry: str) -> dict | None:
     glb = versions.current_glb(store, entry) if kind != "procedural" else None
     if glb is None:
         return None
-    return {"n": n, "kind": kind, "glb": glb.relative_to(store.root).as_posix()}
+    raw = glb.relative_to(store.root).as_posix()
+    cleaned = s6_cleanup.for_source(store, versions.PLAN, entry, raw)
+    return {"n": n, "kind": kind, "glb": cleaned["glb"] if cleaned else raw, "raw": raw, "cleaned": cleaned}
+
+
+def model_label(m: dict) -> str:
+    """Which file an Active model places: "Cleaned (game, decimate) 30,000 faces" or "raw GLB"."""
+    c = m.get("cleaned")
+    if not c:
+        return "raw GLB (no Clean up output for its tier)"
+    how = ", ".join(x for x in (c.get("usage"), c.get("method")) if x)
+    return f"Cleaned ({how})" + (f" {c['faces']:,} faces" if c.get("faces") else "")
 
 
 def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], bounds: dict) -> dict[str, dict]:
@@ -490,10 +505,11 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
         T[:3, 3] = [cx, cy, plo[2]]
         M = B @ T @ np.diag([*k, 1.0])
         M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
-        p.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}", matrix=M.tolist(), active=m["n"], active_kind=m["kind"],
-                 procedural=p["glb"])
+        cl = m.get("cleaned")
+        p.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}" + (f"_{cl['usage']}" if cl else ""), matrix=M.tolist(),
+                 active=m["n"], active_kind=m["kind"], procedural=p["glb"])
         p.pop("vrole", None)
-        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "placements": 0})
+        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "model": model_label(m), "placements": 0})
         r["placements"] += 1
     return out
 
@@ -501,7 +517,7 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
 def active_lines(active: dict[str, dict]) -> list[str]:
     """The build report's line per entry placed with its non-procedural Active version."""
     return [f"{e}: {r['placements']} placements use Active v{r['n']} {r['kind'].upper() if r['kind'] == 'trellis' else r['kind']}"
-            for e, r in sorted(active.items())]
+            + (f", {r['model']}" if r.get("model") else "") for e, r in sorted(active.items())]
 
 
 def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], fitter, bounds: dict) -> list[dict]:

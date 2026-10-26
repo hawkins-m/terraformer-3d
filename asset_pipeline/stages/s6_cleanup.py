@@ -99,3 +99,18 @@ def results(store: ProjectStore, plan: str, asset_id: str) -> list[dict]:
             reps.append({k: rep.get(k) for k in ("glb", "source", "usage", "output_faces", "output_dims_m",
                                                   "dims_vs_plan", "warnings", "retopo_method", "seconds")})
     return reps
+
+
+def for_source(store: ProjectStore, plan: str, asset_id: str, source: str) -> dict | None:
+    """The newest Clean up output of `source` (a project-relative GLB, e.g. the Active version's) for
+    the asset's own tier (its plan usage: game, cine, hero): {glb, usage, faces, method}; None when
+    there is none, or the asset isn't in the plan."""
+    try:
+        usage = _asset(store, plan, asset_id).usage
+    except (FileNotFoundError, ValueError):
+        return None
+    for r in results(store, plan, asset_id):
+        if r.get("source") == source and r.get("usage") == usage:
+            return {"glb": r["glb"], "usage": usage, "faces": r.get("output_faces"), "method": r.get("retopo_method")}
+    return None
+

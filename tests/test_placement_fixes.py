@@ -86,8 +86,8 @@ def test_an_entry_with_a_trellis_active_version_stands_with_it_everywhere(proj, 
           {"key": "other_s", "entry": "other", "glb": "3d/library/other/procedural.glb", "x": 0.0, "y": 0.0, "z": 0.0,
            "yaw": 0.0, "w": 10.0, "d": 10.0, "slot": "s1", "typed": False}]
     act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
-    assert act == {"hall": {"n": 6, "kind": "trellis", "placements": 2}}
-    assert cl.active_lines(act) == ["hall: 2 placements use Active v6 TRELLIS"]
+    assert act == {"hall": {"n": 6, "kind": "trellis", "model": "raw GLB (no Clean up output for its tier)", "placements": 2}}
+    assert cl.active_lines(act) == ["hall: 2 placements use Active v6 TRELLIS, raw GLB (no Clean up output for its tier)"]
     a, b, other = pl
     assert a["glb"] == b["glb"] == "3d/library/hall/model.glb" and a["mesh"] == b["mesh"] == "active_hall_v6"
     assert other["glb"] == "3d/library/other/procedural.glb" and "active" not in other
@@ -98,6 +98,36 @@ def test_an_entry_with_a_trellis_active_version_stands_with_it_everywhere(proj, 
         assert (f["w"], f["d"], f["base"]) == pytest.approx((w, d, 0.0), abs=1e-6)        # its footprint, on the ground
         assert (f["x"], f["y"], f["yaw"]) == pytest.approx((p["x"], p["y"], p["yaw"]), abs=1e-6)
         assert np.linalg.norm(np.asarray(p["matrix"])[:3, 2]) * (hi[2] - lo[2]) == pytest.approx(h)
+
+
+def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, monkeypatch):
+    """Clean up of the Active version for the asset's own tier wins; another tier's output, or one of
+    another version, doesn't; without one the raw model stays."""
+    from types import SimpleNamespace
+    from asset_pipeline import versions
+    from asset_pipeline.stages import s6_cleanup
+    raw = "3d/library/hall/model_s1.glb"
+    monkeypatch.setattr(versions, "current", lambda store, e, *a: 4)
+    monkeypatch.setattr(versions, "get", lambda store, e, n, *a: {"kind": "trellis"})
+    monkeypatch.setattr(versions, "current_glb", lambda store, e, *a: proj.root / raw)
+    monkeypatch.setattr(s6_cleanup, "_asset", lambda store, plan, a: SimpleNamespace(usage="game"))
+    reps = []
+    monkeypatch.setattr(s6_cleanup, "results", lambda store, plan, a: reps)
+    m = cl.active_model(proj, "hall")
+    assert m["glb"] == raw and m["cleaned"] is None
+    reps += [{"glb": "cleanup/library/hall/model_s1_cine.glb", "source": raw, "usage": "cine", "output_faces": 900000},
+             {"glb": "cleanup/library/hall/other_game.glb", "source": "3d/library/hall/other.glb", "usage": "game"},
+             {"glb": "cleanup/library/hall/model_s1_game.glb", "source": raw, "usage": "game", "output_faces": 30000,
+              "retopo_method": "decimate"}]
+    m = cl.active_model(proj, "hall")
+    assert m["glb"] == "cleanup/library/hall/model_s1_game.glb" and m["raw"] == raw
+    assert cl.model_label(m) == "Cleaned (game, decimate) 30,000 faces"
+    bounds = {"3d/library/hall/instances/a.glb": [[-6, -4, 0], [6, 4, 10]], m["glb"]: [[-1, -1, 0], [1, 1, 2]]}
+    pl = [{"key": "hall_a", "entry": "hall", "glb": "3d/library/hall/instances/a.glb", "x": 0.0, "y": 0.0, "z": 0.0,
+           "yaw": 0.0, "w": 12.0, "d": 8.0, "typology": "hall", "typed": True, "slot": "t1"}]
+    act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
+    assert pl[0]["glb"] == m["glb"] and pl[0]["mesh"] == "active_hall_v4_game"
+    assert cl.active_lines(act) == ["hall: 1 placements use Active v4 TRELLIS, Cleaned (game, decimate) 30,000 faces"]
 
 
 def test_the_build_report_lists_entries_placed_with_their_active_model():

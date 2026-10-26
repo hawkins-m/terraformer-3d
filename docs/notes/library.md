@@ -373,3 +373,12 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   missed; a view whose mask covers < 90% of its band's content is left alone. A floor strip SAM
   includes in the mask stays, so the mesh pass still matters.
 
+
+## Unreal places the Active model's Clean up output (2026-10-26)
+- `ap ue build` placed an entry's Active TRELLIS model from its raw version GLB (~1M faces) even
+  when Clean up had made a decimated, baked one. `city_library.active_model` now takes the newest
+  Clean up output whose `source` is the Active version's GLB and whose `usage` is the asset's tier
+  (`s6_cleanup.for_source`), else the raw GLB; the mesh is `active_<entry>_v<n>_<usage>` and the
+  build report's line per entry says which ("Cleaned (game, decimate) 30,000 faces" / "raw GLB").
+- A Clean up of an older version doesn't count: a new version (smoothed, ground removed) needs its
+  own Clean up. Views and 3D lists every Clean up output of the asset, of any version.
