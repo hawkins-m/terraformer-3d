@@ -1035,7 +1035,9 @@ after, scale, faces, warnings) and `blender.log`.
 Every long action in the UI can be stopped while it runs or waits:
 - with **Cancel** in its job dialog;
 - with **Stop** in the side panel's Jobs list or next to the action;
-- with *Stop jobs* (toolbar, or Esc, which asks first) for all of them.
+- with *Stop jobs* (toolbar, or Esc, which asks first) for all of them. It also stops and unloads
+  what the app started for them: the vision model server, TRELLIS and headless Unreal, and says what
+  that freed ("Freed 27 GB on GPU 0: vision model."). ComfyUI keeps running.
 
 Stopping affects only that action:
 

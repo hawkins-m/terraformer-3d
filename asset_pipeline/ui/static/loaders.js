@@ -232,6 +232,19 @@ function jobMessage(j) {
   return j.result && typeof j.result === "object" && typeof j.result.message === "string" ? j.result.message : "";
 }
 
+// a one-line notice in the same corner (Stop jobs' report)
+function appNotice(text) {
+  let box = $("#job-notices");
+  if (!box) { box = document.createElement("div"); box.id = "job-notices"; box.setAttribute("aria-live", "polite"); document.body.append(box); }
+  const n = document.createElement("div"); n.className = "job-notice ok app-notice"; n.setAttribute("role", "status");
+  n.innerHTML = `<span class="ico" aria-hidden="true">✓</span><span class="why"></span><button type="button" class="wclose" aria-label="Dismiss">x</button>`;
+  $(".why", n).textContent = text;
+  $(".wclose", n).onclick = () => n.remove();
+  box.append(n);
+  while (box.children.length > 4) box.firstElementChild.remove();
+  setTimeout(() => n.remove(), 15000);
+}
+
 function jobNotice(j) {
   let box = $("#job-notices");
   if (!box) { box = document.createElement("div"); box.id = "job-notices"; box.setAttribute("aria-live", "polite"); document.body.append(box); }
