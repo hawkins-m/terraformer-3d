@@ -185,7 +185,7 @@ input[type=checkbox]:disabled:checked::after { opacity: .55; }
 .needs-page .need { display: flex; gap: 6px; padding: 3px 0; border-bottom: 1px dotted #c0c0c0; }
 .needs-page .need .mark { width: 14px; flex: none; text-align: center; }
 .needs-page .need.missing .mark { color: #a31515; }
-.needs-page .need.optional { color: #555; }
+.needs-page .need.optional, .needs-page .need.setup { color: #555; }
 .needs-page .need a { color: #0b3d91; word-break: break-all; }
 .needs-page .folder { margin: 3px 0; }
 .needs-page .line { display: flex; gap: 6px; }

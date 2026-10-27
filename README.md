@@ -141,7 +141,8 @@ ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 - [ ] Time: the model downloads are long (tens of GB); they resume if interrupted.
 
 The wizard's **What you still need** page lists what this computer is still missing, each with a
-link to its official page, and **Check again**. It shows before Installing, so you can point to
+link to its official page, and **Check again**. ComfyUI shows as "Setup installs it" (the wizard installs a local
+one by default, see below), not as something to download. It shows before Installing, so you can point to
 ComfyUI models you already have before anything downloads, and again after it as the final check;
 the end of `ap doctor` shows the same list.
 
@@ -241,8 +242,8 @@ storage folder on a big drive, set it before downloading:
    The `[paid]` extra (Gemini and Claude SDKs) is not needed; the paid backends refuse to run
    unless `AP_ALLOW_PAID_APIS=1` is set.
 
-2. **ComfyUI.** Install ComfyUI yourself (its own venv; this repo only talks to it over HTTP and
-   never modifies it) and tell the pipeline where its models folder is and how to launch it
+2. **ComfyUI.** The setup wizard installs a local ComfyUI for you when it finds none. To use your own
+   instead (its own venv; this repo only talks to it over HTTP and never modifies it), tell the pipeline where its models folder is and how to launch it
    (`{port}` is filled in):
    ```bash
    ap config set comfyui.models_dir ~/ComfyUI/models

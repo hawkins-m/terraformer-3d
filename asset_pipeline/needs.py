@@ -4,8 +4,8 @@ the end of `ap doctor` (one function, `report`).
 It reuses the existing checks (the GPU tools, the hardware profiles, the model manifest's status,
 setup's Blender / ComfyUI / Unreal tests, WSL's status) and turns them into one row per component:
 GPU driver, WSL2 (Windows), Blender, ComfyUI, FLUX.1-dev, the vision model, TRELLIS, the Hugging
-Face token and Unreal Engine (optional), each ready, missing or optional. Only missing and optional
-rows are shown, each with one plain sentence and one link to the official page (LINKS).
+Face token and Unreal Engine (optional), each ready, missing, optional or handled by Setup (ComfyUI is installed
+locally by the wizard). Only the rows that aren't ready are shown, each with one plain sentence and one link to the official page (LINKS).
 
 ComfyUI models the user already has: the configured ComfyUI models folder, the default one (the
 ComfyUI folder's models/) and any folder the user points to are scanned for the manifest's files
@@ -133,7 +133,7 @@ def _row(id_, name, state, sentence="", link=""):
 
 
 def items(f: dict) -> list[dict]:
-    """One row per component (COMPONENTS order): ready, missing or optional, with a sentence and
+    """One row per component (COMPONENTS order): ready, missing, optional or setup (Setup installs it), with a sentence and
     a link for the ones that aren't ready."""
     win = f["os"] == "windows"
     out = []
@@ -156,8 +156,9 @@ def items(f: dict) -> list[dict]:
                _row("blender", "Blender", "missing", "Install Blender 4.2 or newer; Setup finds it in its usual place.",
                     LINKS["blender"]))
     out.append(_row("comfyui", "ComfyUI", "ready") if f["comfyui"] else
-               _row("comfyui", "ComfyUI", "missing", "Install ComfyUI from its page (Setup downloads its models but not "
-                    "ComfyUI itself), then set its folder on the Connections page.", LINKS["comfyui"]))
+               _row("comfyui", "ComfyUI", "setup", "Setup installs a local ComfyUI for you (ticked on the Components page; "
+                    "nothing to download yourself). To use one you already have, set its folder on the Connections page.",
+                    LINKS["comfyui"]))
     m = f["models"]
     reuse = [x for x in f.get("folders", []) if x["exists"] and x["models"] and not x.get("configured")]
     if not m["comfy"]["missing"]:

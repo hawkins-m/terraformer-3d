@@ -139,7 +139,7 @@
       if (!n) return `<div class="pad"><p>Checking this computer…</p></div>`;
       const p = n.profile;
       const rows = n.shown.map(r => `<div class="need ${r.state}"><span class="mark">${r.state === "missing" ? "&#x2716;" : "&#x25CB;"}</span>
-        <div><b>${esc(r.name)}</b> <span class="tag">${r.state}</span><br>${esc(r.sentence)}
+        <div><b>${esc(r.name)}</b> <span class="tag">${r.state === "setup" ? "Setup installs it" : r.state}</span><br>${esc(r.sentence)}
         ${r.link ? `<br><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.link)}</a>` : ""}</div></div>`).join("");
       const folders = (n.folders || []).filter(f => f.exists).map(f => `<div class="folder"><span>${esc(f.path)}: ${f.found} of ${f.files}
         model files${f.configured ? " (in use)" : ""}</span>${!f.configured && f.found ? ` <button class="btn small" data-use="${esc(f.path)}">Use this folder</button>` : ""}</div>`).join("");
