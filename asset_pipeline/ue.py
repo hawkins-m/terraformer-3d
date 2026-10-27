@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import time
 from pathlib import Path
 
@@ -554,6 +555,21 @@ def editor_running(up: Path, proc: Path = Path("/proc")) -> bool:
             if cmd and b"UnrealEditor" in cmd[0] and str(up).encode() in cmd and not _ours(cmd):
                 return True
     return False
+
+
+def open_editor(store: ProjectStore) -> int:
+    """Start the Unreal editor window on the project, detached (it outlives this process); returns its pid.
+    A Windows Unreal under WSL gets the project as a Windows path through interop."""
+    from . import wsl
+    up = uproject(store)
+    if not up.is_file():
+        raise FileNotFoundError(f"no UE project at {up} (Create UE project first)")
+    if editor_running(up):
+        raise RuntimeError(f"the Unreal editor already has {up.name} open")
+    cmd, env, _, _ = wsl.windows_cmd([full_editor(editor_cmd()), up])
+    proc = subprocess.Popen(cmd, cwd=up.parent, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL, start_new_session=True)
+    return proc.pid
 
 
 def backups(store: ProjectStore) -> list[Path]:

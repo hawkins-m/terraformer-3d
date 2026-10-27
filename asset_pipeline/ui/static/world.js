@@ -287,6 +287,7 @@ Object.assign(ACTIONS, {
   vegetation: {run: vegetationDialog, enabled: () => !!slug}, overlap: {run: overlapDialog, enabled: () => !!slug},
   ueImport: {run: ueImportDialog, enabled: () => !!slug}, ueStale: {run: ueStaleDialog, enabled: () => !!slug},
   ueRender: {run: ueRenderDialog, enabled: () => !!slug}, uePull: {run: quick("ue/pull-layout", "Pull layout from Unreal", "ue-pull-result"), enabled: () => !!slug},
+  ueOpen: {run: () => noProject() || ueOpen(), enabled: () => !!slug && ueOpenable()},
   ueLook: {run: ueLookDialog, enabled: () => !!slug}, ueInit: {run: quick("ue/init", "Unreal project", "ue-init-result"), enabled: () => !!slug},
 });
 for (const k of Object.keys(TERRAIN)) ACTIONS["terrain_" + k] = {run: () => terrainAction(k), enabled: () => !!slug};
@@ -300,7 +301,7 @@ for (const k of Object.keys(TERRAIN)) ACTIONS["terrain_" + k] = {run: () => terr
     ["World", "W", [["Generate frames…", "framesGenerate"], ["Lock a shot…", "framesLock"], "-", ["Shots…", "shotsDialog"], ["Add shot…", "addShot"], "-",
       ["Vegetation slots…", "vegetation"], ["Plan overlap…", "overlap"], "-",
       ...Object.entries(TERRAIN).map(([k, v]) => ["Terrain: " + v[0], "terrain_" + k])]],
-    ["Unreal", "U", [["Create UE project", "ueInit"], ["Import…", "ueImport"], ["Stale report…", "ueStale"], "-", ["Render shots…", "ueRender"],
+    ["Unreal", "U", [["Open in Unreal", "ueOpen"], "-", ["Create UE project", "ueInit"], ["Import…", "ueImport"], ["Stale report…", "ueStale"], "-", ["Render shots…", "ueRender"],
       ["Look scene…", "ueLook"], ["Pull layout", "uePull"]]]);
   buildMenus();
 }

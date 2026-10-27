@@ -32,6 +32,17 @@ function ueBuildReport(r) {
     (r.warnings.length ? `<div>${n(r.warnings.length, "warning", "warnings")}:</div><ul>${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
 }
 
+// Open in Unreal: why it can't start ("" = it can). The editor already open comes first.
+const ueOpenWhy = u => u.editor_open ? "" : !u.project ? "No UE project yet: create it first (Unreal › Create UE project)."
+  : activeJobs("ue.build").length ? "A build is running: wait for it to finish." : "";
+const ueOpenable = () => !!(unrealData && !unrealData.editor_open && !ueOpenWhy(unrealData));
+
+async function ueOpen() {
+  try { await api(P(`ue/open`), {}); }
+  catch (err) { alert(errorText(err)); }
+  await load();
+}
+
 function renderUnreal() {
   const u = unrealData;
   if (!u) return;
@@ -42,6 +53,10 @@ function renderUnreal() {
   $("#ue-build-state").innerHTML = buildWhy ? `<span class="${u.editor_open ? "error" : "ue-why"}">${esc(buildWhy)}</span>`
     : building.length ? "Progress and Stop: Jobs panel." : "";
   setStop("#ue-build-stop", building);
+  const openWhy = ueOpenWhy(u);
+  $("#ue-open").disabled = u.editor_open || !!openWhy;
+  $("#ue-open").textContent = u.editor_open ? "Unreal is open" : "Open in Unreal";
+  $("#ue-open").title = u.editor_open ? "The Unreal editor has this project open." : openWhy || "Open the Unreal editor on this project.";
   if (dressFor !== slug) loadDressing();
   $("#ue-build-report").hidden = !u.build;
   $("#ue-build-report").innerHTML = ueBuildReport(u.build);
@@ -106,6 +121,7 @@ async function ueBuild() {
 }
 
 $("#ue-build").onclick = () => ueBuild();
+$("#ue-open").onclick = () => ueOpen();
 // Use Active versions: what the next build places changes with it (Ready for Unreal, Generate 3D Model & Review's line per asset)
 $("#ueb-active").onchange = async () => { await loadNextBuild(); renderReadiness(); if (typeof renderReview === "function") renderReview(); };
 

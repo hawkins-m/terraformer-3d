@@ -8,7 +8,7 @@ anything slow is a job (kinds and lanes below).
     POST      /api/preflight                                          quick request
     POST      /api/projects/{slug}/library/{pending,silhouette,review/done}, GET review/tasks
     POST      /api/projects/{slug}/frames/lock, /shots/add, /site/vegetation, /site/overlap
-    GET/POST  /api/projects/{slug}/ue/...                             jobs ue.* (cpu); ue/build = `ap ue build`
+    GET/POST  /api/projects/{slug}/ue/...                             jobs ue.* (cpu); ue/build = `ap ue build`; ue/open starts the editor (no job)
     GET/POST  /api/projects/{slug}/ue/dressing[/scan|/library]        world dressing options, Megascans scan and mapping
     POST      /api/projects/{slug}/terrain/{action}                   job terrain.* (cpu)
     POST      /api/demo                                               job demo (cpu, script log -> note)
@@ -537,6 +537,22 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     def ue_init(slug: str):
         store = store_of(slug)
         return jobs.submit("ue.init", slug, lambda: str(ue.init(store)), lane="cpu").public()
+
+    @app.post("/api/projects/{slug}/ue/open")
+    def ue_open(slug: str):
+        """Open the Unreal editor on the project, detached; not while a headless Unreal job runs."""
+        store = store_of(slug)
+        up = ue.uproject(store)
+        if not up.is_file():
+            raise HTTPException(400, f"no UE project at {up}: create it first (Unreal › Create UE project)")
+        if any(j.kind.startswith("ue.") and j.project == slug for j in jobs.active()):
+            raise HTTPException(409, "an Unreal job is running on the project: wait for it, then open Unreal")
+        if ue.editor_running(up):
+            raise HTTPException(409, f"the Unreal editor already has {up.name} open")
+        try:
+            return {"pid": ue.open_editor(store)}
+        except (FileNotFoundError, OSError) as e:
+            raise HTTPException(400, str(e))
 
     @app.post("/api/projects/{slug}/ue/import")
     def ue_import(slug: str, req: UeImportReq):

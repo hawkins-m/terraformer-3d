@@ -272,3 +272,54 @@ def test_editor_check_ignores_the_apps_own_headless_unreal_runs(tmp_path):
     (proc / "15").mkdir()
     (proc / "15" / "cmdline").write_bytes(b"\0".join(c.encode() for c in ["/ue/UnrealEditor", str(up)]) + b"\0")
     assert ue.editor_running(up, proc)                                               # a real editor window
+
+
+def test_open_editor_starts_the_full_editor_detached_on_the_project(ue_project, tmp_path, monkeypatch):
+    store, up = ue_project
+    cmd = tmp_path / "bin" / "UnrealEditor-Cmd"
+    cmd.parent.mkdir()
+    cmd.write_text("")
+    (cmd.parent / "UnrealEditor").write_text("")
+    monkeypatch.setenv("AP_UE_EDITOR_CMD", str(cmd))
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
+    seen = {}
+
+    class Proc:
+        pid = 4242
+
+    def popen(c, **kw):
+        seen.update(cmd=c, **kw)
+        return Proc()
+    monkeypatch.setattr(ue.subprocess, "Popen", popen)
+    assert ue.open_editor(store) == 4242
+    assert seen["cmd"] == [str(cmd.parent / "UnrealEditor"), str(up)]
+    assert seen["start_new_session"] and seen["stdout"] is ue.subprocess.DEVNULL
+    monkeypatch.setattr(ue, "editor_running", lambda up: True)
+    with pytest.raises(RuntimeError, match="already"):
+        ue.open_editor(store)
+
+
+def test_ui_open_in_unreal_refuses_a_running_job_or_an_open_editor(ue_project, monkeypatch):
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.ui import app as ui_app
+    store, up = ue_project
+    q = JobQueue()
+    client = TestClient(ui_app.create_app(q))
+    opened = []
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
+    monkeypatch.setattr(ue, "open_editor", lambda s: opened.append(s) or 99)
+    url = "/api/projects/demo-world/ue/open"
+    assert client.post(url).json() == {"pid": 99} and len(opened) == 1
+    monkeypatch.setattr(ue, "editor_running", lambda up: True)
+    r = client.post(url)
+    assert r.status_code == 409 and "already" in r.json()["detail"]
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
+    import threading
+    gate = threading.Event()
+    job = q.submit("ue.build", "demo-world", lambda: gate.wait(5), lane="cpu")
+    try:
+        r = client.post(url)
+        assert r.status_code == 409 and "job" in r.json()["detail"] and len(opened) == 1
+    finally:
+        gate.set()

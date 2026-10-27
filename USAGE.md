@@ -153,7 +153,10 @@ desktop app:
   Rocks and Vegetation (with density sliders), Water (Off, Simple sea, Ocean), Use Megascans
   assets and *Find my assets…* (scan and edit the role → asset mapping); each option shows a
   Light / Medium / Heavy tag and a one-line tooltip, and the choice is saved per project. It won't start while the editor has the
-  project open. The last build's report stays on the tab: assets placed, stand-ins left, time,
+  project open. Next to it, *Open in Unreal* starts the Unreal editor on the project's `.uproject`
+  (the same `UnrealEditor` the build uses; under WSL the Windows `UnrealEditor.exe`), detached so closing
+  `ap ui` leaves it running. It is disabled while a build runs and reads *Unreal is open* when the editor
+  already has the project; the *Unreal* menu has the same item. The last build's report stays on the tab: assets placed, stand-ins left, time,
   the placement check and warnings. Under *Advanced steps* (collapsed) are the single
   numbered steps, each enabled only when it can run and saying why not beside
   it: 1 *Create UE project*, 2 *Export*, 3 *Import…* (needs the project and an export, and the
