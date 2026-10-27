@@ -179,8 +179,8 @@ desktop app:
     and *Stop*.
 
   It is the same on every tab; the Frames tab has its shot tree in its own left column.
-- **Tabs:** Style, Layout, Greybox, Shots, Frames, Library (Areas first, then Asset review, scene plans
-  and reference sheets),
+- **Tabs:** Style, Layout, Greybox, Shots, Frames, Library (Areas first, then Scene plans, Asset review
+  and Reference sheets),
   Views and 3D, Unreal.
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
   job, and ComfyUI or the tab's keys.

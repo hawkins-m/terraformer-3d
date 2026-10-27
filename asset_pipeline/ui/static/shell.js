@@ -53,7 +53,7 @@ tabKeys($("#lib-tabs"), "sub", s => showSub(s));
   // links from the earlier UI: plan/refs live in Library now, review is Views and 3D
   if (t === "plan" || t === "refs") { sub = t; t = "library"; }
   showTab(t || "style");
-  showSub(["areas", "assets", "plan", "refs"].includes(sub) ? sub : "areas");
+  showSub(["areas", "plan", "assets", "refs"].includes(sub) ? sub : "areas");
 }
 
 // --- classic dialogs ---------------------------------------------------------------------

@@ -68,7 +68,7 @@ def test_every_help_text_on_the_page_is_one_line_and_long_text_sits_behind_a_que
 def test_each_tab_and_library_sub_tab_starts_with_a_one_line_help():
     html = _html()
     lib = _section(html, "library")
-    for sub in ("assets", "plan", "refs"):                             # Areas is generated: areas.js
+    for sub in ("plan", "assets", "refs"):                             # Areas is generated: areas.js
         body = re.search(rf'<div data-sub="{sub}".*?(?=\n          <div data-sub=|\n        </div>\n      </section>)', lib, re.S).group(0)
         first = _hints(body)[0]
         assert first["tab_help"] and first["q"] and len(first["text"]) <= LINE, (sub, first)
@@ -140,3 +140,13 @@ def test_guide_is_a_short_overlay_off_by_default():
     assert re.search(r"\.side\.guide \{ position: fixed;", css) and "with-guide" not in css + wf
     guide = wf[wf.index("function renderGuide"):wf.index("// --- Library step strip")]
     assert "s.detail || s.desc" not in guide and 'title="${esc(`${s.short}' in guide      # detail in the tooltip
+
+
+def test_library_sub_tabs_follow_the_workflow_order():
+    # Scene plans sits between Areas and Asset review; Asset review and Reference sheets are neighbours.
+    # Tab buttons, panels and showSub's list all share the order (arrow keys follow the buttons).
+    lib = _section(_html(), "library")
+    order = ["areas", "plan", "assets", "refs"]
+    assert re.findall(r'<button role="tab" data-sub="(\w+)"', lib) == order
+    assert re.findall(r'<div data-sub="(\w+)" id=', lib) == order
+    assert '["areas", "plan", "assets", "refs"]' in (STATIC / "shell.js").read_text()

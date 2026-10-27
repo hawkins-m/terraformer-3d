@@ -184,44 +184,19 @@
         </div>
       </section>
 
-      <!-- Library: scene plans (stage 1) and reference sheets (stage 2) -->
+      <!-- Library: Areas, Scene plans, Asset review, Reference sheets (tab order = workflow order) -->
       <section class="tabpanel" data-tab="library" id="library-tab" hidden>
         <div class="applybar-slot"></div>
         <nav class="lib-steps" id="lib-steps" aria-label="Library steps"></nav>
         <div class="lib-offer" hidden></div>
         <div role="tablist" class="subtabs" id="lib-tabs" aria-label="Library">
           <button role="tab" data-sub="areas">Areas</button>
-          <button role="tab" data-sub="assets">Asset review</button>
           <button role="tab" data-sub="plan">Scene plans</button>
+          <button role="tab" data-sub="assets">Asset review</button>
           <button role="tab" data-sub="refs">Reference sheets</button>
         </div>
         <div class="tabpanel lib-body">
           <div data-sub="areas" id="areas-tab" class="scroll-list" hidden></div>
-          <div data-sub="assets" id="assets-tab" hidden>
-            <p class="hint tab-help">Decide how each asset is made. <button type="button" class="help-q" title="World mode: the assets the locked shot frames show, from their object-id passes. Each card crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky, something else over the asset). Decide each one before the pilot sheets: Frame crop (the crop guides its sheets), Description only (built from its description), Description + chosen image (its description plus a frame you pick) or Exclude. Pressing a chosen button again clears it." aria-label="More about Asset review">?</button></p>
-            <div class="row">
-              <button id="lib-plan" type="button" title="Finds the assets the locked shot frames show (CPU, seconds); decisions are kept">Discover assets from locked shots</button>
-              <button id="lib-new" type="button" title="Add an entry of your own (kept through re-plans)">New entry…</button>
-              <button id="lib-check" type="button" title="SAM 3.1 on ComfyUI (GPU 1): about 2 minutes for a handful of frames">Check crops (SAM)</button>
-              <label>Show: <select id="lib-filter"></select></label>
-              <label class="jump">Jump to: <input type="search" id="assets-jump" class="jump-box" data-list="assets" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
-                placeholder="asset name or id" autocomplete="off"></label>
-              <span class="hint jump-msg" id="assets-jump-msg" style="margin:0" aria-live="polite"></span>
-            </div>
-            <div class="lib-batch" id="lib-batch">
-              <button type="button" class="small" id="lib-batch-description" title="Description only for every card the Show filter shows (asks first)">Description only for all shown (0)…</button>
-              <button type="button" class="small" id="lib-batch-exclude" title="Exclude every card the Show filter shows (asks first)">Exclude all shown (0)…</button>
-              <label class="check" title="Off: cards whose Frame crop is available are left as they are"><input type="checkbox" id="lib-batch-crops"> include ones with a frame crop</label>
-              <span id="lib-ticked" hidden><b id="lib-ticked-n">0 ticked</b>:
-                <button type="button" class="small" data-tick-decision="source">Frame crop</button>
-                <button type="button" class="small" data-tick-decision="description">Description only</button>
-                <button type="button" class="small" data-tick-decision="exclude">Exclude</button>
-                <button type="button" class="small" data-tick-decision="">Clear decision</button>
-                <button type="button" class="small" id="lib-untick">Untick all</button></span>
-            </div>
-            <p id="assets-summary" class="hint" style="margin:0 0 4px"></p>
-            <div id="assets-list" class="scroll-list"></div>
-          </div>
           <div data-sub="plan" id="plan-tab" hidden>
             <fieldset id="plan-scenes"><legend>Scenes</legend>
               <p class="hint tab-help">Pick a scene; the vision model lists its assets. <button type="button" class="help-q" title="Starred scenes from Style, plus any you upload. The vision LLM lists the assets to model with counts, sizes and placement; SAM 3.1 then redraws the boxes (solid; dashed are the LLM&#x27;s own)." aria-label="More about Scene plans">?</button></p>
@@ -260,6 +235,31 @@
                 <button id="save-plan" type="button" class="default" disabled>Save plan</button>
               </div>
             </fieldset>
+          </div>
+          <div data-sub="assets" id="assets-tab" hidden>
+            <p class="hint tab-help">Decide how each asset is made. <button type="button" class="help-q" title="World mode: the assets the locked shot frames show, from their object-id passes. Each card crops the best current shot frame (the asset bright, the rest dimmed); flags come from SAM 3.1 (trees, sky, something else over the asset). Decide each one before the pilot sheets: Frame crop (the crop guides its sheets), Description only (built from its description), Description + chosen image (its description plus a frame you pick) or Exclude. Pressing a chosen button again clears it." aria-label="More about Asset review">?</button></p>
+            <div class="row">
+              <button id="lib-plan" type="button" title="Finds the assets the locked shot frames show (CPU, seconds); decisions are kept">Discover assets from locked shots</button>
+              <button id="lib-new" type="button" title="Add an entry of your own (kept through re-plans)">New entry…</button>
+              <button id="lib-check" type="button" title="SAM 3.1 on ComfyUI (GPU 1): about 2 minutes for a handful of frames">Check crops (SAM)</button>
+              <label>Show: <select id="lib-filter"></select></label>
+              <label class="jump">Jump to: <input type="search" id="assets-jump" class="jump-box" data-list="assets" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
+                placeholder="asset name or id" autocomplete="off"></label>
+              <span class="hint jump-msg" id="assets-jump-msg" style="margin:0" aria-live="polite"></span>
+            </div>
+            <div class="lib-batch" id="lib-batch">
+              <button type="button" class="small" id="lib-batch-description" title="Description only for every card the Show filter shows (asks first)">Description only for all shown (0)…</button>
+              <button type="button" class="small" id="lib-batch-exclude" title="Exclude every card the Show filter shows (asks first)">Exclude all shown (0)…</button>
+              <label class="check" title="Off: cards whose Frame crop is available are left as they are"><input type="checkbox" id="lib-batch-crops"> include ones with a frame crop</label>
+              <span id="lib-ticked" hidden><b id="lib-ticked-n">0 ticked</b>:
+                <button type="button" class="small" data-tick-decision="source">Frame crop</button>
+                <button type="button" class="small" data-tick-decision="description">Description only</button>
+                <button type="button" class="small" data-tick-decision="exclude">Exclude</button>
+                <button type="button" class="small" data-tick-decision="">Clear decision</button>
+                <button type="button" class="small" id="lib-untick">Untick all</button></span>
+            </div>
+            <p id="assets-summary" class="hint" style="margin:0 0 4px"></p>
+            <div id="assets-list" class="scroll-list"></div>
           </div>
           <div data-sub="refs" id="refs-tab" hidden>
             <p class="hint tab-help">Generate sheets per asset; star the ones to keep. <button type="button" class="help-q" title="Each included asset drawn on white in the project&#x27;s style: three views side by side, a kit&#x27;s pieces in one sheet, ground as a top-down texture. Star the sheets to keep. About 55 s per sheet." aria-label="More about Reference sheets">?</button></p>
