@@ -25,7 +25,7 @@ LINKS = {
     "rocm": "https://rocm.docs.amd.com/projects/install-on-linux/en/latest/",
     "wsl": "https://learn.microsoft.com/en-us/windows/wsl/install",
     "blender": "https://www.blender.org/download/",
-    "comfyui": "https://github.com/comfyanonymous/ComfyUI",
+    "comfyui": "https://github.com/Comfy-Org/ComfyUI",
     "flux": "https://huggingface.co/black-forest-labs/FLUX.1-dev",
     "hf_token": "https://huggingface.co/settings/tokens",
     "unreal": "https://www.unrealengine.com/en-US/download",
@@ -156,8 +156,8 @@ def items(f: dict) -> list[dict]:
                _row("blender", "Blender", "missing", "Install Blender 4.2 or newer; Setup finds it in its usual place.",
                     LINKS["blender"]))
     out.append(_row("comfyui", "ComfyUI", "ready") if f["comfyui"] else
-               _row("comfyui", "ComfyUI", "missing", "Install ComfyUI (it makes the images), then set its folder on the "
-                    "Connections page.", LINKS["comfyui"]))
+               _row("comfyui", "ComfyUI", "missing", "Install ComfyUI from its page (Setup downloads its models but not "
+                    "ComfyUI itself), then set its folder on the Connections page.", LINKS["comfyui"]))
     m = f["models"]
     reuse = [x for x in f.get("folders", []) if x["exists"] and x["models"] and not x.get("configured")]
     if not m["comfy"]["missing"]:

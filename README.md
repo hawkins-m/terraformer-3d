@@ -140,8 +140,10 @@ ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
       [read token](https://huggingface.co/settings/tokens).
 - [ ] Time: the model downloads are long (tens of GB); they resume if interrupted.
 
-After installing, the wizard's **What you still need** page (and the end of `ap doctor`) lists
-what this computer is still missing, each with a link to its official page, and **Check again**.
+The wizard's **What you still need** page lists what this computer is still missing, each with a
+link to its official page, and **Check again**. It shows before Installing, so you can point to
+ComfyUI models you already have before anything downloads, and again after it as the final check;
+the end of `ap doctor` shows the same list.
 
 ### Setup wizard
 

@@ -13,12 +13,15 @@
     { id: "components", title: "Choose Components", sub: "Select the models and assets you want to install. Required ones are always installed." },
     { id: "destination", title: "Choose Destination Location", sub: "Choose the folder where Setup will put models, environments and projects." },
     { id: "connections", title: "Connections", sub: "Tell Terraformer where ComfyUI, Blender and Unreal Engine are. Test each one." },
+    { id: "precheck", title: "What you still need", sub: "Before installing: point to ComfyUI models you already have, so they aren't downloaded again." },
     { id: "ready", title: "Ready to Install", sub: "Setup has enough information to begin installing Terraformer." },
     { id: "installing", title: "Installing Terraformer", sub: "Please wait while Setup downloads and installs the selected components." },
     { id: "needs", title: "What you still need", sub: "What this computer still needs, with a link to each official page." },
     { id: "finish" },
   ];
   const IDS = PAGES.map(p => p.id);
+  // "What you still need": one page shown twice, before Installing (reuse models first) and after it (the final check)
+  const isNeeds = (id) => id === "precheck" || id === "needs";
   const SOUND_FILES = {
     open: "01-opening-door-vintage.mp3",
     tick: "02-selection-tick-soft.mp3",
@@ -238,5 +241,5 @@
   }
 
   return { PAGES, IDS, SOUND_FILES, MUTE_KEY, createSounds, createWizard, size, ofTotal, currentText, overallText,
-           isRequired, isLocked, groups, neededBytes };
+           isRequired, isLocked, groups, neededBytes, isNeeds };
 });

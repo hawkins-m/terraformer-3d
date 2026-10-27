@@ -16,11 +16,13 @@
   let W = null, S = null, poll = null, slides = null, assets = [];
   const results = {};                                  // item id -> last Test result
   let showAdvanced = false;
-  let needsData = null, needsLoading = false;          // "What you still need" (asset_pipeline/needs.py)
+  // "What you still need" (asset_pipeline/needs.py): the precheck page (before Installing) and the needs page
+  // (after it) draw the same page from the same report; each visit checks again
+  let needsData = null, needsLoading = false, needsFor = null;
   function loadNeeds(folder) {                         // also Check again: every check runs again
-    needsLoading = true; needsData = null;
-    if (W.page.id === "needs") render();
-    const done = (r) => { needsLoading = false; needsData = r; if (W.page.id === "needs") render(); };
+    needsLoading = true; needsData = null; needsFor = W.page.id;
+    if (C.isNeeds(W.page.id)) render();
+    const done = (r) => { needsLoading = false; needsData = r; if (C.isNeeds(W.page.id)) render(); };
     return api.get("api/needs" + (folder ? `?folder=${encodeURIComponent(folder)}` : "")).then(done)
       .catch(() => done({ os_label: "", gpus: [], shown: [], folders: [], profile: null, error: true }));
   }
@@ -147,6 +149,7 @@
           <div class="note">Files already there are used where they are: not downloaded again, never moved or deleted.</div></fieldset>
         <button class="btn" id="needs-again">Check again</button></div>`;
     },
+    precheck() { return PAGE.needs(); },
     finish() {
       const bad = W.install.status === "failed";
       return `<div class="split">${sideBanner()}<div class="text">
@@ -209,7 +212,7 @@
     if (W.page.id === "components") { space(); bindList(); }
     if (W.page.id === "destination") space();
     if (W.page.id === "installing") { strip(); drawProgress(); startPoll(); }
-    if (W.page.id === "needs" && needsData === null && !needsLoading) loadNeeds();
+    if (C.isNeeds(W.page.id) && !needsLoading && (needsData === null || needsFor !== W.page.id)) loadNeeds();
     document.body.dataset.page = W.page.id;
   }
 
@@ -398,9 +401,11 @@
       if (t) return testItem(t.dataset.test);
       if (e.target.id === "resume") install();
       if (e.target.id === "adv") { showAdvanced = !showAdvanced; render(); }
-      if (e.target.id === "needs-again") loadNeeds();
-      if (e.target.id === "needs-look") loadNeeds(($("needs-folder").value || "").trim());
+      // the page's buttons tick like every other pick (W.select: the shared sounds, mute respected)
+      if (e.target.id === "needs-again") { W.select(); loadNeeds(); }
+      if (e.target.id === "needs-look") { W.select(); loadNeeds(($("needs-folder").value || "").trim()); }
       if (e.target.dataset && e.target.dataset.use) {
+        W.select();
         api.post("api/needs/use", { folder: e.target.dataset.use }).then(r => { if (!r.error) { needsData = r; W.values.comfy_models_dir = e.target.dataset.use; render(); } });
       }
     });

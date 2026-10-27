@@ -52,7 +52,8 @@ function setup(state = {}, store = memStore()) {
 const at = (w) => w.page.id;
 
 test("the pages come in the fixed order with Back, Next and Install / Finish labels", () => {
-  assert.deepEqual(C.IDS, ["welcome", "license", "hardware", "components", "destination", "connections", "ready", "installing", "needs", "finish"]);
+  assert.deepEqual(C.IDS, ["welcome", "license", "hardware", "components", "destination", "connections", "precheck", "ready", "installing", "needs", "finish"]);
+  assert.ok(C.isNeeds("precheck") && C.isNeeds("needs") && !C.isNeeds("ready"), "one page, before and after Installing");
   const { w } = setup();
   assert.equal(at(w), "welcome");
   assert.equal(w.canBack(), false);
@@ -69,6 +70,9 @@ test("the pages come in the fixed order with Back, Next and Install / Finish lab
   assert.ok(w.back());
   assert.equal(at(w), "destination");
   w.next(); w.next();
+  assert.equal(at(w), "precheck", "what is still needed, before anything downloads");
+  assert.ok(w.canBack() && w.canNext());
+  w.next();
   assert.equal(at(w), "ready");
   assert.equal(w.nextLabel(), "Install");
   w.next();
@@ -253,4 +257,28 @@ test("ap setup on an installed system skips the accepted license", () => {
   const fresh = setup({ license: true }).w;            // first install: the license page still shows
   fresh.next();
   assert.equal(at(fresh), "license");
+});
+
+
+test("What you still need uses the wizard's sounds: chime on page changes, tick on its buttons, none when muted", () => {
+  const { w, sounds } = setup({ license: true });
+  sounds.unlock();
+  w.go("connections");
+  w.next();
+  assert.equal(at(w), "precheck");
+  assert.equal(sounds.played.at(-1), "next", "entering it: the page-change chime");
+  w.select();                                          // Check again / Look / Use this folder
+  assert.equal(sounds.played.at(-1), "tick");
+  w.go("installing");
+  w.onProgress({ status: "running" });
+  w.onProgress({ status: "done" });
+  assert.equal(sounds.played.at(-1), "done", "the completion shimmer");
+  w.next();
+  assert.equal(at(w), "needs");
+  assert.equal(sounds.played.at(-1), "next");
+  const n = sounds.played.length;
+  sounds.setMuted(true);
+  w.select(); w.next();
+  assert.equal(at(w), "finish");
+  assert.equal(sounds.played.length, n, "muted: nothing plays");
 });

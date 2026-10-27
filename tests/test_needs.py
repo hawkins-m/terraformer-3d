@@ -11,7 +11,7 @@ import pytest
 from asset_pipeline import cli, config, models, needs, setup
 
 OFFICIAL = ("https://www.nvidia.com/", "https://rocm.docs.amd.com/", "https://learn.microsoft.com/", "https://www.blender.org/",
-            "https://github.com/comfyanonymous/ComfyUI", "https://huggingface.co/", "https://www.unrealengine.com/")
+            "https://github.com/Comfy-Org/ComfyUI", "https://huggingface.co/", "https://www.unrealengine.com/")
 
 
 def _facts(**kw):
@@ -68,7 +68,7 @@ def test_windows_nvidia_is_beta_and_points_at_wsl_and_the_nvidia_driver():
     assert "beta" in rep["os_label"] and "Windows" in rep["os_label"]
     assert s["wsl2"]["link"] == "https://learn.microsoft.com/en-us/windows/wsl/install" and "untested" in s["wsl2"]["sentence"]
     assert s["gpu_driver"]["link"] == "https://www.nvidia.com/en-us/drivers/" and "Windows" in s["gpu_driver"]["sentence"]
-    assert s["comfyui"]["link"] == "https://github.com/comfyanonymous/ComfyUI"
+    assert s["comfyui"]["link"] == "https://github.com/Comfy-Org/ComfyUI" and "not ComfyUI itself" in s["comfyui"]["sentence"]
     rep = needs.report(f=_facts(os="windows", wsl2=True, vendor="nvidia", gpus=nv,
                                 profile={"id": "nvidia", "title": "Windows (WSL2) + NVIDIA, beta", "how": "detected"}))
     assert rep["shown"] == [] and rep["gpu"] == "NVIDIA" and rep["gpus"] == ["NVIDIA GeForce RTX 4090 (24 GB)"]
@@ -129,6 +129,10 @@ def test_doctor_ends_with_the_same_section_and_the_wizard_has_the_page(monkeypat
     assert '"needs": needs.report()' in src                             # one function for both
     web = config.REPO_ROOT / "installer" / "web"
     core, page = (web / "wizard-core.js").read_text(), (web / "wizard.js").read_text()
-    assert core.index('id: "needs"') < core.index('id: "finish"') and core.index('id: "installing"') < core.index('id: "needs"')
+    assert core.index('id: "precheck"') < core.index('id: "ready"') < core.index('id: "installing"') < core.index('id: "needs"') < core.index('id: "finish"')
+    assert "precheck() { return PAGE.needs(); }" in page and page.count("needs() {") == 1     # one page, drawn twice
     assert 'id="needs-again">Check again</button>' in page and 'api.get("api/needs"' in page and 'api/needs/use' in page
     assert 'target="_blank" rel="noopener noreferrer"' in page
+    for btn in ('"needs-again") { W.select();', '"needs-look") { W.select();'):      # the shared tick (mute respected)
+        assert btn in page, btn
+    assert "W.select();" in page[page.index("e.target.dataset.use"):page.index("api/needs/use")]

@@ -5,7 +5,8 @@ an installed system (`ap setup`).
     python3.12 -m asset_pipeline.installer [--port N] [--no-open] [--profile ID]
 
 Pages (installer/web/): Welcome, License, Hardware profile, Components, Destination, Connections,
-Ready, Installing, What you still need (needs.py, also the end of `ap doctor`), Finish. Pages 3-6 are data: the hardware profiles (profiles.PROFILES), the
+What you still need, Ready, Installing, What you still need again (needs.py: one page before and after
+Installing; also the end of `ap doctor`), Finish. Pages 3-6 are data: the hardware profiles (profiles.PROFILES), the
 model manifest with the CC0 dressing assets (config/models.toml), and the setup items
 (setup.ITEMS, grouped by their `wizard` page), so a new model or setting shows up by itself.
 
