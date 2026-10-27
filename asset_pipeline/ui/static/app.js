@@ -13,6 +13,15 @@ let slug = null, data = null, statusData = null, plans = [], refs = [], reviewDa
 // jobs); callers pass a finer one where they know it (a pass's render time). The server
 // also marks files no-cache, so renders run from the CLI show on the next refresh.
 let fileVersion = 0;
+// what the next city build places per asset (next_build.py), for the Unreal tab's "Use Active
+// versions" state: Views and 3D's line per asset and the Ready for Unreal box read it
+let nextBuildData = null;
+const nextBuildOf = id => nextBuildData && nextBuildData.assets.find(r => r.entry === id) || null;
+async function loadNextBuild() {
+  const ua = !!($("#ueb-active") && $("#ueb-active").checked);
+  try { nextBuildData = await api(`/api/projects/${slug}/next-build?use_active=${ua}`); }
+  catch (err) { console.error("Terraformer: next-build failed:", err); nextBuildData = null; }
+}
 const fileUrl = (key, v) => `/files/${slug}/${key}?v=${encodeURIComponent(v ?? fileVersion)}`;
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
 
@@ -186,6 +195,7 @@ async function loadOnce() {
     api(`/api/projects/${slug}/site`), api(`/api/projects/${slug}/frames`), api(`/api/projects/${slug}/catalog`),
     api(`/api/projects/${slug}/status`)]);
   unrealData = await api(`/api/projects/${slug}/unreal`);
+  await loadNextBuild();
   await loadLibrary();
   await versionsAfterLoad();         // versions.js: refresh assets whose version jobs just finished
   fileVersion = Math.max(0, ...data.jobs.map(j => j.finished || 0));

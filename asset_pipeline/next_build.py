@@ -69,7 +69,8 @@ def procedural_build(store: ProjectStore, entry: str) -> dict | None:
         return None
     n = None
     if versions.has_bank(store, entry):
-        for r in versions.load(store, entry):
+        cur = versions.current(store, entry)
+        for r in sorted(versions.load(store, entry), key=lambda r: (r["n"] != cur, -r["n"])):   # the Active one wins a shared build
             g = versions.version_glb(store, entry, r)
             if r["kind"] == "procedural" and g is not None and g.resolve() == glb.resolve():
                 n = r["n"]
@@ -172,7 +173,7 @@ def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, e
     elif model is None:
         out["stand_in"] = "no 3D model yet" if prop or not cur else "no procedural build on disk for its places"
     else:
-        out["stand_in"] = "not approved (only approved assets are placed)"
+        out["stand_in"] = "not approved; only approved assets are placed"
         out |= {"version": model["n"], "kind": model["kind"], "model": model["model"], "cleaned": model["cleaned"],
                 "cleanup_used": model["used"]}
     out["line"] = line(out)

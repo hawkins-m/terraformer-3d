@@ -11,7 +11,7 @@ const ACTIVE_TIP = "This version is the one later steps (Cleanup, Unreal look sc
 // (Standard view, exposure -0.15). model-viewer's default (ACES at exposure 1) burnt the pale,
 // sheet-tinted surfaces to white and hid material changes.
 const MV_LOOK = `tone-mapping="neutral" exposure="0.75" shadow-intensity="0.8"`;
-const APPROVE_TIP = "Unreal look scenes only place approved assets. Until then, export uses greybox stand-ins.";
+const APPROVE_TIP = "Unreal look scenes and Build city in Unreal place only approved assets (Build city: unless Use Active versions is ticked). Until then, the greybox stands in.";
 const make3dNotes = {};        // "plan/asset" -> {message, why}: the last Make 3D queued nothing (same as a version)
 const rowNotesClosed = new Set();   // reroll job ids whose report the user dismissed
 
@@ -75,7 +75,8 @@ function renderReview() {
     sig: a => JSON.stringify([a, fileVersion, assetName(a.asset.id, a.asset.name), a.plan === "library" ? verRev(a.asset.id) : 0,
       a.plan === "library" ? [variantOf(a.asset.id), variantOf(a.asset.id) && assetName(variantOf(a.asset.id)), (libraryData && libraryData.splits || {})[a.asset.id] || null] : 0,
       ["3d.trellis", "cleanup"].map(k => activeJobs(k, {plan: a.plan, asset: a.asset.id}).map(j => j.status)),
-      ["views.cut", "library.brief_build", "library.reroll"].map(k => activeJobs(k, {asset: a.asset.id}).map(j => j.status)), rowNote(a)]),
+      ["views.cut", "library.brief_build", "library.reroll"].map(k => activeJobs(k, {asset: a.asset.id}).map(j => j.status)), rowNote(a),
+      a.plan === "library" ? nextBuildOf(a.asset.id) : 0]),
     build: assetReview,
   });
   if (reviewData.assets.length && !shownV.length)
@@ -109,6 +110,7 @@ function assetReview(a) {
         ${a.procedural ? "" : `<label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Without it, Make 3D from the same view and mode repeats the same version."><input type="checkbox" class="new-seed-box"> New seed</label>`}
         <button type="button" class="make3d" data-needs="trellis">Make 3D</button></span>
     </div>
+    ${lib && nextBuildOf(x.id) ? `<p class="hint next-build-line" title="What Build city in Unreal (Unreal tab) would place for this asset now${nextBuildData.use_active ? ", with Use Active versions ticked" : ""}. ${esc(nextBuildOf(x.id).why || "")}">${esc(nextBuildOf(x.id).line)}</p>` : ""}
     <div class="review-row">
       ${lib ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
         <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>` : ""}

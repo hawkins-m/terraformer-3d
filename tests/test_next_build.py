@@ -88,7 +88,7 @@ def test_a_trellis_building_explains_the_model_use_active_models_places(proj, mo
     r = _rows(proj, True)["hall"]
     assert pl[0]["glb"] == "cleanup/library/hall/a_1024_cascade_s1_game.glb" and r["model"] == "cleaned"
     assert r["line"] == "Next city build uses: v1 · cleaned for game · not approved (Use Active versions)"
-    assert _rows(proj)["hall"]["stand_in"] == "not approved (only approved assets are placed)"
+    assert _rows(proj)["hall"]["stand_in"] == "not approved; only approved assets are placed"
 
 
 def test_no_greybox_and_excluded_entries_and_the_api(proj):    # noqa: F811

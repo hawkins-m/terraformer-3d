@@ -238,6 +238,8 @@ button.remove { min-width: 0; width: 22px; height: 20px; padding: 0; }
 .asset-review .head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .asset-review .head .title { font-weight: 700; }
 .asset-review .head .actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+/* under the header: what the next city build places for the asset (next_build.py) */
+.asset-review .next-build-line { margin: 0; }
 /* row 2: the review status and its buttons, right-aligned on their own line */
 .asset-review .review-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
 /* row 3: the cut views in a group box like Versions */

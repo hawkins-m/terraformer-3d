@@ -205,10 +205,12 @@ def test_approve_says_which_version_export_and_unreal_use():
     assert "only once" not in run({"n": 3, "kind": "procedural"}, True)
     assert "attached to an Approved building" in run({"n": 2, "kind": "trellis"}, False)
     assert "No version in use" in run(None, False)
-    assert all("greybox stand-ins" in run(c, False) for c in (None, {"n": 1, "kind": "procedural"}, {"n": 1, "kind": "trellis"}))
+    assert all("Export to Unreal sends only the greybox; Build city in Unreal places the library models" in run(c, False)
+               for c in (None, {"n": 1, "kind": "procedural"}, {"n": 1, "kind": "trellis"}))
+    assert "always sends greybox stand-ins" not in js
     assert "versionUseLine(" in (STATIC / "library_review.js").read_text()
     review = (STATIC / "review.js").read_text()                 # Views and 3D: the same facts as tooltips
-    assert "versionUseLine(" not in review and "Until then, export uses greybox stand-ins." in review
+    assert "versionUseLine(" not in review and "Until then, the greybox stands in." in review
 
 
 def test_confusing_labels_are_renamed():

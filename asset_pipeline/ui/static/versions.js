@@ -32,16 +32,18 @@ const verSource = v => {
   return bits.join(" · ");
 };
 
-// Beside Approve: which version export and Unreal take. Cleanup takes the version in use; Unreal
-// look scenes place only Approved builds; Export sends greybox stand-ins (s7_export: real assets
-// are not exported yet). cur: {n, kind} or null.
+// Beside Approve: which version Cleanup and Unreal take. Cleanup takes the version in use; Unreal
+// look scenes place only Approved builds. Plain Export (Unreal tab) sends only the greybox; Build
+// city in Unreal places library models (next_build.py: Approved ones, or Active ones with Use Active
+// versions) - Views and 3D's line per asset says which. cur: {n, kind} or null.
+const EXPORT_VS_BUILD = "Export to Unreal sends only the greybox; Build city in Unreal places the library models (Approved, or Active with Use Active versions).";
 function versionUseLine(cur, approved) {
-  if (!cur) return "No version in use yet: Unreal look scenes keep the greybox here. Export always sends greybox stand-ins.";
+  if (!cur) return `No version in use yet: Unreal look scenes keep the greybox here. ${EXPORT_VS_BUILD}`;
   if (cur.kind === "trellis")       // look scenes place TRELLIS models only as pieces attached to a placed building
     return `Cleanup uses v${cur.n} (TRELLIS), the version marked “Active”; Unreal look scenes place it only as a piece ` +
-      "attached to an Approved building. Export sends greybox stand-ins.";
+      `attached to an Approved building. ${EXPORT_VS_BUILD}`;
   return `Cleanup and Unreal look scenes use v${cur.n} (${cur.kind}), the version marked “Active”` +
-    `${approved ? "" : "; look scenes place it only once it is Approved"}. Export sends greybox stand-ins.`;
+    `${approved ? "" : "; look scenes place it only once it is Approved"}. ${EXPORT_VS_BUILD}`;
 }
 
 async function versionJob(job) {        // a started job: wait (api() has opened its progress dialog), then say if it failed

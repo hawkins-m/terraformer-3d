@@ -123,6 +123,8 @@ async function ueBuild() {
 }
 
 $("#ue-build").onclick = () => ueBuild();
+// Use Active versions: what the next build places changes with it (Views and 3D's line per asset)
+$("#ueb-active").onchange = async () => { await loadNextBuild(); if (typeof renderReview === "function") renderReview(); };
 $("#ue-export").onclick = () => ueExport();
 $("#ue-init").onclick = () => ACTIONS.ueInit.run();
 $("#ue-import").onclick = () => ueImportDialog();
