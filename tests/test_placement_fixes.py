@@ -86,8 +86,8 @@ def test_an_entry_with_a_trellis_active_version_stands_with_it_everywhere(proj, 
           {"key": "other_s", "entry": "other", "glb": "3d/library/other/procedural.glb", "x": 0.0, "y": 0.0, "z": 0.0,
            "yaw": 0.0, "w": 10.0, "d": 10.0, "slot": "s1", "typed": False}]
     act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
-    assert act == {"hall": {"n": 6, "kind": "trellis", "model": "raw GLB (no Clean up output for its tier)", "placements": 2}}
-    assert cl.active_lines(act) == ["hall: 2 placements use Active v6 TRELLIS, raw GLB (no Clean up output for its tier)"]
+    assert act == {"hall": {"n": 6, "kind": "trellis", "model": "raw GLB (Clean up output is optional and not chosen)", "placements": 2}}
+    assert cl.active_lines(act) == ["hall: 2 placements use Active v6 TRELLIS, raw GLB (Clean up output is optional and not chosen)"]
     a, b, other = pl
     assert a["glb"] == b["glb"] == "3d/library/hall/model.glb" and a["mesh"] == b["mesh"] == "active_hall_v6"
     assert other["glb"] == "3d/library/other/procedural.glb" and "active" not in other
@@ -119,6 +119,13 @@ def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, m
              {"glb": "cleanup/library/hall/other_game.glb", "source": "3d/library/hall/other.glb", "usage": "game"},
              {"glb": "cleanup/library/hall/model_s1_game.glb", "source": raw, "usage": "game", "output_faces": 30000,
               "retopo_method": "decimate"}]
+    m = cl.active_model(proj, "hall")
+    assert m["glb"] == raw and m["cleaned"] is None                  # not chosen: raw, whatever exists
+    chosen = {}
+    monkeypatch.setattr(s6_cleanup, "choices", lambda store, plan, a: chosen)
+    chosen["game"] = "cleanup/library/hall/other_game.glb"            # another version's output chosen: doesn't count
+    assert cl.active_model(proj, "hall")["glb"] == raw
+    chosen["game"] = "cleanup/library/hall/model_s1_game.glb"
     m = cl.active_model(proj, "hall")
     assert m["glb"] == "cleanup/library/hall/model_s1_game.glb" and m["raw"] == raw
     assert cl.model_label(m) == "Cleaned (game, decimate) 30,000 faces"

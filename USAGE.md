@@ -1037,12 +1037,14 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
    reroll adds nothing and leaves the brief and the Active build as they were.
 
 Under each library asset's header a plain line says what **Build city in Unreal** would place for
-it now, e.g. *Next city build uses: v4 · cleaned for game · approved* or *Next city build: greybox
+it now, e.g. *Next city build uses: v4 · raw model, not cleaned (optional) · approved* or *Next city build: greybox
 stand-in (no 3D model yet)*; its tooltip says why that version. It follows the Unreal tab's *Use
 Active versions* tickbox. Plain **Export to Unreal** (Unreal › Advanced steps) sends only the
 greybox; Build city in Unreal places the library models (Approved ones, or Active ones with Use
-Active versions). A TRELLIS model at building places, and every prop, takes its Clean up output for the
-asset's tier (game, cinematic, hero), else the raw model.
+Active versions). A TRELLIS model at building places, and every prop and attached piece, takes the raw model. Clean up
+is optional and never picked automatically: a cleaned result is used only when you press **Use this
+version** on its "Cleaned from vN" card (for the asset's tier, from the Active version). **Delete** on
+that card removes the result; if it was in use, the asset goes back to the raw model first.
 
 Explanations live in hover tooltips: the **Generate 3D Model & Review** heading, every button, the Active
 badge and the Versions header.

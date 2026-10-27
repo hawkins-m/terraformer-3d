@@ -45,11 +45,11 @@ def test_props_explanation_matches_what_the_build_places(market, monkeypatch):  
     library_review.set_status(market, "canopy-table", "approved", "")
     r = _rows(market)
     assert r["canopy-table"]["placed"] and r["canopy-table"]["approved"] and r["canopy-table"]["approved_version"] == 1
-    assert r["canopy-table"]["line"] == "Next city build uses: v1 · raw model, not cleaned for game · approved"
+    assert r["canopy-table"]["line"] == "Next city build uses: v1 · raw model, not cleaned (optional) · approved"
     assert not r["canopy-table-02"]["placed"]
     r = _rows(market, True)
-    assert r["canopy-table-02"]["line"] == "Next city build uses: v1 · raw model, not cleaned for game · not approved (Use Active versions)"
-    assert next_build.explain(market, True)["counts"] == {"approved": 1, "active_not_approved": 1, "stand_ins": 1, "need_cleanup": 2}
+    assert r["canopy-table-02"]["line"] == "Next city build uses: v1 · raw model, not cleaned (optional) · not approved (Use Active versions)"
+    assert next_build.explain(market, True)["counts"] == {"approved": 1, "active_not_approved": 1, "stand_ins": 1}
 
 
 def test_a_trellis_building_explains_the_model_use_active_models_places(proj, monkeypatch):     # noqa: F811
@@ -76,18 +76,29 @@ def test_a_trellis_building_explains_the_model_use_active_models_places(proj, mo
     r = _rows(proj, True)["hall"]
     assert pl[0]["glb"] == m["raw"] and pl[0]["active"] == r["version"] == 1
     assert r["model"] == "raw" and r["cleanup_used"] and not r["cleaned"]
-    assert r["line"] == "Next city build uses: v1 · raw model, not cleaned for game · not approved (Use Active versions)"
-    assert next_build.counts([r])["need_cleanup"] == 1
+    assert r["line"] == "Next city build uses: v1 · raw model, not cleaned (optional) · not approved (Use Active versions)"
+    assert "need_cleanup" not in next_build.counts([r])              # uncleaned is not a problem
     out = proj.root / "cleanup/library/hall/a_1024_cascade_s1_game.glb"     # Clean up for its tier: the build takes it
     glb_box(out, [-2, -1.5, 0], [2, 1.5, 2.7])
     write_json(out.with_suffix(".json"), {"glb": "cleanup/library/hall/a_1024_cascade_s1_game.glb", "source": m["raw"],
                                           "usage": "game", "output_faces": 900})
     pl[0]["glb"] = "3d/library/hall/procedural.glb"
     bounds[out.relative_to(proj.root).as_posix()] = [[-2, -1.5, 0], [2, 1.5, 2.7]]
+    cl.use_active_models(proj, {"slots": []}, None, pl, bounds)       # a Clean up output exists, not chosen: still raw
+    r = _rows(proj, True)["hall"]
+    assert pl[0]["glb"] == m["raw"] and r["model"] == "raw" and r["cleanup_available"]
+    assert r["line"] == "Next city build uses: v1 · raw model, a cleaned version exists (not chosen) · not approved (Use Active versions)"
+    s6_cleanup.choose(proj, "library", "hall", "cleanup/library/hall/a_1024_cascade_s1_game.glb")
+    pl[0]["glb"] = "3d/library/hall/procedural.glb"
     cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
     r = _rows(proj, True)["hall"]
     assert pl[0]["glb"] == "cleanup/library/hall/a_1024_cascade_s1_game.glb" and r["model"] == "cleaned"
-    assert r["line"] == "Next city build uses: v1 · cleaned for game · not approved (Use Active versions)"
+    assert r["line"] == "Next city build uses: v1 · cleaned for game (your choice) · not approved (Use Active versions)"
+    s6_cleanup.delete(proj, "library", "hall", "cleanup/library/hall/a_1024_cascade_s1_game.glb")   # in use: back to raw
+    assert not out.exists() and _rows(proj, True)["hall"]["model"] == "raw" and not s6_cleanup.choices(proj, "library", "hall")
+    glb_box(out, [-2, -1.5, 0], [2, 1.5, 2.7])
+    write_json(out.with_suffix(".json"), {"glb": "cleanup/library/hall/a_1024_cascade_s1_game.glb", "source": m["raw"],
+                                          "usage": "game", "output_faces": 900})
     assert _rows(proj)["hall"]["stand_in"] == "not approved; only approved assets are placed"
 
 
@@ -144,11 +155,12 @@ def test_props_place_their_clean_up_output_for_the_tier_else_the_raw_model(marke
     write_json(out.with_suffix(".json"), {"glb": out.relative_to(market.root).as_posix(), "source": raw, "usage": "cine"})
     assert props()[0] == {raw} and _rows(market)["canopy-table"]["model"] == "raw"
     tier.usage = "cine"
+    assert props()[0] == {raw}                                   # a cleaned result is never picked automatically
+    s6_cleanup.choose(market, "library", "canopy-table", out.relative_to(market.root).as_posix())
     glbs, meshes = props()
     assert glbs == {out.relative_to(market.root).as_posix()} and meshes == {"prop_canopy-table_cine"}
     r = _rows(market)["canopy-table"]
     assert r["model"] == "cleaned" and r["cleaned"] and r["cleanup_used"]
-    assert r["line"] == "Next city build uses: v1 · cleaned for cinematic · approved"
+    assert r["line"] == "Next city build uses: v1 · cleaned for cinematic (your choice) · approved"
     m = next_build.prop_model(market, "canopy-table")
     assert m["raw"] == raw and m["cleaned"]["usage"] == "cine"
-    assert next_build.counts([r])["need_cleanup"] == 0

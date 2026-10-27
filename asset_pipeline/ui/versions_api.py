@@ -19,6 +19,10 @@ from pydantic import BaseModel
 from .. import disk_usage, filestore, versions
 
 
+class CleanupPick(BaseModel):
+    glb: str
+
+
 class StorageCleanReq(BaseModel):
     dry_run: bool = False
 
@@ -64,6 +68,22 @@ def register(app: FastAPI, jobs, store_of) -> None:
     @app.post(base + "/prune")
     def versions_prune(slug: str, asset: str, req: PruneReq):
         return _call(versions.prune, store_of(slug), asset, dry_run=req.dry_run)
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/cleanups/use")
+    def cleanup_use(slug: str, asset: str, req: CleanupPick):
+        """Use this version on a Cleaned card: the city build takes this Clean up output for its tier."""
+        from ..stages import s6_cleanup
+        store = store_of(slug)
+        return _call(s6_cleanup.choose, store, versions.PLAN, asset, req.glb)
+
+    @app.post("/api/projects/{slug}/library/asset/{asset}/cleanups/delete")
+    def cleanup_delete(slug: str, asset: str, req: CleanupPick):
+        """Delete a Clean up output; the asset goes back to its raw model first when it was in use."""
+        from ..stages import s6_cleanup
+        store = store_of(slug)
+        r = _call(s6_cleanup.delete, store, versions.PLAN, asset, req.glb)
+        versions.forget_cleaned(store, asset, req.glb)
+        return r
 
     @app.post(base + "/{n}/restore")
     def versions_restore(slug: str, asset: str, n: int):

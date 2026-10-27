@@ -319,6 +319,21 @@ Needs Windows 11, or Windows 10 21H2 (build 19044) or newer, and a current NVIDI
 Windows (Game Ready or Studio). Do not install a Linux NVIDIA driver inside Ubuntu: WSL uses the
 Windows one.
 
+#### Installing on Windows
+
+1. Download the ZIP (Code › Download ZIP on the repo page).
+2. Right-click the ZIP › **Extract All**. Don't run anything from inside the zip.
+3. Double-click `windows\install.bat`. If Windows warns, click **More info › Run anyway**.
+4. Allow the WSL install when it asks, then restart Windows.
+5. Double-click `windows\install.bat` again.
+6. Ubuntu opens and asks you to create a Linux username and password. At the Linux prompt (ending
+   in `$`), type `exit` and press Enter to return to the installer.
+7. The setup wizard opens in your browser; follow it.
+8. Later, start Terraformer from the **Terraformer** shortcut. Keep its console window open while
+   you use the app: closing it stops Terraformer.
+
+The same steps in detail:
+
 1. Download the repo (Code › Download ZIP, or `git clone`) anywhere on Windows. **Extract the zip
    first**; don't run `install.bat` from inside the zip, it needs the files beside it. Then double-click
    `windows\install.bat` (or run `windows\install.bat -NoDesktopShortcut`, `-Distro NAME`, `-Yes`).
@@ -526,6 +541,10 @@ muted grey palette avoids near-white glare during long sessions. Each pipeline s
 small animated job icon (frame generation, greybox building, 3D conversion, Unreal export and
 more), so long GPU jobs stay readable at a glance. The intent is a calm, dense, tool-like
 workspace for artists rather than a web-app look.
+
+## Known issues
+
+- Clean up can produce wrong scale or broken texture bakes; it is optional, check results before using them.
 
 ## Roadmap
 

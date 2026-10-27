@@ -370,6 +370,20 @@ def note_cleaned(store: ProjectStore, asset: str, source: Path, usage: str, out:
     return None
 
 
+def forget_cleaned(store: ProjectStore, asset: str, out: str, plan: str = PLAN) -> None:
+    """A Clean up output was deleted: versions stop recording it."""
+    rows = load(store, asset, plan)
+    hit = False
+    for r in rows:
+        c = r.get("cleaned") or {}
+        keep = {u: g for u, g in c.items() if g != out}
+        if keep != c:
+            r["cleaned"] = keep
+            hit = True
+    if hit:
+        _save(store, asset, rows, plan)
+
+
 def cleaned(store: ProjectStore, asset: str, r: dict, glb: Path, usage: str, plan: str = PLAN) -> bool:
     """Whether a version's model has a Clean up output for the tier `usage`: recorded on the version
     (note_cleaned), or, for versions cleaned before that record, a Clean up report whose source is
@@ -565,7 +579,10 @@ def cleanup_sources(store: ProjectStore, asset: str, cleanups: list[dict], plan:
         g = version_glb(store, asset, r, plan)
         if g is not None:
             src.setdefault(g.relative_to(store.root).as_posix(), r["n"])
-    return [c | {"version": src.get(c.get("source")), "active": cur is not None and src.get(c.get("source")) == cur}
+    from .stages import s6_cleanup
+    used = set(s6_cleanup.choices(store, plan, asset).values())      # chosen for the city build (never automatic)
+    return [c | {"version": src.get(c.get("source")), "active": cur is not None and src.get(c.get("source")) == cur,
+                 "used": c.get("glb") in used}
             for c in cleanups]
 
 

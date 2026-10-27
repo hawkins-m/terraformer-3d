@@ -6,18 +6,19 @@ city_library takes its choices from here, so the explanation can't disagree with
   - gate(store, use_active): which entries may stand in the city (Approved in library review, or
     any built entry with "Use Active versions");
   - building_model(store, entry): the model a building placement takes when the entry's Active
-    version isn't procedural (a TRELLIS model): its Clean up output for the asset's tier when
-    there is one, else the raw model (city_library.active_model);
-  - prop_model(store, entry): the model a prop takes: the Active version's Clean up output for
-    the asset's tier when there is one, else its raw model (city_library.prop_placements);
+    version isn't procedural (a TRELLIS model): the raw model, or its Clean up output for the
+    asset's tier only when the user chose it (Use this version on the cleaned card;
+    city_library.active_model). Clean up is optional and never picked automatically;
+  - prop_model(store, entry): the model a prop takes: the raw model, or the chosen Clean up
+    output (city_library.prop_placements);
   - piece_model(store, entry): the model an attached piece takes (a gate or statue attached to a
-    portico): the same as a prop, its Clean up output for the tier else raw (assembly.layout);
+    portico): the same as a prop (assembly.layout);
   - placed_glb(store, entry): the Active version's raw model (a parent's own frame and footprint,
     assembly.model);
   - procedural builds stand as they are on disk (look._candidates): procedural_build(store, entry)
     names the version that build is.
 explain(store, use_active) puts these together per entry: placed or not, the version, why it,
-its cleanup state for the asset's tier (game, cine, hero), approved or not, else the stand-in
+its cleanup state for the asset's tier (game, cine, hero; chosen or raw), approved or not, else the stand-in
 reason, and the plain line the UI shows.
 """
 from pathlib import Path
@@ -46,8 +47,8 @@ def placed_glb(store: ProjectStore, entry: str) -> Path | None:
 
 def prop_model(store: ProjectStore, entry: str) -> dict | None:
     """The model a prop places: {n, kind, glb (Path), raw (project-relative), cleaned ({usage, glb,
-    faces, method} or None)}: the Active version's Clean up output for the asset's tier when one
-    exists, else its raw model; None without an Active model."""
+    faces, method} or None), available}: the Active version's raw model, or its Clean up output
+    for the asset's tier only when the user chose it; None without an Active model."""
     from . import versions
     from .stages import s6_cleanup
     g = placed_glb(store, entry)
@@ -55,21 +56,23 @@ def prop_model(store: ProjectStore, entry: str) -> dict | None:
         return None
     n = versions.current(store, entry)
     raw = g.relative_to(store.root).as_posix()
-    cleaned = s6_cleanup.for_source(store, versions.PLAN, entry, raw)
+    cleaned = s6_cleanup.chosen(store, versions.PLAN, entry, raw)
     return {"n": n, "kind": versions.get(store, entry, n)["kind"] if n is not None else None,
-            "glb": store.root / cleaned["glb"] if cleaned else g, "raw": raw, "cleaned": cleaned}
+            "glb": store.root / cleaned["glb"] if cleaned else g, "raw": raw, "cleaned": cleaned,
+            "available": s6_cleanup.for_source(store, versions.PLAN, entry, raw) is not None}
 
 
 def piece_model(store: ProjectStore, entry: str) -> dict | None:
-    """The model an attached piece places: as prop_model (Clean up output for the tier, else raw)."""
+    """The model an attached piece places: as prop_model (raw unless a Clean up output was chosen)."""
     return prop_model(store, entry)
 
 
 def building_model(store: ProjectStore, entry: str) -> dict | None:
     """An entry's Active version when it isn't a procedural build (a TRELLIS model):
     {n, kind, glb (project-relative), raw, cleaned}; None when it is procedural or has no model.
-    glb is the version's Clean up output for the asset's tier when there is one (decimated and
-    baked for game), else the raw model; cleaned says which ({usage, faces, method} or None)."""
+    glb is the raw model, or the version's Clean up output for the asset's tier when the user
+    chose it; cleaned says which ({usage, faces, method} or None); available: a Clean up output
+    of this model exists (chosen or not)."""
     from . import versions
     from .stages import s6_cleanup
     n = versions.current(store, entry)
@@ -80,8 +83,9 @@ def building_model(store: ProjectStore, entry: str) -> dict | None:
     if glb is None:
         return None
     raw = glb.relative_to(store.root).as_posix()
-    cleaned = s6_cleanup.for_source(store, versions.PLAN, entry, raw)
-    return {"n": n, "kind": kind, "glb": cleaned["glb"] if cleaned else raw, "raw": raw, "cleaned": cleaned}
+    cleaned = s6_cleanup.chosen(store, versions.PLAN, entry, raw)
+    return {"n": n, "kind": kind, "glb": cleaned["glb"] if cleaned else raw, "raw": raw, "cleaned": cleaned,
+            "available": s6_cleanup.for_source(store, versions.PLAN, entry, raw) is not None}
 
 
 def procedural_build(store: ProjectStore, entry: str) -> dict | None:
@@ -163,25 +167,27 @@ def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, e
     usage = versions._usage(store, eid)
     out = {"entry": eid, "name": ent.get("name") or eid, "role": "prop" if prop else "building" if building else "none",
            "placed": False, "version": None, "kind": None, "why": "", "active": cur, "approved": is_approved,
-           "approved_version": appr_v, "usage": usage, "cleaned": None, "cleanup_used": False, "model": None,
+           "approved_version": appr_v, "usage": usage, "cleaned": None, "cleanup_used": False, "cleanup_available": False, "model": None,
            "stand_in": None, "excluded": excluded}
     model = None
     if prop:
         m = prop_model(store, eid)
         if m is not None:
             model = {"n": m["n"], "kind": m["kind"], "model": "cleaned" if m["cleaned"] else "raw",
-                     "cleaned": m["cleaned"] is not None, "used": True}
+                     "cleaned": m["cleaned"] is not None, "used": True,
+                     "available": m["available"]}
     elif building:
         m = building_model(store, eid)
         pb = procedural_build(store, eid)
         if m is not None and pb is not None:          # the Active TRELLIS model takes the procedural placements
             model = {"n": m["n"], "kind": m["kind"], "model": "cleaned" if m["cleaned"] else "raw",
-                     "cleaned": m["cleaned"] is not None, "used": True}
+                     "cleaned": m["cleaned"] is not None, "used": True,
+                     "available": m["available"]}
         elif pb is not None:
-            model = {"n": pb["n"], "kind": "procedural", "model": "procedural", "cleaned": None, "used": False}
+            model = {"n": pb["n"], "kind": "procedural", "model": "procedural", "cleaned": None, "used": False, "available": False}
     if model is not None and ok:
         out |= {"placed": True, "version": model["n"], "kind": model["kind"], "model": model["model"],
-                "cleaned": model["cleaned"], "cleanup_used": model["used"]}
+                "cleaned": model["cleaned"], "cleanup_used": model["used"], "cleanup_available": model["available"]}
         why = [("Active" if model["n"] == cur else "the procedural build on disk" + (f" (Active is v{cur})" if cur else ""))
                if model["n"] is not None else "the procedural build on disk (no version)"]
         why.append("Use Active versions is on" if use_active and not is_approved else "the asset is Approved")
@@ -199,7 +205,7 @@ def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, e
     else:
         out["stand_in"] = "not approved; only approved assets are placed"
         out |= {"version": model["n"], "kind": model["kind"], "model": model["model"], "cleaned": model["cleaned"],
-                "cleanup_used": model["used"]}
+                "cleanup_used": model["used"], "cleanup_available": model["available"]}
     out["line"] = line(out)
     return out
 
@@ -212,9 +218,10 @@ def line(r: dict) -> str:
     bits = [f"v{r['version']}" if r["version"] is not None else "the procedural build on disk"]
     tier = {"cine": "cinematic"}.get(r["usage"], r["usage"]) or "its tier"      # as the UI names the tiers
     if r["model"] == "cleaned":
-        bits.append(f"cleaned for {tier}")
+        bits.append(f"cleaned for {tier} (your choice)")
     elif r["model"] == "raw":
-        bits.append(f"raw model, not cleaned for {tier}")
+        bits.append(f"raw model, a cleaned version exists (not chosen)" if r.get("cleanup_available")
+                    else "raw model, not cleaned (optional)")
     else:
         bits.append("procedural build")
     bits.append("approved" if r["approved"] else "not approved (Use Active versions)")
@@ -223,10 +230,9 @@ def line(r: dict) -> str:
 
 def counts(rows: list[dict]) -> dict:
     """The readiness counts: approved and placed, Active but not approved (placed only with Use
-    Active versions), stand-ins (in the city, greybox stays), need cleanup (a model whose Clean up
-    output the build would use, missing)."""
+    Active versions), stand-ins (in the city, greybox stays). Clean up is optional: an uncleaned
+    asset is not a problem."""
     city = [r for r in rows if r["role"] != "none"]
     return {"approved": sum(1 for r in city if r["placed"] and r["approved"]),
             "active_not_approved": sum(1 for r in city if r["version"] is not None and not r["approved"]),
-            "stand_ins": sum(1 for r in city if not r["placed"]),
-            "need_cleanup": sum(1 for r in city if r["version"] is not None and r["cleanup_used"] and not r["cleaned"])}
+            "stand_ins": sum(1 for r in city if not r["placed"])}

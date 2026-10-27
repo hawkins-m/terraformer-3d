@@ -188,6 +188,8 @@ def test_attached_pieces_take_their_clean_up_output_for_the_tier_else_the_raw_mo
     out = store.root / "cleanup/library/gate/a_1024_cascade_s1_game.glb"     # cleaned: 9.6 x 6 x 12 m, pivot at base
     glb_box(out, [-4.8, -3, 0], [4.8, 3, 12])
     write_json(out.with_suffix(".json"), {"glb": out.relative_to(store.root).as_posix(), "source": raw, "usage": "game"})
+    assert assembly.child_placements(store, [pl])[0][0]["glb"] == raw       # not chosen: raw
+    s6_cleanup.choose(store, "library", "gate", out.relative_to(store.root).as_posix())
     kids, entries, missing = assembly.child_placements(store, [pl])
     c = kids[0]
     assert c["glb"] == out.relative_to(store.root).as_posix() and c["mesh"] == "child_gate_game" and not missing

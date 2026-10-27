@@ -298,16 +298,37 @@ function assetReview(a) {
       const box = document.createElement("div"); box.className = "result" + (lib && !c.active ? " old-cleanup" : "");
       box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls ${MV_LOOK}
           alt="Cleaned model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
-        <span>Cleaned${lib ? (c.version ? ` from v${c.version}` : " from a removed version") : ""} (${esc(usageLabel(c.usage))}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})${c.active ? ` <span class="mark ver-used" title="Cleaned from the Active version: what Unreal places for this tier.">Active</span>` : ""}</span>
+        <span>Cleaned${lib ? (c.version ? ` from v${c.version}` : " from a removed version") : ""} (${esc(usageLabel(c.usage))}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})${lib && c.used ? ` <span class="mark ver-used" title="You chose this cleaned result: the city build uses it for this tier.">In use</span>` : ""}</span>
         <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
         ${c.warnings.length ? `<span class="error">${c.warnings.map(esc).join("; ")}</span>` : ""}
+        ${lib ? `<span class="card-btns">${c.used ? `<span class="mark ver-used" title="You chose this cleaned result: the city build uses it for this tier.">In use</span>`
+          : `<button type="button" class="small cl-use"${c.active ? ` title="The city build uses this cleaned result for this tier instead of the raw model."`
+            : ` disabled title="Cleaned from ${c.version ? `v${c.version}, which isn't` : "a removed version, not"} the Active version: use that version first."`}>Use this version</button>`}
+          <button type="button" class="small cl-delete" title="Delete this cleaned result (asks first).">Delete</button></span>` : ""}
         <span><a href="${fileUrl(c.glb)}" download title="Download the cleaned 3D model (GLB).">GLB</a></span>`;
+      if (lib) {
+        const use = $(".cl-use", box);
+        if (use) use.onclick = async () => {
+          use.disabled = true;
+          try { await api(`/api/projects/${slug}/library/asset/${x.id}/cleanups/use`, {glb: c.glb}); await load(); }
+          catch (err) { alert(errorText(err)); use.disabled = false; }
+        };
+        $(".cl-delete", box).onclick = async () => {
+          const ok = await confirmDialog({title: "Delete cleaned result", button: "Delete", danger: true, id: "cleanup-delete-dialog",
+            body: `<p>Delete the cleaned result of <b>${esc(assetName(x.id, x.name))}</b>${c.version ? ` (from v${c.version})` : ""}?</p>
+              ${c.used ? `<p class="error">The city build uses it now: it goes back to the raw model first.</p>` : ""}`});
+          if (!ok) return;
+          try { await api(`/api/projects/${slug}/library/asset/${x.id}/cleanups/delete`, {glb: c.glb}); }
+          catch (err) { alert(errorText(err)); }
+          await load();
+        };
+      }
       r.append(box);
     }
     if (old.length) {
       const t = document.createElement("label"); t.className = "check old-cleanups-toggle";
       t.innerHTML = `<input type="checkbox" ${OLD_CLEANUPS.has(key) ? "checked" : ""}> Show older cleanups (${old.length})`;
-      t.title = "Clean up outputs of versions that aren't Active (Unreal doesn't place them).";
+      t.title = "Clean up outputs of versions that aren't Active (the city build can't use them).";
       $("input", t).onchange = ev => { ev.target.checked ? OLD_CLEANUPS.add(key) : OLD_CLEANUPS.delete(key); r.classList.toggle("show-old", ev.target.checked); };
       models.append(t);
     }

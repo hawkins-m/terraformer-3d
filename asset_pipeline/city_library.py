@@ -444,7 +444,7 @@ def model_label(m: dict) -> str:
     """Which file an Active model places: "Cleaned (game, decimate) 30,000 faces" or "raw GLB"."""
     c = m.get("cleaned")
     if not c:
-        return "raw GLB (no Clean up output for its tier)"
+        return "raw GLB (Clean up output is optional and not chosen)"
     how = ", ".join(x for x in (c.get("usage"), c.get("method")) if x)
     return f"Cleaned ({how})" + (f" {c['faces']:,} faces" if c.get("faces") else "")
 

@@ -402,3 +402,14 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - `s6_cleanup.details` returns only recorded values; for older reports the texture size is read
   from the output GLB's image headers (`texture_sizes`, cached per file and mtime). The version
   listing carries it as `cleanup`; Generate 3D Model & Review shows it under a collapsed "Cleanup details".
+
+## Clean up is opt-in (2026-10-27)
+- Cleaned results can have wrong scale or broken bakes, so the city build never picks one on its own:
+  `s6_cleanup.chosen` returns a Clean up output only when the user chose it (`cleanup/<plan>/<asset>.chosen.json`,
+  {tier: glb}, set by `choose` / `POST .../cleanups/use`) and its `source` is the Active version's raw GLB.
+  `next_build.prop_model` / `piece_model` / `building_model` use it; this reverses the 2026-10-26 automatic use.
+  Existing projects had no choice file, so every asset reads as raw (nothing to migrate).
+- `s6_cleanup.delete` (`POST .../cleanups/delete`) removes the GLB and report, clears the choice first and
+  `versions.forget_cleaned` drops the version's record. Cleaned cards carry `used`; Use this version is disabled
+  when the card's source version isn't Active.
+- `next_build` rows carry `cleanup_available`; the count `need_cleanup` is gone (uncleaned is "not cleaned (optional)").

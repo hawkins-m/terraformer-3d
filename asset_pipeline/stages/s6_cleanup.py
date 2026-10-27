@@ -161,6 +161,74 @@ def results(store: ProjectStore, plan: str, asset_id: str) -> list[dict]:
     return reps
 
 
+def _choice_path(store: ProjectStore, plan: str, asset_id: str) -> Path:
+    return store.root / OUT / plan / f"{asset_id}.chosen.json"      # beside the asset's folder, not among its reports
+
+
+def choices(store: ProjectStore, plan: str, asset_id: str) -> dict:
+    """The Clean up outputs the user chose for the city build, per tier: {usage: project-relative GLB}.
+    Nothing is chosen unless the user picked it (Use this version on a cleaned card)."""
+    try:
+        return json.loads(_choice_path(store, plan, asset_id).read_text())
+    except (OSError, ValueError):
+        return {}
+
+
+def choose(store: ProjectStore, plan: str, asset_id: str, glb: str) -> dict:
+    """Make this Clean up output the one the city build uses for its tier."""
+    rep = next((r for r in results(store, plan, asset_id) if r["glb"] == glb), None)
+    if rep is None:
+        raise ValueError("no such Clean up output")
+    c = choices(store, plan, asset_id) | {rep["usage"]: glb}
+    _choice_path(store, plan, asset_id).write_text(json.dumps(c, indent=2))
+    return rep
+
+
+def unchoose(store: ProjectStore, plan: str, asset_id: str, usage: str | None = None) -> None:
+    """Back to the raw model for the tier (all tiers without `usage`)."""
+    c = {} if usage is None else {k: v for k, v in choices(store, plan, asset_id).items() if k != usage}
+    p = _choice_path(store, plan, asset_id)
+    if c:
+        p.write_text(json.dumps(c, indent=2))
+    else:
+        p.unlink(missing_ok=True)
+
+
+def is_chosen(store: ProjectStore, plan: str, asset_id: str, glb: str) -> bool:
+    return glb in choices(store, plan, asset_id).values()
+
+
+def delete(store: ProjectStore, plan: str, asset_id: str, glb: str) -> dict:
+    """Delete a Clean up output (its GLB and report). When the city build used it, the asset goes back
+    to its raw model first. Returns {deleted, was_used}."""
+    d = out_dir(store, plan, asset_id).resolve()
+    p = (store.root / glb).resolve()
+    if p.parent != d or p.suffix != ".glb" or not p.is_file():
+        raise ValueError("not a Clean up output of this asset")
+    used = is_chosen(store, plan, asset_id, glb)
+    if used:
+        for k, v in list(choices(store, plan, asset_id).items()):
+            if v == glb:
+                unchoose(store, plan, asset_id, k)
+    p.with_suffix(".json").unlink(missing_ok=True)
+    p.unlink()
+    return {"deleted": glb, "was_used": used}
+
+
+def chosen(store: ProjectStore, plan: str, asset_id: str, source: str) -> dict | None:
+    """The Clean up output of `source` the user chose for the asset's tier ({glb, usage, faces, method}),
+    else None: the city build takes the raw model unless a cleaned result was picked."""
+    try:
+        usage = _asset(store, plan, asset_id).usage
+    except (FileNotFoundError, ValueError):
+        return None
+    want = choices(store, plan, asset_id).get(usage)
+    for r in results(store, plan, asset_id):
+        if want and r["glb"] == want and r.get("source") == source and r.get("usage") == usage:
+            return {"glb": r["glb"], "usage": usage, "faces": r.get("output_faces"), "method": r.get("retopo_method")}
+    return None
+
+
 def for_source(store: ProjectStore, plan: str, asset_id: str, source: str) -> dict | None:
     """The newest Clean up output of `source` (a project-relative GLB, e.g. the Active version's) for
     the asset's own tier (its plan usage: game, cine, hero): {glb, usage, faces, method}; None when
