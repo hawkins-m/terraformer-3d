@@ -381,6 +381,17 @@ def cleaned(store: ProjectStore, asset: str, r: dict, glb: Path, usage: str, pla
     return s6_cleanup.for_source(store, plan, asset, _rel(store, glb)) is not None
 
 
+def cleanup_details(store: ProjectStore, asset: str, r: dict, glb: Path, usage: str, plan: str = PLAN) -> dict | None:
+    """The details of a version's Clean up output for the tier (s6_cleanup.details: only what was
+    recorded); None when it has none."""
+    from .stages import s6_cleanup
+    out = (r.get("cleaned") or {}).get(usage)
+    if not (out and (store.root / out).is_file()):
+        c = s6_cleanup.for_source(store, plan, asset, _rel(store, glb))
+        out = c and c["glb"]
+    return s6_cleanup.details(store, out) if out else None
+
+
 def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
     """The strip: versions newest first, sizes, what retention would remove, and each procedural
     version's "what changed" (full and short)."""
@@ -401,7 +412,8 @@ def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
                 "groundable": t and not ground_checked(store, r), "ground_checked": t and ground_checked(store, r),
                 "ground": ground_line(ground_info(store, r)),
                 "glb": _rel(store, glb) if glb else None,
-                "cleaned": glb is not None and usage is not None and cleaned(store, asset, r, glb, usage, plan)}
+                "cleaned": glb is not None and usage is not None and cleaned(store, asset, r, glb, usage, plan),
+                "cleanup": cleanup_details(store, asset, r, glb, usage, plan) if glb is not None and usage else None}
     return {"asset": asset, "keep": keep_limit(store), "current": cur, "usage": usage,
             "versions": [_view(store, r, cur) | lines.get(r["n"], {}) | steps(r)
                          for r in sorted(rows, key=lambda r: -r["n"])],

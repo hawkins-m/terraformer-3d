@@ -118,6 +118,22 @@ function verSteps(v, usage) {
   return out;
 }
 
+// a cleaned version's "Cleanup details" (read-only): only what Clean up recorded (versions.cleanup_details)
+const CLEANUP_OPEN = new Set();           // "asset/n" whose details are open, kept across redraws
+function cleanupDetails(c) {
+  const num = x => Number(x).toLocaleString("en");
+  const lines = [];
+  if (c.tier) lines.push(["Tier", c.tier]);
+  if (c.faces_in != null || c.faces_out != null)
+    lines.push(["Triangles", [c.faces_in != null ? num(c.faces_in) : null, c.faces_out != null ? num(c.faces_out) : null].filter(x => x != null).join(" → ")
+      + (c.budget ? ` (budget ${num(c.budget)}${c.method ? `, ${c.method}` : ""})` : c.method ? ` (${c.method})` : "")]);
+  if (c.textures) lines.push(["Textures", `${c.textures[0]}×${c.textures[1]}${c.bake_size ? " (baked)" : ""}`]);
+  else if (c.bake_size) lines.push(["Textures", `${c.bake_size}×${c.bake_size} (baked)`]);
+  if (c.dims_m) lines.push(["Dimensions", `${c.dims_m.map(v => (+v).toFixed(2)).join(" × ")} m`]);
+  if (c.pivot) lines.push(["Pivot", c.pivot + (c.fit ? ` (${c.fit} fit)` : "")]);
+  return lines.length ? `<dl class="ver-cleanup-dl">${lines.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("")}</dl>` : "";
+}
+
 function versionStripDraw(box, asset, d, onChange) {
   box.dataset.drawn = "1";
   box._onChange = onChange;
@@ -143,7 +159,9 @@ function versionStripDraw(box, asset, d, onChange) {
             ? `<span class="ver-done" data-step="${k}" title="${esc(tip)}">${esc(tick)}</span>`
             : `<button type="button" class="small ${cls}" data-step="${k}"${tip ? ` title="${esc(tip)}"` : ""}>${label}</button>`).join("")}
           ${manage ? `${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
-          <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button>` : ""}</div></div>`).join("")}</div>
+          <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button>` : ""}</div>
+        ${v.cleaned && v.cleanup && cleanupDetails(v.cleanup) ? `<details class="ver-cleanup" data-k="${esc(asset)}/${v.n}"${CLEANUP_OPEN.has(`${asset}/${v.n}`) ? " open" : ""}>
+          <summary title="What Clean up made of this version for the asset's tier (read-only).">Cleanup details</summary>${cleanupDetails(v.cleanup)}</details>` : ""}</div>`).join("")}</div>
       <div class="row ver-cmp-row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"} title="Show the two ticked versions side by side with what differs.">Compare</button>
         <span class="hint" style="margin:0">Tick two versions to compare them.</span></div>`;
     box.querySelectorAll(".ver").forEach(row => {
@@ -179,6 +197,7 @@ function versionStripDraw(box, asset, d, onChange) {
         await versionsChanged(asset, onChange);
       };
     });
+    box.querySelectorAll(".ver-cleanup").forEach(el => el.ontoggle = () => { el.open ? CLEANUP_OPEN.add(el.dataset.k) : CLEANUP_OPEN.delete(el.dataset.k); });
     const cmp = $(".ver-compare", box);
     if (cmp) cmp.onclick = () => versionCompare(asset, ...[...sel].sort((a, b) => a - b));
     const pr = $(".ver-prune-btn", box);

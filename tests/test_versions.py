@@ -721,3 +721,51 @@ def test_each_version_lists_its_cleanup_steps_done_or_to_do(store, monkeypatch):
     new = smooth.smooth_version(store, "gate", 2)["n"]
     v = {x["n"]: x for x in versions.listing(store, "gate")["versions"]}[new]
     assert v["smoothed"] and not v["smoothable"] and v["ground_checked"] and not v["groundable"] and not v["cleaned"]
+
+
+def _glb_with_image(path, size):
+    """A GLB holding just one embedded PNG of this size (enough for s6_cleanup.texture_sizes)."""
+    import io
+    import struct
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", size, "white").save(buf, "PNG")
+    png = buf.getvalue() + b"\0" * (-len(buf.getvalue()) % 4)
+    js = json.dumps({"asset": {"version": "2.0"}, "buffers": [{"byteLength": len(png)}],
+                     "bufferViews": [{"buffer": 0, "byteOffset": 0, "byteLength": len(png)}],
+                     "images": [{"bufferView": 0, "mimeType": "image/png"}]}).encode()
+    js += b" " * (-len(js) % 4)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(struct.pack("<III", 0x46546C67, 2, 28 + len(js) + len(png)) + struct.pack("<II", len(js), 0x4E4F534A) + js
+                     + struct.pack("<II", len(png), 0x004E4942) + png)
+
+
+def test_cleanup_details_show_only_what_was_recorded(store, monkeypatch):
+    import types
+    from asset_pipeline.stages import s6_cleanup
+    _library_entry(store, route="trellis")
+    t = _trellis_run(store)
+    tier = types.SimpleNamespace(dimensions=types.SimpleNamespace(width=10, depth=4, height=8), usage="game", category="structure")
+    monkeypatch.setattr(s6_cleanup, "_asset", lambda *a: tier)
+
+    def fake_blender(script, args, log, what, exe=None, blend=None):
+        _glb_with_image(Path(args[args.index("--out") + 1]), (1024, 512))
+        write_json(args[args.index("--report") + 1], {"input_faces": 934000, "output_faces": 29800, "retopo_method": "decimate",
+                                                       "output_dims_m": [10.0, 4.0, 8.0], "base_z": 0.0, "warnings": []})
+    monkeypatch.setattr(s6_cleanup.blender, "run", fake_blender)
+    rep = s6_cleanup.run(store, "library", "gate", glb=t["files"][0])
+    assert rep["budget"] == 30000 and rep["bake_size"] == 2048 and rep["fit"] == "height" and rep["textures"] == [1024, 512]
+    v = {x["n"]: x for x in versions.listing(store, "gate")["versions"]}[t["n"]]
+    assert v["cleanup"] == {"tier": "game", "faces_in": 934000, "faces_out": 29800, "budget": 30000, "method": "decimate",
+                            "textures": [1024, 512], "bake_size": 2048, "dims_m": [10.0, 4.0, 8.0], "pivot": "base centre", "fit": "height"}
+    # an older report: no budget, fit, bake size or texture record; textures read from the output GLB
+    out = store.root / rep["glb"]
+    write_json(out.with_suffix(".json"), {"glb": rep["glb"], "source": rep["source"], "usage": "game", "output_faces": 29800,
+                                          "output_dims_m": [10.0, 4.0, 8.0]})
+    v = {x["n"]: x for x in versions.listing(store, "gate")["versions"]}[t["n"]]
+    assert v["cleanup"] == {"tier": "game", "faces_out": 29800, "textures": [1024, 512], "dims_m": [10.0, 4.0, 8.0]}
+    out.write_bytes(b"not a glb")                                   # unreadable: no texture line
+    s6_cleanup._TEX_CACHE.clear()
+    assert "textures" not in s6_cleanup.details(store, rep["glb"])
+    tier.usage = "hero"                                             # no Clean up for this tier: no details
+    assert {x["n"]: x for x in versions.listing(store, "gate")["versions"]}[t["n"]]["cleanup"] is None

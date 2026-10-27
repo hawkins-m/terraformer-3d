@@ -393,3 +393,12 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   so it carries the steps done before.
 - Keep (pin) is gone: retention (`prune`, `removable`) always protects the Active and Approved
   versions, and versions pinned earlier stay protected (and don't count towards the last N).
+
+## Cleanup details per version (2026-10-27)
+- Clean up's report now also records what the run asked for: `fit`, `budget` (the game triangle
+  target, None for cine/hero), `bake_size` (game bakes) and `textures` (the largest texture in the
+  output GLB, [w, h]). Blender's report already had `input_faces`, `output_faces`,
+  `output_dims_m`, `base_z` (pivot at the base centre) and `retopo_method`.
+- `s6_cleanup.details` returns only recorded values; for older reports the texture size is read
+  from the output GLB's image headers (`texture_sizes`, cached per file and mtime). The version
+  listing carries it as `cleanup`; Views and 3D shows it under a collapsed "Cleanup details".

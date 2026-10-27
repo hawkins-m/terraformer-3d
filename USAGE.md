@@ -1131,8 +1131,10 @@ while it was current).
   a 3D model), **Smooth shading** and **Remove ground** (TRELLIS versions only). Done steps show as
   small grey ticks (✓ cleaned (game), ✓ smoothed, ✓ ground removed / no ground found); a step that
   makes a new version leaves the steps done so far ticked on it. Clean up counts for the asset's
-  current tier, and records itself on the version it cleaned. **Compare** (tick two) is at the
-  bottom of the box.
+  current tier, and records itself on the version it cleaned. A cleaned version has a small
+  **Cleanup details** to expand (read-only): tier, triangles before → after and the budget, texture
+  size, dimensions and pivot, only what Clean up recorded (older outputs: their texture size is read
+  from the GLB; a value nobody recorded is left out). **Compare** (tick two) is at the bottom of the box.
 - **Use this version** and **Delete** are on each 3D model card (the Active card says Active and
   can't be deleted). Library › Asset review's detail view, which has no cards, keeps them on the
   version rows. Restoring a procedural version puts its brief back and rebuilds (or copies back a

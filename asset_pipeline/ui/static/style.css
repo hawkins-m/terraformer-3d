@@ -521,6 +521,12 @@ details summary { cursor: default; }
 .version-strip .ver-btns { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 3px 6px; align-items: center; min-width: 0; }
 /* a cleanup step already done: a small grey tick instead of its button */
 .version-strip .ver-done { color: var(--muted); font-size: 11px; white-space: nowrap; }
+/* a cleaned version's Cleanup details (read-only) */
+.version-strip .ver-cleanup { grid-column: 2 / -1; font-size: 11px; }
+.version-strip .ver-cleanup summary { color: var(--muted); cursor: default; }
+.version-strip .ver-cleanup-dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0 8px; margin: 2px 0 2px 14px; }
+.version-strip .ver-cleanup-dl dt { color: var(--muted); }
+.version-strip .ver-cleanup-dl dd { margin: 0; }
 .version-strip .ver-cmp-row { margin: 10px 0 0; padding-top: 6px; border-top: 1px solid var(--border); }
 /* the Use this version / Delete line of a Views and 3D model card */
 .result .card-btns { display: flex; gap: 6px; align-items: center; }

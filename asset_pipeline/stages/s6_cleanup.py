@@ -81,7 +81,11 @@ def run(store: ProjectStore, plan: str, asset_id: str, glb: str | None = None,
         tail = (out / "blender.log").read_text().splitlines()[-15:]
         raise RuntimeError("blender wrote no report:\n" + "\n".join(tail))
     rep = json.loads(report.read_text()) | {"usage": a.usage, "glb": dst.relative_to(store.root).as_posix(),
-                                            "source": src.relative_to(store.root).as_posix()}
+                                            "source": src.relative_to(store.root).as_posix(),
+                                            # what this run asked for (Views and 3D's Cleanup details)
+                                            "fit": fit, "budget": retopo or None,
+                                            "bake_size": texture_size if retopo else None,
+                                            "textures": texture_sizes(dst)}
     report.write_text(json.dumps(rep, indent=2))
     if plan == "library":                 # the version it came from records the step (Views and 3D's ticks)
         from .. import versions
@@ -90,6 +94,59 @@ def run(store: ProjectStore, plan: str, asset_id: str, glb: str | None = None,
                    "faces": rep["output_faces"], "warnings": rep["warnings"],
                    "seconds": round(time.time() - t, 1)})
     return rep
+
+
+_TEX_CACHE: dict[tuple, list | None] = {}
+
+
+def texture_sizes(glb: Path) -> list[int] | None:
+    """The largest texture in a GLB, [w, h] (None: no embedded image, or unreadable). Read from the
+    image headers only; cached per file and mtime."""
+    import io
+    import struct
+
+    from PIL import Image
+    try:
+        key = (str(glb), glb.stat().st_mtime)
+    except OSError:
+        return None
+    if key in _TEX_CACHE:
+        return _TEX_CACHE[key]
+    best = None
+    try:
+        data = glb.read_bytes()
+        n = struct.unpack_from("<I", data, 12)[0]
+        js = json.loads(data[20:20 + n])
+        off = 20 + n
+        binb = data[off + 8:off + 8 + struct.unpack_from("<I", data, off)[0]] if off < len(data) else b""
+        for im in js.get("images", []):
+            bv = js["bufferViews"][im["bufferView"]] if "bufferView" in im else None
+            if bv is None:
+                continue
+            o = bv.get("byteOffset", 0)
+            w, h = Image.open(io.BytesIO(binb[o:o + bv["byteLength"]])).size
+            if best is None or w * h > best[0] * best[1]:
+                best = [w, h]
+    except Exception:   # noqa: BLE001  (a details line: an odd file just shows none)
+        best = None
+    _TEX_CACHE[key] = best
+    return best
+
+
+def details(store: ProjectStore, glb: str) -> dict | None:
+    """A Clean up output's details from its report, only what was recorded (older reports have no
+    budget or fit; their texture size is read from the output GLB): {tier, faces_in, faces_out,
+    budget, method, textures [w, h], bake_size, dims_m, pivot, fit}; None without a report."""
+    p = store.root / glb
+    rep = json.loads(p.with_suffix(".json").read_text()) if p.with_suffix(".json").is_file() else None
+    if rep is None:
+        return None
+    tex = rep.get("textures") if "textures" in rep else texture_sizes(p)
+    out = {"tier": rep.get("usage"), "faces_in": rep.get("input_faces"), "faces_out": rep.get("output_faces"),
+           "budget": rep.get("budget"), "method": rep.get("retopo_method"), "textures": tex,
+           "bake_size": rep.get("bake_size"), "dims_m": rep.get("output_dims_m"),
+           "pivot": "base centre" if "base_z" in rep else None, "fit": rep.get("fit")}
+    return {k: v for k, v in out.items() if v is not None}
 
 
 def results(store: ProjectStore, plan: str, asset_id: str) -> list[dict]:
