@@ -192,7 +192,9 @@ desktop app:
 
   It is the same on every tab; the Frames tab has its shot tree in its own left column.
 - **Tabs:** Style, Layout, Greybox, Shots, Frames, Library (Areas first, then Scene plans, Asset review
-  and Reference sheets),
+  and Reference sheets; Scene plans is greyed as an optional, experimental side path: assets from a
+  single concept image instead of the city's locked shots, with the vision model; it shows normally
+  in a project whose starting point is *Concept images to assets*),
   Generate 3D Model & Review, Unreal.
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
   job, and ComfyUI or the tab's keys.

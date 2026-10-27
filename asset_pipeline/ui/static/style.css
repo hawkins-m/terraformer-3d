@@ -795,3 +795,7 @@ details summary { cursor: default; }
 #city-roll .city-roll-keep { gap: 4px 12px; flex-wrap: wrap; }
 #roll-warning { max-width: 46ch; margin: 0; }
 #city-roll .roll-hint { margin: 0 0 6px; padding: 3px 6px; border: 1px solid var(--border); background: var(--field); }
+
+/* Library › Scene plans: an optional, experimental side path (shell.js; normal for a concept-images project) */
+#lib-tabs [role=tab].tab-optional { color: #6A6863; }      /* greyed, yet readable and still a working tab */
+.experimental-note { color: var(--danger); margin: 0 0 6px; }

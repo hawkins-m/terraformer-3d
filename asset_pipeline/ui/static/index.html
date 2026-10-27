@@ -207,13 +207,14 @@
         <div class="lib-offer" hidden></div>
         <div role="tablist" class="subtabs" id="lib-tabs" aria-label="Library">
           <button role="tab" data-sub="areas">Areas</button>
-          <button role="tab" data-sub="plan">Scene plans</button>
+          <button role="tab" data-sub="plan" class="tab-optional" title="Optional, experimental: assets from a single concept image instead of from your city&#x27;s locked shots">Scene plans</button>
           <button role="tab" data-sub="assets">Asset review</button>
           <button role="tab" data-sub="refs">Reference sheets</button>
         </div>
         <div class="tabpanel lib-body">
           <div data-sub="areas" id="areas-tab" class="scroll-list" hidden></div>
           <div data-sub="plan" id="plan-tab" hidden>
+            <p class="experimental-note" id="plan-experimental" role="note">Experimental: build assets from a single concept image instead of from your city&#x27;s locked shots. Uses the vision model (local by default; API backends optional).</p>
             <fieldset id="plan-scenes"><legend>Scenes</legend>
               <p class="hint tab-help">Pick a scene; the vision model lists its assets. <button type="button" class="help-q" title="Starred scenes from Style, plus any you upload. The vision LLM lists the assets to model with counts, sizes and placement; SAM 3.1 then redraws the boxes (solid; dashed are the LLM&#x27;s own)." aria-label="More about Scene plans">?</button></p>
               <p id="vlm-status" class="hint"></p>

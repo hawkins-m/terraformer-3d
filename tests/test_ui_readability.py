@@ -195,3 +195,18 @@ def test_renamed_labels_keep_their_ids_and_values():
     assert 'const USAGES = ["game", "cine", "hero"];' in rv and "${usageLabel(u)}</button>" in rv and 'data-u="${u}"' in rv
     assert 'const usageLabel = u => u === "cine" ? "cinematic" : u;' in (STATIC / "app.js").read_text()
     assert '<option value="cine" ${a.usage === "cine" ? "selected" : ""}>cinematic</option>' in (STATIC / "plan.js").read_text()
+
+
+def test_scene_plans_is_an_optional_experimental_side_path():
+    html = _html()
+    tab = re.search(r'<button role="tab" data-sub="plan"[^>]*>Scene plans</button>', html).group(0)
+    assert 'class="tab-optional"' in tab and "disabled" not in tab and "tabindex" not in tab      # still a working tab
+    assert re.findall(r'<button role="tab" data-sub="(\w+)"', html) == ["areas", "plan", "assets", "refs"]  # order kept
+    body = html[html.index('<div data-sub="plan" id="plan-tab"'):]
+    note = ("Experimental: build assets from a single concept image instead of from your city&#x27;s locked shots. "
+            "Uses the vision model (local by default; API backends optional).")
+    assert body.index(f'<p class="experimental-note" id="plan-experimental" role="note">{note}</p>') < body.index("Pick a scene; the vision model")
+    css = (STATIC / "style.css").read_text()
+    assert ".experimental-note { color: var(--danger);" in css and "#lib-tabs [role=tab].tab-optional {" in css
+    shell = (STATIC / "shell.js").read_text()      # a concept-images project shows it normally
+    assert 'classList.toggle("tab-optional", startOf(data.project) !== "assets")' in shell

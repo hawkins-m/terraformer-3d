@@ -777,6 +777,8 @@ function renderShell() {
   guarded(renderLanes);       // the Jobs panel and the job window first: nothing else may stop them
   guarded(updateJobDialog);
   guarded(renderStartHint);
+  // Scene plans is an optional, experimental side path: dimmed, unless the project starts from concept images
+  document.querySelector('#lib-tabs [data-sub="plan"]').classList.toggle("tab-optional", startOf(data.project) !== "assets");
   renderStages();
   for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
   // Layout: the city's catalog and plan; a project with its own layout.json (no city) only gets Update greybox & passes
