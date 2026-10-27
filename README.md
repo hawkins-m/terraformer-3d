@@ -494,6 +494,18 @@ small animated job icon (frame generation, greybox building, 3D conversion, Unre
 more), so long GPU jobs stay readable at a glance. The intent is a calm, dense, tool-like
 workspace for artists rather than a web-app look.
 
+## Roadmap
+
+- Restore points / undo before risky actions
+- Show the impact of upstream changes on models and placements
+- Adjustable cleanup settings, collision and Nanite readiness
+- Small sample project with supplied intermediate results
+- Final comparison workspace: approved concept beside the Unreal render
+- Brief & build view thumbnails with scores
+- More procedural builder parts (multi-box masses, set-back top storey, framed openings)
+- Native app packaging
+- Blender hand-finish workflow
+
 ## Docs
 
 - [USAGE.md](USAGE.md): running the tools and the UI.
