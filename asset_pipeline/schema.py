@@ -102,7 +102,7 @@ class UnrealSettings(BaseModel):
     project_dir: str = ""
     backup_dir: str = ""
     dressing: DressingOptions = Field(default_factory=DressingOptions)
-    dressing_library: dict[str, str] = Field(default_factory=dict)
+    dressing_library: dict[str, str | list[str]] = Field(default_factory=dict)   # mesh roles may hold a list
     dressing_folders: list[str] = Field(default_factory=list)
     ground_rule: Literal["lowest", "centre", "mean", "highest"] = "lowest"
     sunk_m: float = Field(default=0.3, ge=0)        # base below the ground rule's height by more: sunk

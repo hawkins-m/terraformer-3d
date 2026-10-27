@@ -475,10 +475,14 @@ def megascans_mesh(path):
 def role_meshes(role, src, report):
     """(meshes, source used) for a mesh role: Megascans when mapped and there, else its fallback."""
     if src.get("source") == "megascans":
-        m = megascans_mesh(src.get("asset"))
-        if m is not None:
-            return [m], "megascans"
-        report["warnings"].append(f"{role}: Megascans {src.get('asset')} not found: using the "
+        paths = src.get("assets") or [src.get("asset")]
+        got = [m for m in (megascans_mesh(p) for p in paths) if m is not None]
+        for p in paths:
+            if megascans_mesh(p) is None:
+                report["warnings"].append(f"{role}: Megascans {p} not found")
+        if got:
+            return got, "megascans"
+        report["warnings"].append(f"{role}: no Megascans asset found: using the "
                                   f"{(src.get('fallback') or {}).get('source', 'no')} asset")
         src = src.get("fallback") or {}
     if src.get("mesh"):
@@ -566,6 +570,7 @@ def apply(path, eas, report):
         meshes, used = role_meshes(role, src, rep)
         rep["sources"][role] = used
         rep["counts"][role] = len(rows) if meshes else 0
+        rep.setdefault("assets", {})[role] = len(meshes)
         if not meshes:
             rep["warnings"].append(f"{role}: no mesh; nothing placed")
             if a is not None:

@@ -1365,7 +1365,9 @@ def cmd_ue(a) -> None:
         lib = dict(dressing._unreal(store).dressing_library)
         for role in dressing.ROLES:
             n, new = len(s["candidates"][role]), s["proposal"].get(role)
-            print(f"  {role:13} {lib.get(role) or '-':60} " + (f"proposed: {new} ({n} found)" if new and new != lib.get(role) else f"{n} found"))
+            cur = ", ".join(dressing.assets_of(lib.get(role))) or "-"
+            shown = ", ".join(dressing.assets_of(new))
+            print(f"  {role:13} {cur:60} " + (f"proposed: {shown} ({n} found)" if new and new != lib.get(role) else f"{n} found"))
         if a.apply:
             dressing.save(store, library=lib | s["proposal"])
             print("saved the proposed mapping (roles found); your other roles kept")

@@ -250,3 +250,21 @@ def test_every_role_has_a_cc0_asset_or_a_blender_fallback():
         assert role in cc0 or (kind == "mesh" and role in makers), role
     for m in cc0.values():
         assert m.license == "CC0-1.0" and m.root == "dressing"
+
+
+def test_library_lists_and_copy_reference(store):
+    assert dressing.game_path("StaticMesh'/Game/Fab/R/SM_R.SM_R'") == "/Game/Fab/R/SM_R.SM_R"
+    assert dressing.assets_of(["/Game/A.A", " /Game/A.A", "StaticMesh'/Game/B.B'", ""]) == ["/Game/A.A", "/Game/B.B"]
+    assert dressing.assets_of("") == [] and dressing.assets_of("/Game/A.A") == ["/Game/A.A"]
+    assert dressing._clean_entry("rock_small", ["/Game/A.A"]) == "/Game/A.A"
+    assert dressing._clean_entry("rock_small", ["/Game/A.A", "/Game/B.B"]) == ["/Game/A.A", "/Game/B.B"]
+    assert dressing._clean_entry("ground_dirt", ["/Game/A.A", "/Game/B.B"]) == "/Game/A.A"
+    assert dressing._clean_entry("grass", []) == ""
+    dressing.save(store, library={"rock_small": ["/Game/A.A", "/Game/B.B"], "grass": ["/Game/G.G"]})
+    assert dressing._unreal(store).dressing_library == {"rock_small": ["/Game/A.A", "/Game/B.B"], "grass": "/Game/G.G"}
+    src = dressing.sources([], {"rock_small": ["/Game/A.A", "/Game/B.B"]}, True)
+    assert src == {}
+    rec = {"options": {"rocks": True, "water": "off"}, "roles": ["rock_small"],
+           "sources": {"rock_small": {"source": "megascans", "asset": "/Game/A.A", "assets": ["/Game/A.A", "/Game/B.B"]}}}
+    d = dressing.summary(rec, {"dressing": {"sources": {"rock_small": "megascans"}, "assets": {"rock_small": 2}}})
+    assert d["assets"] == {"rock_small": 2} and "  assets used: rock_small 2" in dressing.report_lines(d)

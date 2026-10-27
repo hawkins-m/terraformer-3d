@@ -188,7 +188,7 @@ function dressOpts() {
 // The current Megascans mapping, one role per line (the Megascans tooltip).
 function dressMapping() {
   const lib = dressData.library || {};
-  const lines = Object.keys(dressData.roles).map(r => `${r}: ${lib[r] ? lib[r].split("/").pop().split(".")[0] : "(free CC0 / fallback)"}`);
+  const lines = Object.keys(dressData.roles).map(r => `${r}: ${dressList(lib[r]).length ? dressList(lib[r]).map(p => p.split("/").pop().split(".")[0]).join(", ") : "(free CC0 / fallback)"}`);
   return `Mapping:\n${lines.join("\n")}`;
 }
 
@@ -210,7 +210,7 @@ function renderDressing() {
   // what the free defaults still need to download (on the first build that uses them)
   const used = Object.entries(dressData.roles).filter(([, v]) => o[v.option]).map(([r]) => r);
   const missing = used.filter(r => dressData.cc0[r] && dressData.cc0[r].state !== "installed");
-  const mapped = o.megascans ? used.filter(r => (dressData.library || {})[r]).length : 0;
+  const mapped = o.megascans ? used.filter(r => dressList((dressData.library || {})[r]).length).length : 0;
   $("#dr-state").textContent = !used.length && o.water === "off" ? "No dressing: the build removes what an earlier one placed." :
     [mapped ? `${mapped} of ${used.length} roles from Megascans` : "",
      missing.length ? `${missing.length} free CC0 asset${missing.length === 1 ? "" : "s"} download on the first build` : "",
@@ -236,40 +236,67 @@ function dressReport(d) {
   for (const [r, s] of Object.entries(d.sources || {})) (by[s] = by[s] || []).push(r);
   return `<div>World dressing: ${esc(d.ran.join(", "))}${d.placed === false ? " (instances unchanged)" : ""}</div><ul>` +
     (counts.length ? `<li>${esc(counts.join(", "))}</li>` : "") +
+    (Object.keys(d.assets || {}).length ? `<li>assets used: ${esc(Object.entries(d.assets).map(([r, n]) => `${r} ${n}`).join(", "))}</li>` : "") +
     Object.entries(by).map(([s, rs]) => `<li>${esc(s)}: ${esc(rs.join(", "))}</li>`).join("") +
     (d.water ? `<li>water: ${esc(d.water)}</li>` : "") +
     (d.warnings || []).map(w => `<li class="error">${esc(w)}</li>`).join("") + "</ul>";
 }
 
-// Find my assets: scan, then a role -> asset table to edit (a list of what was found, or a path typed in).
+// Find my assets: scan, then per role a list of assets to tick (mesh roles take several, picked at random
+// per instance; ground surfaces take one). "Show all scanned static meshes" lists every mesh found.
+const dressList = v => Array.isArray(v) ? v : v ? [v] : [];
+// Unreal's Copy Reference (StaticMesh'/Game/A/B.B') or a plain path -> the /Game path.
+const dressGamePath = t => { const m = t.match(/\/Game\/[^\s'"]+/); return m ? m[0] : t.trim(); };
+// "role=path, path" or "role=path" lines -> {role: [paths]}
+function dressTyped(text, roles) {
+  const out = {};
+  for (const line of text.split(/\n|;/)) {
+    const m = line.match(/^\s*(\w+)\s*=\s*(.+)$/);
+    if (!m || !roles.includes(m[1])) continue;
+    const paths = m[2].split(",").map(dressGamePath).filter(x => x.startsWith("/Game/"));
+    if (paths.length) out[m[1]] = paths;
+  }
+  return out;
+}
+
 async function dressFind() {
   if (!dressData) await loadDressing();
   let s;
   try { s = await api(`/api/projects/${slug}/ue/dressing/scan`, {}); }
   catch (err) { alert(errorText(err)); return; }
-  const lib = s.library || {};
+  const lib = s.library || {}, allMeshes = s.all_meshes || [];
   const rows = Object.entries(dressData.roles).map(([r, v]) => {
-    const cands = s.candidates[r] || [], cur = lib[r] || "", pick = cur || s.proposal[r] || "";
-    const opts = [["", "(none: free CC0 / fallback)"], ...cands.map(c => [c.path, `${c.name} (${c.class.replace("_", " ")})`])];
-    if (cur && !cands.some(c => c.path === cur)) opts.push([cur, `${cur.split("/").pop()} (current, not found)`]);
-    return `<tr><th scope="row" title="${esc(v.what)}">${esc(r)}</th><td><select data-role="${esc(r)}" data-initial="${esc(pick)}" aria-label="${esc(r)}">` +
-      opts.map(([p, t]) => `<option value="${esc(p)}"${p === pick ? " selected" : ""}>${esc(t)}</option>`).join("") +
-      `</select></td><td>${cands.length} found${!cur && s.proposal[r] ? " · proposed" : ""}</td></tr>`;
+    const mesh = v.kind === "mesh", cands = s.candidates[r] || [];
+    const cur = dressList(lib[r]), prop = dressList(s.proposal[r]);
+    const pick = new Set(cur.length || r in lib ? cur : prop);
+    const type = mesh ? "checkbox" : "radio";
+    const item = (c, extra = "") => `<label class="check dress-asset${extra}"><input type="${type}" name="dm-${esc(r)}" value="${esc(c.path)}"${pick.has(c.path) ? " checked" : ""}> ${esc(c.name)} <small>(${esc(c.class.replace("_", " "))})</small></label>`;
+    const shown = new Set(cands.map(c => c.path));
+    const gone = [...pick].filter(p => !shown.has(p) && !allMeshes.some(m => m.path === p)).map(p => ({path: p, name: p.split("/").pop().split(".")[0], class: "current, not found"}));
+    const none = mesh ? "" : `<label class="check dress-asset"><input type="radio" name="dm-${esc(r)}" value=""${pick.size ? "" : " checked"}> (none: free CC0 / fallback)</label>`;
+    const more = mesh ? `<details class="dress-all"><summary>Show all scanned static meshes (${allMeshes.length})</summary>` +
+      allMeshes.filter(m => !shown.has(m.path)).map(m => item(m)).join("") + `</details>` : "";
+    return `<tr data-role="${esc(r)}"><th scope="row" title="${esc(v.what)}">${esc(r)}</th><td>${none}${[...gone, ...cands].map(c => item(c)).join("")}${more}</td>` +
+      `<td>${cands.length} found${!cur.length && prop.length ? " · proposed" : ""}</td></tr>`;
   }).join("");
   const found = Object.values(s.candidates).reduce((n, c) => n + c.length, 0);
+  const roleNames = Object.keys(dressData.roles);
   formDialog({title: "Megascans for world dressing", id: "dress-map-dialog",
     html: `<p class="hint" style="grid-column:1/-1">Scanned ${s.folders_scanned.length} folder(s) in ${esc(s.content)}: ${found} matching asset(s).
-        ${found ? "" : esc(dressData.plugin.help)}</p>
-      <table class="dress-map" style="grid-column:1/-1"><thead><tr><th>Role</th><th>Unreal asset</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+        Tick several assets for a mesh role: each instance gets one of them at random. ${found ? "" : esc(dressData.plugin.help)}</p>
+      <table class="dress-map" style="grid-column:1/-1"><thead><tr><th>Role</th><th>Unreal assets</th><th></th></tr></thead><tbody>${rows}</tbody></table>
       <label for="dm-folders">Also scan:</label><input id="dm-folders" placeholder="/Game/MyPacks, /Game/Environment" value="${esc((dressData.folders || []).join(", "))}">
-      <label for="dm-path">Or type a path:</label><input id="dm-path" placeholder="role=/Game/Fab/.../SM_Name.SM_Name">`,
+      <label for="dm-path">Or type a path:</label><input id="dm-path" placeholder="role=/Game/A/SM_A.SM_A, /Game/B/SM_B.SM_B (or paste Copy Reference)" title="One role per line (or separated by ;): role=path, path. Unreal's Copy Reference (StaticMesh'/Game/...') works too.">`,
     buttons: [{label: "Save mapping", default: true, onClick: async win => {
       const library = {};
-      // "" only where you changed a role to none: roles nothing was found for stay open to later scans
-      for (const sel of win.querySelectorAll("select[data-role]"))
-        if (sel.value || sel.value !== sel.dataset.initial || (sel.dataset.role in lib)) library[sel.dataset.role] = sel.value;
-      const typed = $("#dm-path", win).value.trim().match(/^(\w+)\s*=\s*(\/Game\/\S+)$/);
-      if (typed) library[typed[1]] = typed[2];
+      for (const tr of win.querySelectorAll("tr[data-role]")) {
+        const r = tr.dataset.role, vals = [...tr.querySelectorAll("input:checked")].map(i => i.value).filter(Boolean);
+        // "" only where you changed a role to none: roles nothing was found for stay open to later scans
+        if (vals.length || r in lib)
+          library[r] = dressData.roles[r].kind === "mesh" ? vals : (vals[0] || "");
+      }
+      const typed = dressTyped($("#dm-path", win).value, roleNames);
+      for (const [r, paths] of Object.entries(typed)) library[r] = dressData.roles[r].kind === "mesh" ? paths : paths.slice(0, 1);
       const folders = $("#dm-folders", win).value.split(",").map(x => x.trim()).filter(Boolean);
       try { const r = await api(`/api/projects/${slug}/ue/dressing/library`, {library, folders}); dressData.library = r.library; dressData.folders = folders; }
       catch (err) { alert(errorText(err)); return false; }

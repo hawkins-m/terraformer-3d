@@ -13,8 +13,9 @@ the import run.
     water        simple: a sea material (depth colour, panning waves, shoreline foam) on the sea
                  plane (Light); ocean: the Water plugin's ocean, experimental (Heavy), falling back
                  to simple when it can't be made headless
-    megascans    the project's dressing library (role -> Unreal asset path, project.json
-                 "unreal.dressing_library") where it has the role
+    megascans    the project's dressing library (role -> Unreal asset path, or for a mesh role a
+                 list of paths, project.json "unreal.dressing_library") where it has the role;
+                 a list is picked from at random per instance (seeded: a rebuild repeats it)
 
 Where each role comes from, first that applies: Megascans (ticked and mapped), the CC0 default
 (config/models.toml feature "dressing": ambientCG ground sets, Poly Haven rocks and shrub; fetched on
@@ -77,6 +78,7 @@ OPTIONS = {   # what the UI shows: label, performance tag, one-line tooltip
 SCAN_ROOTS = ("Fab", "Megascans", "Quixel")       # under Content/: /Game/Fab, /Game/Megascans, /Game/Quixel
 PLUGIN_NAMES = ("Fab", "Bridge", "MegascansPlugin", "QuixelBridge")
 CULL_M = {"grass": (40, 60), "shrub": (150, 200), "rock_small": (300, 400)}   # instance fade start, end (m)
+PROPOSE_MAX = 5                # name matches proposed per mesh role
 SEA_DEPTH_M = 30.0             # depth texture: 1.0 = this deep or more
 
 
@@ -92,6 +94,28 @@ def options(store: ProjectStore) -> DressingOptions:
     return _unreal(store).dressing
 
 
+def assets_of(v) -> list[str]:
+    """The Unreal asset paths a library entry holds: "" -> [], "/Game/A" -> ["/Game/A"], a list -> its
+    non-empty, de-duplicated paths."""
+    items = [v] if isinstance(v, str) else list(v or [])
+    return list(dict.fromkeys(game_path(i) for i in items if isinstance(i, str) and i.strip()))
+
+
+def game_path(s: str) -> str:
+    """A pasted asset reference as a /Game path: Unreal's Copy Reference (StaticMesh'/Game/A/B.B')
+    or a quoted path, trimmed to /Game/A/B.B."""
+    s = s.strip()
+    m = re.search(r"/Game/[^\s'\"]+", s)
+    return m.group(0) if m else s
+
+
+def _clean_entry(role: str, v):
+    a = assets_of(v)
+    if ROLES[role][1] != "mesh":
+        return a[0] if a else ""           # ground surfaces stay single; "": the user chose CC0
+    return a[0] if len(a) == 1 else a if a else ""
+
+
 def save(store: ProjectStore, opts: DressingOptions | None = None, library: dict | None = None,
          folders: list[str] | None = None) -> None:
     """Remember options, the role -> Unreal asset mapping, or the extra scan folders."""
@@ -100,7 +124,7 @@ def save(store: ProjectStore, opts: DressingOptions | None = None, library: dict
     if opts is not None:
         u.dressing = opts
     if library is not None:
-        u.dressing_library = {k: v or "" for k, v in library.items() if k in ROLES}   # "": the user chose CC0
+        u.dressing_library = {k: _clean_entry(k, v) for k, v in library.items() if k in ROLES}   # "": the user chose CC0
     if folders is not None:
         u.dressing_folders = [f.strip() for f in folders if f.strip()]
     p.unreal = u
@@ -200,8 +224,9 @@ def sources(roles: list[str], library: dict, megascans: bool, log=print) -> dict
     Blender mesh (surfaces have no fallback: the terrain keeps its own material)."""
     out, rest = {}, []
     for r in roles:
-        if megascans and library.get(r):
-            out[r] = {"source": "megascans", "asset": library[r]}
+        got_assets = assets_of(library.get(r))
+        if megascans and got_assets:
+            out[r] = {"source": "megascans", "asset": got_assets[0], "assets": got_assets[:1] if ROLES[r][1] != "mesh" else got_assets}
         else:
             rest.append(r)
     got = ensure_cc0(rest + [r for r in out if r not in rest], log)    # CC0 behind every Megascans role too
@@ -716,6 +741,7 @@ def scan(store: ProjectStore, folders: list[str] | None = None) -> dict:
         else:
             dirs.append(content / f)
     cands: dict[str, list] = {r: [] for r in ROLES}
+    all_meshes: list[dict] = []        # every scanned static mesh and foliage type, whatever its name
     seen, scanned = set(), []
     for d in dirs:
         if not d.is_dir():
@@ -731,14 +757,18 @@ def scan(store: ProjectStore, folders: list[str] | None = None) -> dict:
             rel = p.relative_to(content).with_suffix("")
             game = "/Game/" + rel.as_posix()
             ue_path = f"{game}.{p.stem}"
+            if cls in ("static_mesh", "foliage"):
+                all_meshes.append({"path": ue_path, "class": cls, "name": p.stem})
             role = guess_role(p.stem, rel.parent.as_posix(), cls)
             if role is None or (ROLES[role][1] == "surface") != (cls == "material_instance"):
                 continue
             cands[role].append({"path": ue_path, "class": cls, "name": p.stem})
     for r in cands:
         cands[r].sort(key=_rank)
-    return {"content": str(content), "folders_scanned": scanned, "candidates": cands,
-            "proposal": {r: c[0]["path"] for r, c in cands.items() if c}}
+    all_meshes.sort(key=lambda m: (m["name"].lower(), m["path"]))
+    return {"content": str(content), "folders_scanned": scanned, "candidates": cands, "all_meshes": all_meshes,
+            "proposal": {r: [c["path"] for c in cs[:PROPOSE_MAX]] if ROLES[r][1] == "mesh" and len(cs) > 1 else cs[0]["path"]
+                         for r, cs in cands.items() if cs}}
 
 
 def _exists(content: Path, ue_path: str) -> bool:
@@ -754,7 +784,10 @@ def rescan(store: ProjectStore, log=print) -> dict:
     content = Path(s["content"])
     changed = []
     for r in ROLES:
-        if r in lib and (not lib[r] or _exists(content, lib[r])):
+        have = assets_of(lib.get(r))
+        if r in lib and (not have or any(_exists(content, a) for a in have)):
+            if len(have) > 1:          # drop the ones that are gone, keep the rest
+                lib[r] = [a for a in have if _exists(content, a)]
             continue
         new = s["proposal"].get(r)
         if new != lib.get(r):
@@ -810,7 +843,9 @@ def summary(rec: dict | None, ue_rep: dict | None) -> dict:
     u = (ue_rep or {}).get("dressing") or {}
     used = u.get("sources") or {}
     src = {r: used.get(r) or (rec["sources"].get(r) or {}).get("source", "none") for r in rec.get("roles", [])}
-    return {"ran": ran, "counts": u.get("counts") or rec.get("counts") or {}, "sources": src,
+    n_assets = {r: len(assets_of(s.get("assets") or s.get("asset"))) for r, s in rec["sources"].items()
+                if s.get("source") == "megascans" and r in src and src[r] == "megascans"}
+    return {"ran": ran, "assets": u.get("assets") or n_assets, "counts": u.get("counts") or rec.get("counts") or {}, "sources": src,
             "water": u.get("water"), "hidden": u.get("hidden", 0), "removed": u.get("removed", []),
             "placed": u.get("placed"), "warnings": rec.get("warnings", []) + u.get("warnings", [])}
 
@@ -827,6 +862,8 @@ def report_lines(d: dict) -> list[str]:
     if d["counts"]:
         lines.append("  instances: " + ", ".join(f"{r} {n:,}" for r, n in d["counts"].items() if n))
     lines.append("  sources: " + "; ".join(f"{s}: {', '.join(rs)}" for s, rs in sorted(by.items())))
+    if d.get("assets"):
+        lines.append("  assets used: " + ", ".join(f"{r} {n}" for r, n in d["assets"].items()))
     if d.get("hidden"):
         lines.append(f"  placeholder trees hidden in {d['hidden']} slots")
     if d.get("water"):

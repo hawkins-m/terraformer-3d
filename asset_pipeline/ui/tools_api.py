@@ -138,7 +138,7 @@ class DressScanReq(BaseModel):
 
 
 class DressLibraryReq(BaseModel):
-    library: dict[str, str] = {}         # role -> Unreal asset path ("" clears it)
+    library: dict[str, str | list[str]] = {}   # role -> Unreal asset path, or a list for a mesh role ("" clears it)
     folders: list[str] | None = None
 
 
