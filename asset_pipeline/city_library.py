@@ -8,7 +8,7 @@ build at the slot's pose). Attached pieces come with their placed parent
 prop and kit-slot placements, split evenly and the same between builds.
 
 Which builds: Approved in library review (default), or every built asset's Active build
-(`use_active`, for previews). An entry whose Active version isn't procedural (a TRELLIS model)
+(`use_active`, for previews); these choices come from next_build.py, which also explains them. An entry whose Active version isn't procedural (a TRELLIS model)
 stands with that model at every one of its placements, scaled to each footprint and height,
 instead of its procedural builds (`use_active_models`; the build report names them): its Clean up
 output for the asset's tier when one exists for that version, else the raw model.
@@ -431,22 +431,10 @@ def apply_variants(store: ProjectStore, placements: list[dict], assign: dict, en
 
 
 def active_model(store: ProjectStore, entry: str) -> dict | None:
-    """An entry's Active version when it isn't a procedural build (a TRELLIS model):
-    {n, kind, glb (project-relative), raw, cleaned}; None when it is procedural or has no model.
-    glb is the version's Clean up output for the asset's tier when there is one (decimated and
-    baked for game), else the raw model; cleaned says which ({usage, faces, method} or None)."""
-    from . import versions
-    from .stages import s6_cleanup
-    n = versions.current(store, entry)
-    if n is None:
-        return None
-    kind = versions.get(store, entry, n)["kind"]
-    glb = versions.current_glb(store, entry) if kind != "procedural" else None
-    if glb is None:
-        return None
-    raw = glb.relative_to(store.root).as_posix()
-    cleaned = s6_cleanup.for_source(store, versions.PLAN, entry, raw)
-    return {"n": n, "kind": kind, "glb": cleaned["glb"] if cleaned else raw, "raw": raw, "cleaned": cleaned}
+    """An entry's non-procedural Active version as building placements take it (next_build.building_model:
+    {n, kind, glb, raw, cleaned}); None when it is procedural or has no model."""
+    from . import next_build
+    return next_build.building_model(store, entry)
 
 
 def model_label(m: dict) -> str:
@@ -554,12 +542,9 @@ def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: l
 
 
 def ok_entries(store: ProjectStore, use_active: bool):
-    """ok(entry) for `choose`: Approved in library review, or (use_active) any built entry."""
-    if use_active:
-        return lambda e: True
-    from .look import approved
-    good = approved(store)
-    return lambda e: e in good
+    """ok(entry) for `choose`: Approved in library review, or (use_active) any built entry (next_build.gate)."""
+    from . import next_build
+    return next_build.gate(store, use_active)
 
 
 def settings(store: ProjectStore):

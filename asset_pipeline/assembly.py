@@ -159,8 +159,8 @@ def parent_of(store: ProjectStore, eid: str) -> str | None:
 def model(store: ProjectStore, eid: str) -> dict:
     """An entry's model as a piece: {glb (Path or None), kind, fit (scale to metres), centre (the
     footprint middle on the base, model units), size [w, d, h] in metres}."""
-    from . import library_entries as le, versions
-    glb = versions.current_glb(store, eid)
+    from . import library_entries as le, next_build, versions
+    glb = next_build.placed_glb(store, eid)
     n = versions.current(store, eid) if glb else None
     kind = versions.get(store, eid, n)["kind"] if n else None
     target = (le.form_info(store, eid).get("size_m") or (le._all_entries(store).get(eid) or {}).get("size_m"))

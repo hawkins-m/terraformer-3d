@@ -145,3 +145,19 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   commandlet until `Module Load StaticMeshEditor` (console command), and the old
   `EditorStaticMeshLibrary.set_lod_build_settings` silently does nothing without it.
   `ap_import.mesh_editor()` loads it; `keep_normals` builds with the GLB's normals (Nanite too).
+
+## What the next city build places, per asset (2026-10-27)
+- `asset_pipeline/next_build.py` is the one source of truth: `gate` (Approved, or any built entry
+  with Use Active versions), `building_model` (a non-procedural Active version at building places:
+  its Clean up output for the tier, else raw), `placed_glb` (props and attached pieces: the Active
+  raw model; they don't use Clean up output) and `procedural_build` (the build on disk and the
+  version it is). `city_library.ok_entries` / `active_model` and `assembly.model` call these, so the
+  explanation can't drift from the build; `tests/test_next_build.py` compares it with what
+  `prop_placements` / `use_active_models` place.
+- `explain(store, use_active)` per entry: role (prop / building / none), placed, version, why,
+  approved (+ the version approved), cleanup for the tier (`cleaned`, `cleanup_used`), stand-in
+  reason and a plain `line`. API: `GET /api/projects/{slug}/next-build?use_active=` (adds the last
+  build's placement-check issues per entry from the build report's `per_entry`).
+- Roles are read from the greybox (prop pieces, variants), instance builds and entries' slots; an
+  entry used nowhere says "not in the city layout". "Not cleaned up" is never a stand-in reason:
+  the build places the raw model then (unchanged behaviour); it counts as "need cleanup".

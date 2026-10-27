@@ -1888,6 +1888,23 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                                        if k != s0_frames.LOCK_GREYBOX and s not in mood) if out["greybox"] else []
         return out
 
+    @app.get("/api/projects/{slug}/next-build")
+    def next_build_(slug: str, use_active: bool = False):
+        """Per library asset, what the next `ap ue build` places and why (next_build.explain), with
+        the last build's placement-check issues per asset ({kind: count}; "placement_checked":
+        whether a build with the check ran)."""
+        from .. import next_build, ue_build
+        store = _store(slug)
+        out = next_build.explain(store, use_active)
+        rep = read_json(ue_build.report_path(store), default=None) or {}
+        per = ((rep.get("placement") or {}).get("per_entry")) or {}
+        for r in out["assets"]:
+            r["placement"] = per.get(r["entry"]) or {}
+        out["placement_checked"] = rep.get("placement") is not None
+        out["placement_finished"] = rep.get("finished")
+        out["counts"]["placement_issues"] = sum(1 for r in out["assets"] if r["placement"])
+        return out
+
     @app.post("/api/projects/{slug}/export")
     def export(slug: str):
         store = _store(slug)
