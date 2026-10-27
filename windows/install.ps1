@@ -77,7 +77,8 @@ if (-not $LauncherOnly) {
 
     $distros = (Text (& wsl.exe --list --quiet)) -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ }
     if ($distros -notcontains $Distro) {
-        Say "$Distro is not installed in WSL (found: $(if ($distros) { $distros -join ', ' } else { 'none' }))."
+        $found = if ($distros) { $distros -join ', ' } else { 'none' }
+        Say "$Distro is not installed in WSL (found: $found)."
         if (-not (Ask "Install $Distro now? It asks you to create a Linux user name and password.")) {
             Fail "Terraformer needs an Ubuntu in WSL. Install one with: wsl --install -d $Distro (or pass -Distro NAME)."
         }
@@ -103,7 +104,8 @@ if (-not $LauncherOnly) {
               "Studio); it brings the GPU into WSL. Don't install a Linux NVIDIA driver inside Ubuntu. Then run " +
               "install.bat again.")
     }
-    Ok "NVIDIA in WSL: $($gpus -replace '\(UUID[^)]*\)', '' -replace "`r?`n", '; ')"
+    $gpuList = ($gpus -replace '\(UUID[^)]*\)', '') -replace "`r?`n", '; '
+    Ok "NVIDIA in WSL: $gpuList"
 
     # --- 4. The repo inside WSL and the normal Linux install -----------------------------------
     InWsl "test -d $Checkout/.git"

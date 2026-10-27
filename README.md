@@ -319,7 +319,8 @@ Needs Windows 11, or Windows 10 21H2 (build 19044) or newer, and a current NVIDI
 Windows (Game Ready or Studio). Do not install a Linux NVIDIA driver inside Ubuntu: WSL uses the
 Windows one.
 
-1. Download the repo (Code › Download ZIP, or `git clone`) anywhere on Windows and double-click
+1. Download the repo (Code › Download ZIP, or `git clone`) anywhere on Windows. **Extract the zip
+   first**; don't run `install.bat` from inside the zip, it needs the files beside it. Then double-click
    `windows\install.bat` (or run `windows\install.bat -NoDesktopShortcut`, `-Distro NAME`, `-Yes`).
    It
    - checks the Windows version and WSL; if WSL is missing it asks, installs it (admin prompt)
