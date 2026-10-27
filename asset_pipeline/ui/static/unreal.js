@@ -127,7 +127,7 @@ function renderReadiness() {
   if (!rows.length) { box.innerHTML = `<p class="hint">No library asset stands in the city layout yet.</p>`; return; }
   const cleanup = r => r.version == null && r.model == null ? "–"
     : r.model === "procedural" ? "procedural build" : r.model === "cleaned" ? `cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"}`
-    : r.cleanup_used ? `not cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"}` : "raw model (props don't use Clean up)";
+    : `not cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"}`;
   const issues = r => Object.entries(r.placement || {}).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ");
   box.innerHTML = `<table class="grid-table"><thead><tr><th>Asset</th><th>Version used</th><th>Approved</th><th>Cleanup</th><th>Stand-in reason</th><th>Placement issues</th></tr></thead><tbody>
     ${rows.map(r => `<tr data-asset="${esc(r.entry)}" class="${r.placed ? "" : "ue-standin"}">

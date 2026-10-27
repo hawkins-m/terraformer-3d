@@ -156,11 +156,12 @@ def parent_of(store: ProjectStore, eid: str) -> str | None:
 
 # --- geometry ----------------------------------------------------------------------------------
 
-def model(store: ProjectStore, eid: str) -> dict:
+def model(store: ProjectStore, eid: str, glb: Path | None = None) -> dict:
     """An entry's model as a piece: {glb (Path or None), kind, fit (scale to metres), centre (the
-    footprint middle on the base, model units), size [w, d, h] in metres}."""
+    footprint middle on the base, model units), size [w, d, h] in metres}. glb: this file instead of
+    the Active raw model (a prop's Clean up output, next_build.prop_model)."""
     from . import library_entries as le, next_build, versions
-    glb = next_build.placed_glb(store, eid)
+    glb = glb or next_build.placed_glb(store, eid)
     n = versions.current(store, eid) if glb else None
     kind = versions.get(store, eid, n)["kind"] if n else None
     target = (le.form_info(store, eid).get("size_m") or (le._all_entries(store).get(eid) or {}).get("size_m"))

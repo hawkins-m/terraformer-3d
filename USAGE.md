@@ -1019,8 +1019,8 @@ it now, e.g. *Next city build uses: v4 · cleaned for game · approved* or *Next
 stand-in (no 3D model yet)*; its tooltip says why that version. It follows the Unreal tab's *Use
 Active versions* tickbox. Plain **Export to Unreal** (Unreal › Advanced steps) sends only the
 greybox; Build city in Unreal places the library models (Approved ones, or Active ones with Use
-Active versions). A TRELLIS model at building places takes its Clean up output for the asset's tier
-(else the raw model); props take the raw model.
+Active versions). A TRELLIS model at building places, and every prop, takes its Clean up output for the
+asset's tier (game, cinematic, hero), else the raw model.
 
 Explanations live in hover tooltips: the **Generate 3D Model & Review** heading, every button, the Active
 badge and the Versions header.

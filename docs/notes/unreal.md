@@ -149,8 +149,9 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
 ## What the next city build places, per asset (2026-10-27)
 - `asset_pipeline/next_build.py` is the one source of truth: `gate` (Approved, or any built entry
   with Use Active versions), `building_model` (a non-procedural Active version at building places:
-  its Clean up output for the tier, else raw), `placed_glb` (props and attached pieces: the Active
-  raw model; they don't use Clean up output) and `procedural_build` (the build on disk and the
+  its Clean up output for the tier, else raw), `prop_model` (props: the Active version's Clean
+  up output for the tier, else raw; since 2026-10-27, before that props placed the raw model),
+  `placed_glb` (attached pieces: the Active raw model) and `procedural_build` (the build on disk and the
   version it is). `city_library.ok_entries` / `active_model` and `assembly.model` call these, so the
   explanation can't drift from the build; `tests/test_next_build.py` compares it with what
   `prop_placements` / `use_active_models` place.

@@ -385,26 +385,29 @@ PROP_MAINS = ("market:hut", "market:tent", "market:canopy", "market:stall")
 def prop_placements(store: ProjectStore, gb: dict, assign: dict | None = None) -> tuple[list[dict], dict[str, set], list[str]]:
     """TRELLIS props on their greybox pieces: each main prop piece becomes its entry's Active model
     (footprint centred, base on the piece's base, fitted to the plan size: assembly.model) at the
-    piece's yaw; it and its other pieces leave the greybox. assign: {original: {placement key:
+    piece's yaw: its Clean up output for the asset's tier when one exists, else the raw model
+    (next_build.prop_model; the mesh is prop_<entry>_<tier> when cleaned); it and its other pieces leave the greybox. assign: {original: {placement key:
     entry}} (variants.assignments): a placement given to a variant takes the variant's model.
     Returns (placements, {slot: piece indices they replace}, [prop entries with no model])."""
-    from . import assembly
+    from . import assembly, next_build
     from .stages.sw_library import PROP_PIECES, _slug
-    out, drop, missing, models = [], {}, set(), {}
+    out, drop, missing, models, tiers = [], {}, set(), {}, {}
     for s in gb["slots"]:
         for main, noun, sub in prop_groups(s, PROP_PIECES, PROP_MAINS):
             o = _slug(noun)
             key = f"{o}_{s['id']}_{main}".replace("-", "m")
             e = ((assign or {}).get(o) or {}).get(key, o)
             if e not in models:
-                models[e] = assembly.model(store, e)
+                pm = next_build.prop_model(store, e)
+                models[e] = assembly.model(store, e, glb=pm["glb"] if pm else None)
+                tiers[e] = pm["cleaned"]["usage"] if pm and pm["cleaned"] else None
             mdl = models[e]
             if mdl["glb"] is None:
                 missing.add(e)
                 continue
             x, y, z, yaw = piece_pose(s, s["pieces"][main])
             W = assembly._t([x, y, z]) @ assembly._rz(yaw) @ assembly.piece_matrix(mdl)
-            out.append({"key": key, "entry": e, "mesh": f"prop_{e}",
+            out.append({"key": key, "entry": e, "mesh": f"prop_{e}" + (f"_{tiers[e]}" if tiers[e] else ""),
                         "glb": Path(mdl["glb"]).relative_to(store.root).as_posix(), "matrix": W.tolist(),
                         "slot": s["id"], "prop": True, "pieces": [main, *sub]} | ({"variant_of": o} if e != o else {}))
     return out, drop, sorted(missing)

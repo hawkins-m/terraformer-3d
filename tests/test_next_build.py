@@ -40,16 +40,16 @@ def test_props_explanation_matches_what_the_build_places(market, monkeypatch):  
         rows = _rows(market, use_active)
         assert {e for e, x in rows.items() if x["placed"]} == set(placed)
         for e, glb in placed.items():
-            assert glb == next_build.placed_glb(market, e).relative_to(market.root).as_posix()
+            assert glb == next_build.prop_model(market, e)["glb"].relative_to(market.root).as_posix()
             assert rows[e]["version"] == versions.current(market, e) and rows[e]["model"] == "raw"
     library_review.set_status(market, "canopy-table", "approved", "")
     r = _rows(market)
     assert r["canopy-table"]["placed"] and r["canopy-table"]["approved"] and r["canopy-table"]["approved_version"] == 1
-    assert r["canopy-table"]["line"] == "Next city build uses: v1 · raw model (props don't use Clean up) · approved"
+    assert r["canopy-table"]["line"] == "Next city build uses: v1 · raw model, not cleaned for game · approved"
     assert not r["canopy-table-02"]["placed"]
     r = _rows(market, True)
-    assert r["canopy-table-02"]["line"] == "Next city build uses: v1 · raw model (props don't use Clean up) · not approved (Use Active versions)"
-    assert next_build.explain(market, True)["counts"] == {"approved": 1, "active_not_approved": 1, "stand_ins": 1, "need_cleanup": 0}
+    assert r["canopy-table-02"]["line"] == "Next city build uses: v1 · raw model, not cleaned for game · not approved (Use Active versions)"
+    assert next_build.explain(market, True)["counts"] == {"approved": 1, "active_not_approved": 1, "stand_ins": 1, "need_cleanup": 2}
 
 
 def test_a_trellis_building_explains_the_model_use_active_models_places(proj, monkeypatch):     # noqa: F811
@@ -122,3 +122,33 @@ def test_the_build_takes_its_choices_from_next_build(proj, monkeypatch):    # no
     glb_box(glb, [-1, -1, 0], [1, 1, 2])
     monkeypatch.setattr(next_build, "placed_glb", lambda store, e: glb)
     assert assembly.model(proj, "any")["glb"] == glb
+
+
+def test_props_place_their_clean_up_output_for_the_tier_else_the_raw_model(market, monkeypatch):    # noqa: F811
+    """The city build and the explanation both take a prop's Clean up output for the asset's tier
+    (next_build.prop_model); another tier's output doesn't count; without one the raw model stays."""
+    from asset_pipeline import variants
+    tier = SimpleNamespace(usage="game")
+    monkeypatch.setattr(s6_cleanup, "_asset", lambda *a: tier)
+    _trellis(market, "canopy-table")
+    library_review.set_status(market, "canopy-table", "approved", "")
+    raw = "3d/library/canopy-table/a_1024_cascade_s1.glb"
+
+    def props():
+        gb = sw_site.load_greybox(market)
+        pl, _, _ = cl.prop_placements(market, gb, variants.assignments(market, gb))
+        return {p["glb"] for p in pl if p["entry"] == "canopy-table"}, {p["mesh"] for p in pl if p["entry"] == "canopy-table"}
+    assert props() == ({raw}, {"prop_canopy-table"})
+    out = market.root / "cleanup/library/canopy-table/a_1024_cascade_s1_cine.glb"      # another tier's output
+    glb_box(out, [-2.2, -1.6, 0], [2.2, 1.6, 2.7])
+    write_json(out.with_suffix(".json"), {"glb": out.relative_to(market.root).as_posix(), "source": raw, "usage": "cine"})
+    assert props()[0] == {raw} and _rows(market)["canopy-table"]["model"] == "raw"
+    tier.usage = "cine"
+    glbs, meshes = props()
+    assert glbs == {out.relative_to(market.root).as_posix()} and meshes == {"prop_canopy-table_cine"}
+    r = _rows(market)["canopy-table"]
+    assert r["model"] == "cleaned" and r["cleaned"] and r["cleanup_used"]
+    assert r["line"] == "Next city build uses: v1 · cleaned for cinematic · approved"
+    m = next_build.prop_model(market, "canopy-table")
+    assert m["raw"] == raw and m["cleaned"]["usage"] == "cine"
+    assert next_build.counts([r])["need_cleanup"] == 0

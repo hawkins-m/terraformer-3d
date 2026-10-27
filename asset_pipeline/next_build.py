@@ -8,8 +8,10 @@ city_library takes its choices from here, so the explanation can't disagree with
   - building_model(store, entry): the model a building placement takes when the entry's Active
     version isn't procedural (a TRELLIS model): its Clean up output for the asset's tier when
     there is one, else the raw model (city_library.active_model);
-  - placed_glb(store, entry): the model a prop or attached piece takes: the Active version's raw
-    model (assembly.model; Clean up output isn't used there);
+  - prop_model(store, entry): the model a prop takes: the Active version's Clean up output for
+    the asset's tier when there is one, else its raw model (city_library.prop_placements);
+  - placed_glb(store, entry): the model an attached piece takes: the Active version's raw model
+    (assembly.model);
   - procedural builds stand as they are on disk (look._candidates): procedural_build(store, entry)
     names the version that build is.
 explain(store, use_active) puts these together per entry: placed or not, the version, why it,
@@ -35,9 +37,25 @@ def gate(store: ProjectStore, use_active: bool):
 
 
 def placed_glb(store: ProjectStore, entry: str) -> Path | None:
-    """The model a prop or an attached piece places: the Active version's model (raw)."""
+    """The model an attached piece places: the Active version's model (raw)."""
     from . import versions
     return versions.current_glb(store, entry)
+
+
+def prop_model(store: ProjectStore, entry: str) -> dict | None:
+    """The model a prop places: {n, kind, glb (Path), raw (project-relative), cleaned ({usage, glb,
+    faces, method} or None)}: the Active version's Clean up output for the asset's tier when one
+    exists, else its raw model; None without an Active model."""
+    from . import versions
+    from .stages import s6_cleanup
+    g = placed_glb(store, entry)
+    if g is None:
+        return None
+    n = versions.current(store, entry)
+    raw = g.relative_to(store.root).as_posix()
+    cleaned = s6_cleanup.for_source(store, versions.PLAN, entry, raw)
+    return {"n": n, "kind": versions.get(store, entry, n)["kind"] if n is not None else None,
+            "glb": store.root / cleaned["glb"] if cleaned else g, "raw": raw, "cleaned": cleaned}
 
 
 def building_model(store: ProjectStore, entry: str) -> dict | None:
@@ -142,11 +160,10 @@ def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, e
            "stand_in": None, "excluded": excluded}
     model = None
     if prop:
-        g = placed_glb(store, eid)
-        if g is not None:
-            raw = g.relative_to(store.root).as_posix()
-            model = {"n": cur, "kind": versions.get(store, eid, cur)["kind"], "model": "raw",
-                     "cleaned": s6_cleanup.for_source(store, versions.PLAN, eid, raw) is not None, "used": False}
+        m = prop_model(store, eid)
+        if m is not None:
+            model = {"n": m["n"], "kind": m["kind"], "model": "cleaned" if m["cleaned"] else "raw",
+                     "cleaned": m["cleaned"] is not None, "used": True}
     elif building:
         m = building_model(store, eid)
         pb = procedural_build(store, eid)
@@ -189,10 +206,8 @@ def line(r: dict) -> str:
     tier = {"cine": "cinematic"}.get(r["usage"], r["usage"]) or "its tier"      # as the UI names the tiers
     if r["model"] == "cleaned":
         bits.append(f"cleaned for {tier}")
-    elif r["model"] == "raw" and r["cleanup_used"]:
-        bits.append(f"raw model, not cleaned for {tier}")
     elif r["model"] == "raw":
-        bits.append("raw model (props don't use Clean up)")
+        bits.append(f"raw model, not cleaned for {tier}")
     else:
         bits.append("procedural build")
     bits.append("approved" if r["approved"] else "not approved (Use Active versions)")
