@@ -6,6 +6,7 @@ import json
 import os
 import re
 import tempfile
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,6 +14,27 @@ from . import config
 from .schema import Project
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+STARTS = ("city", "blender", "assets")      # Project.start: procedural city, own Blender layout, concept images
+
+
+def slugify(name: str) -> str:
+    """A project folder name from a display name: lowercase ASCII, words joined by hyphens
+    ("Harbour Town at Dawn" -> "harbour-town-at-dawn"); "project" when nothing is left."""
+    s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")[:56].strip("-")
+    return s or "project"
+
+
+def unique_slug(name: str) -> str:
+    """slugify(name), with -2, -3, … appended while a project folder of that name exists."""
+    base, n = slugify(name), 1
+    slug = base
+    while (config.projects_dir() / slug).exists():
+        n += 1
+        slug = f"{base}-{n}"
+    return slug
+
+
 _UMASK = os.umask(0)
 os.umask(_UMASK)
 
@@ -47,14 +69,21 @@ class ProjectStore:
         return self.root / "project.json"
 
     @classmethod
-    def create(cls, slug: str, name: str = "", brief: str = "") -> "ProjectStore":
+    def create(cls, slug: str | None = None, name: str = "", brief: str = "", start: str | None = None) -> "ProjectStore":
+        """A new project. slug None: made from the name (unique_slug). start: STARTS (None: city)."""
+        if not slug:
+            if not name.strip():
+                raise ValueError("give the project a name")
+            slug = unique_slug(name)
+        if start is not None and start not in STARTS:
+            raise ValueError(f"starting point must be one of {', '.join(STARTS)}")
         if not SLUG_RE.match(slug):
             raise ValueError(f"bad project slug {slug!r}: use lowercase letters, digits, - and _")
         store = cls(config.projects_dir() / slug)
         if store.project_file.exists():
             raise FileExistsError(f"project {slug!r} already exists at {store.root}")
         defaults = config.backends().get("defaults", {})
-        project = Project(slug=slug, name=name or slug, brief=brief,
+        project = Project(slug=slug, name=name.strip() or slug, brief=brief, start=start,
                           backends=dict(defaults.get("backends", {})),
                           llm=defaults.get("llm", "local"))
         store.save(project)

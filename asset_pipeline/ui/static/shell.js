@@ -126,21 +126,80 @@ function dialog({title, body, buttons = [{label: "OK", default: true}], onClose,
   return {win, close};
 }
 
+// New project: a name (the folder is made from it), an optional brief, and where the artist starts.
+// The starting point only picks the first tab and its hint; every tab stays. Projects from before
+// have none: they count as a procedural city (startOf).
+const START_POINTS = {
+  city: {label: "Procedural city", desc: "Generate a city plan from rules.", tab: "style",
+    hint: "Start with the look: a style text, or generate scenes and star the ones you like. Layout then plans the city from rules."},
+  blender: {label: "Custom Blender layout", desc: "Bring your own block-out.", tab: "site",
+    hint: "Start from the starter layout, Build greybox, then open site/greybox.blend in Blender, block out your site in it, save, and click Re-read .blend. From then on the .blend is the layout."},
+  assets: {label: "Concept images to assets", desc: "Make individual assets without a city layout.", tab: "library", sub: "plan",
+    hint: "Upload a concept image here (or star scenes in Style), Analyse scene, then make reference sheets and 3D models of its assets."},
+};
+const startOf = p => START_POINTS[p && p.start] ? p.start : "city";
+
 function newProjectDialog() {
-  const f = document.createElement("form"); f.className = "form"; f.id = "new-form";
-  f.innerHTML = `<label for="np-slug">Slug:</label><input id="np-slug" name="slug" placeholder="my-project" required pattern="[a-z0-9](?:[a-z0-9_]|-)*">
-    <label for="np-brief">Brief:</label><input id="np-brief" name="brief" placeholder="optional">`;
+  const f = document.createElement("form"); f.id = "new-form";
+  f.innerHTML = `<div class="form">
+      <label for="np-name">Project name:</label><input id="np-name" name="name" placeholder="Harbour Town" required maxlength="80" autocomplete="off">
+      <span></span><span class="hint np-folder" style="margin:0">Folder: <span id="np-folder-text">…</span>
+        <button type="button" class="link" id="np-change" title="Edit the folder name under projects/ (lowercase letters, digits, - and _)">change</button></span>
+      <label for="np-slug" class="np-slug" hidden>Folder:</label><input id="np-slug" class="np-slug" name="slug" hidden
+        pattern="[a-z0-9][a-z0-9_\-]{0,63}" title="Lowercase letters, digits, - and _" autocomplete="off"></div>
+    <details id="np-brief-box"><summary>Brief (optional)</summary>
+      <textarea id="np-brief" name="brief" rows="2" placeholder="a misty fishing harbour at dawn, painterly, muted blues and rust"></textarea></details>
+    <fieldset id="np-start"><legend>Starting point</legend>
+      ${Object.entries(START_POINTS).map(([k, sp], i) => `<label class="np-start-opt"><input type="radio" name="start" value="${k}"${i ? "" : " checked"}>
+        <span><b>${esc(sp.label)}</b><span class="hint">${esc(sp.desc)} Opens ${esc(TAB_NAMES[sp.tab] || sp.tab)}.</span></span></label>`).join("")}
+    </fieldset>`;
+  const name = $("#np-name", f), folder = $("#np-folder-text", f), slugBox = $("#np-slug", f);
+  let edited = false, seq = 0;
+  const preview = async () => {            // the folder the server would make (unique among projects)
+    if (edited) return;
+    const n = ++seq, v = name.value.trim();
+    if (!v) { folder.textContent = "…"; slugBox.value = ""; return; }
+    try { const r = await api(`/api/projects/folder-for?name=${encodeURIComponent(v)}`, undefined, "GET");
+      if (n === seq && !edited) { folder.textContent = r.slug; slugBox.value = r.slug; } }
+    catch (_) { /* the server makes it on Create anyway */ }
+  };
+  name.oninput = preview;
+  $("#np-change", f).onclick = () => {
+    edited = true;
+    f.querySelectorAll(".np-slug").forEach(el => { el.hidden = false; });
+    $(".np-folder", f).hidden = true;
+    slugBox.required = true; slugBox.focus(); slugBox.select();
+  };
   const submit = async () => {
     if (!f.reportValidity()) return false;
-    const fd = new FormData(f);
+    const fd = new FormData(f), start = fd.get("start");
     try {
-      await api("/api/projects", {slug: fd.get("slug"), brief: fd.get("brief")});
-      try { localStorage.setItem("ap.project", fd.get("slug")); } catch (_) { /* ignore */ }
-      await loadProjects(fd.get("slug"));
+      const p = await api("/api/projects", {name: fd.get("name").trim(), slug: edited ? fd.get("slug") : null, brief: fd.get("brief") || "", start});
+      try { localStorage.setItem("ap.project", p.slug); } catch (_) { /* ignore */ }
+      await loadProjects(p.slug);
+      const sp = START_POINTS[start];
+      showTab(sp.tab);
+      if (sp.sub) showSub(sp.sub);
     } catch (err) { alert(errorText(err)); return false; }
   };
-  const d = dialog({title: "New project", body: f, buttons: [{label: "Create", default: true, onClick: submit}, {label: "Cancel"}]});
+  const d = dialog({title: "New project", body: f, buttons: [{label: "Create project", default: true, onClick: submit}, {label: "Cancel"}]});
+  d.win.id = "new-project-dialog";
   f.onsubmit = async e => { e.preventDefault(); if ((await submit()) !== false) d.close(); };
+}
+
+// the starting point's hint, at the top of its tab until dismissed (per project)
+function renderStartHint() {
+  document.querySelectorAll(".start-hint").forEach(el => el.remove());
+  const p = data && data.project;
+  if (!p || !p.start) return;                         // projects from before: no hint
+  const sp = START_POINTS[startOf(p)], key = `ap.startHint.${slug}`;
+  try { if (localStorage.getItem(key)) return; } catch (_) { /* private window */ }
+  const panel = document.querySelector(`.tabpanel[data-tab="${sp.tab}"]`), slot = panel && panel.querySelector(".applybar-slot");
+  if (!panel) return;
+  const n = document.createElement("div"); n.className = "row-note start-hint"; n.setAttribute("role", "status");
+  n.innerHTML = `<span><b>${esc(sp.label)}:</b> ${esc(sp.hint)}</span><button type="button" class="wclose" aria-label="Dismiss this hint">x</button>`;
+  $(".wclose", n).onclick = () => { try { localStorage.setItem(key, "1"); } catch (_) { /* ignore */ } n.remove(); };
+  if (slot) slot.after(n); else panel.prepend(n);
 }
 
 // --- pipeline actions (menus, toolbar, shortcuts) ------------------------------------------
@@ -717,6 +776,7 @@ function renderShell() {
   $("#status-line").textContent = `${active.length ? "Working" : "Ready"} · ${active.length ? `${active.length} job${active.length === 1 ? "" : "s"} running` : "no jobs"}`;
   guarded(renderLanes);       // the Jobs panel and the job window first: nothing else may stop them
   guarded(updateJobDialog);
+  guarded(renderStartHint);
   renderStages();
   for (const [sel, act] of Object.entries({...TOOLBAR, ...STAGE_BUTTONS})) { const a = ACTIONS[act]; $(sel).disabled = a.enabled ? !a.enabled() : false; }
   // Layout: the city's catalog and plan; a project with its own layout.json (no city) only gets Update greybox & passes

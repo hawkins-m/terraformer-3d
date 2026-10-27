@@ -788,8 +788,18 @@ with `ap comfy status`). Everything below runs locally. No paid APIs are used.
 ap ui                 # then open http://127.0.0.1:8700
 ```
 
-1. **New project** (File › New project, Ctrl+N). Give it a slug and a brief, e.g. `my-project` and "a misty fishing
-   harbour at dawn, painterly, muted blues and rust".
+1. **New project** (File › New project, Ctrl+N). Give it a **Project name** (e.g. "Harbour Town"); its
+   folder is made from the name (lowercase, hyphens, `-2`, `-3` if taken) and shows small under it
+   (*change* edits it). Optionally open **Brief** and describe it, e.g. "a misty fishing harbour at
+   dawn, painterly, muted blues and rust". Pick a **Starting point**:
+   - *Procedural city*: generate a city plan from rules (opens Style).
+   - *Custom Blender layout*: bring your own block-out (opens Greybox: start from the starter
+     layout, Build greybox, edit `site/greybox.blend` in Blender, save, Re-read .blend).
+   - *Concept images to assets*: individual assets without a city layout (opens Library › Scene plans).
+
+   *Create project* saves the starting point in `project.json` (`start`) and opens that tab with a
+   short hint. It changes nothing else: every tab and step stays available. Projects made before
+   count as a procedural city.
 2. **Explore scenes.** Click *Generate scenes*. Each image is a 1344×768 environment
    concept, at about 45 s per batch of 4. Star the scenes worth keeping (☆ → ★). Starred
    scenes are what stage 1 (scene analysis) will use.
@@ -808,7 +818,8 @@ ap ui                 # then open http://127.0.0.1:8700
 ## From the command line
 
 ```bash
-ap new my-project --brief "a misty fishing harbour at dawn, painterly"
+ap new "Harbour Town" --brief "a misty fishing harbour at dawn, painterly"   # folder harbour-town
+ap new my-project --start blender            # a folder name works too; --start city | blender | assets
 ap style explore my-project -n 8
 ap style star my-project style/explore/batch_001/scene_003.png
 ap style derive my-project style/explore/batch_001/scene_003.png \

@@ -250,3 +250,37 @@ def test_legacy_stem_named_derive_dir_is_kept_for_its_own_scene(env, monkeypatch
                                                   "items": []}))
     assert s0_style.derive_dir(store, "style/explore/batch_001/scene_000.png") == legacy
     assert s0_style.derive_dir(store, "style/explore/batch_002/scene_000.png").name == "batch_002__scene_000"
+
+
+def test_new_project_from_a_name_with_a_starting_point(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+    from asset_pipeline.jobs import JobQueue
+    from asset_pipeline.project import ProjectStore, slugify, unique_slug
+    from asset_pipeline.ui import app as ui_app
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    assert slugify("Café Town at Dawn!") == "cafe-town-at-dawn" and slugify("  ") == "project"
+    c = TestClient(ui_app.create_app(JobQueue()))
+    assert c.get("/api/projects/folder-for", params={"name": "My City"}).json() == {"slug": "my-city"}
+    p = c.post("/api/projects", json={"name": "My City", "start": "blender"}).json()
+    assert p["slug"] == "my-city" and p["name"] == "My City" and p["start"] == "blender"
+    assert c.get("/api/projects/folder-for", params={"name": "My City"}).json() == {"slug": "my-city-2"}
+    assert c.post("/api/projects", json={"name": "My City"}).json()["slug"] == "my-city-2"
+    assert unique_slug("my city") == "my-city-3"
+    assert c.post("/api/projects", json={"name": "X", "slug": "own-folder", "start": "assets"}).json()["slug"] == "own-folder"
+    assert c.post("/api/projects", json={"slug": "old-style"}).json()["start"] is None       # slug alone still works
+    assert c.post("/api/projects", json={"name": "Y", "start": "nope"}).status_code == 422
+    assert c.post("/api/projects", json={"name": " "}).status_code == 400
+    assert ProjectStore.open("old-style").load().start is None                               # counts as a procedural city
+
+
+def test_cli_new_takes_a_name_or_a_slug(tmp_path, monkeypatch, capsys):
+    from asset_pipeline import cli
+    from asset_pipeline.project import ProjectStore
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    cli.main(["new", "my-project"])
+    cli.main(["new", "Harbour Town", "--start", "assets"])
+    cli.main(["new", "--name", "Harbour Town"])
+    assert ProjectStore.open("my-project").load().name == "my-project"
+    assert ProjectStore.open("harbour-town").load().start == "assets"
+    assert ProjectStore.open("harbour-town-2").load().name == "Harbour Town"
+    assert "created project harbour-town-2" in capsys.readouterr().out

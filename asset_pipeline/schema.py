@@ -125,6 +125,9 @@ class Project(BaseModel):
     frames: "FrameSettings | None" = None        # world mode concept frames; None = defaults
     versions_keep: int | None = Field(default=None, ge=1)   # asset versions kept per asset (None: 3)
     unreal: UnrealSettings | None = None         # ap ue build placement and check; None = defaults
+    # where the artist starts (New project): which tab opens first and its hint. Nothing else
+    # depends on it; None (projects from before) = "city"
+    start: Literal["city", "blender", "assets"] | None = None
 
 
 # --- Stage 1: asset plan ---------------------------------------------------------------

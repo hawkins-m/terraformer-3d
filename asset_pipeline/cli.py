@@ -13,7 +13,7 @@ from .imagegen.base import GenRequest
 from .imagegen.registry import backend_for, make_backend
 from .llm.base import LLMError
 from .paid import PaidAPIBlocked
-from .project import ProjectStore
+from .project import SLUG_RE, ProjectStore
 
 
 def _size(s: str) -> tuple[int, int]:
@@ -22,8 +22,15 @@ def _size(s: str) -> tuple[int, int]:
 
 
 def cmd_new(a) -> None:
-    store = ProjectStore.create(a.slug, name=a.name or "", brief=a.brief or "")
-    print(f"created project {a.slug} at {store.root}")
+    """ap new my-project | ap new "Harbour Town" | ap new --name "Harbour Town": a name that isn't a
+    valid folder name (or --name alone) makes the folder from the name (project.unique_slug)."""
+    slug, name = a.slug, a.name or ""
+    if slug and not SLUG_RE.match(slug) and not name:
+        slug, name = None, slug                   # a display name given as the argument
+    if not slug and not name:
+        raise SystemExit("give a project name (or a folder name): ap new \"Harbour Town\"")
+    store = ProjectStore.create(slug, name=name, brief=a.brief or "", start=a.start)
+    print(f"created project {store.root.name} at {store.root}")
 
 
 def cmd_comfy_check(a) -> None:
@@ -1507,9 +1514,11 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_setup)
 
     p = sub.add_parser("new", help="create a project under $AP_ROOT/projects/")
-    p.add_argument("slug")
-    p.add_argument("--name")
+    p.add_argument("slug", nargs="?", help="folder name (my-project), or a project name to make it from")
+    p.add_argument("--name", help="project name; without a folder name the folder is made from it")
     p.add_argument("--brief")
+    p.add_argument("--start", choices=["city", "blender", "assets"],
+                   help="starting point: procedural city (default), own Blender layout, concept images to assets")
     p.set_defaults(fn=cmd_new)
 
     p = sub.add_parser("comfy-check", help="check the ComfyUI server is reachable")

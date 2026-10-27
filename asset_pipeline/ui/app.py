@@ -24,7 +24,7 @@ from ..comfy import service as comfy_service
 from . import messages
 from ..comfy.client import ComfyError, connect
 from ..jobs import Fixable, JobQueue
-from ..project import ProjectStore, read_json
+from ..project import ProjectStore, read_json, unique_slug
 from .. import catalog as cat
 from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, StreetTrees, Typology, Variation
 from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_library, sw_shots, sw_site
@@ -109,8 +109,10 @@ IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp"}
 
 
 class NewProject(BaseModel):
-    slug: str
+    slug: str | None = None       # None / "": made from the name (project.unique_slug)
+    name: str = ""
     brief: str = ""
+    start: Literal["city", "blender", "assets"] | None = None
 
 
 class ExploreReq(BaseModel):
@@ -779,10 +781,15 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         root = config.projects_dir()
         return sorted(p.name for p in root.iterdir() if (p / "project.json").is_file()) if root.is_dir() else []
 
+    @app.get("/api/projects/folder-for")
+    def folder_for(name: str = ""):
+        """The folder New project would make for this name (free right now)."""
+        return {"slug": unique_slug(name)}
+
     @app.post("/api/projects")
     def new_project(req: NewProject):
         try:
-            store = ProjectStore.create(req.slug, brief=req.brief)
+            store = ProjectStore.create(req.slug or None, name=req.name, brief=req.brief, start=req.start)
         except (ValueError, FileExistsError) as e:
             raise HTTPException(400, str(e))
         return store.load().model_dump(mode="json")

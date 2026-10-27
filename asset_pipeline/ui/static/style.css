@@ -758,3 +758,17 @@ details summary { cursor: default; }
 /* Views and 3D: Clean up outputs of versions that aren't Active, until Show older cleanups */
 .results > .old-cleanup { display: none; }
 .results.show-old > .old-cleanup { display: grid; }
+
+/* --- New project dialog (shell.js) ---------------------------------------------------- */
+#new-form { display: grid; gap: 8px; min-width: 420px; }
+#new-form .np-folder { font-size: 11px; color: var(--muted); }
+#new-form details summary { cursor: default; }
+#new-form details textarea { width: 100%; margin-top: 4px; box-sizing: border-box; }
+#np-start { display: grid; gap: 6px; }
+.np-start-opt { display: flex; gap: 6px; align-items: flex-start; }
+.np-start-opt > span { display: grid; }
+.np-start-opt .hint { margin: 0; }
+.start-hint { display: flex; gap: 6px; align-items: flex-start; margin: 0 0 6px; padding: 3px 6px; border: 1px solid var(--border); background: var(--field); }
+.start-hint > span { flex: 1; min-width: 0; }
+@media (max-width: 520px) { #new-form { min-width: 0; } }
+#new-form button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
