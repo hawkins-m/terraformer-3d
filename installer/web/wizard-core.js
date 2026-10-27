@@ -15,6 +15,7 @@
     { id: "connections", title: "Connections", sub: "Tell Terraformer where ComfyUI, Blender and Unreal Engine are. Test each one." },
     { id: "ready", title: "Ready to Install", sub: "Setup has enough information to begin installing Terraformer." },
     { id: "installing", title: "Installing Terraformer", sub: "Please wait while Setup downloads and installs the selected components." },
+    { id: "needs", title: "What you still need", sub: "What this computer still needs, with a link to each official page." },
     { id: "finish" },
   ];
   const IDS = PAGES.map(p => p.id);
@@ -146,7 +147,7 @@
       skip(id) { return id === "license" && w.installed && w.license; },
       nextIndex(from) { let i = from + 1; while (i < IDS.length - 1 && w.skip(IDS[i])) i++; return i; },
       prevIndex(from) { let i = from - 1; while (i > 0 && w.skip(IDS[i])) i--; return Math.max(i, 0); },
-      canBack() { return w.index > 0 && !["installing", "finish"].includes(w.page.id); },
+      canBack() { return w.index > 0 && !["installing", "needs", "finish"].includes(w.page.id); },
       canNext() {
         const id = w.page.id;
         if (id === "license") return w.license;
@@ -206,8 +207,8 @@
       startPage(st) {                                 // where a reopened window starts
         const s = (st.install || {}).status;
         if (ACTIVE.includes(s)) return "installing";
-        if ((s === "done" || s === "failed") && ["installing", "finish"].includes(st.page)) return st.page === "finish" ? "finish" : "installing";
-        return IDS.includes(st.page) && !["installing", "finish"].includes(st.page) ? st.page : "welcome";
+        if ((s === "done" || s === "failed") && ["installing", "needs", "finish"].includes(st.page)) return st.page;
+        return IDS.includes(st.page) && !["installing", "needs", "finish"].includes(st.page) ? st.page : "welcome";
       },
       shouldResume(st) { return (st.install || {}).status === "interrupted"; },
       saved() {                                         // what the server keeps (never the API keys)

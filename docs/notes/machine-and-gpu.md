@@ -86,3 +86,14 @@ Machine, storage layout, building HIP/torch extensions, ROCm/gfx1201 pitfalls an
   `$AP_ROOT/src/CuMesh-egore-old`. On the turret (seed 42, 1024_cascade) the raw mesh is
   identical; final meshes differ by ~0.1% of faces, the same as two runs of one build
   (1,281 faces between repeats): GPU nondeterminism.
+
+## What you still need (2026-10-27)
+- `asset_pipeline/needs.py` turns the existing checks (gpu, profiles, models' status, setup's Blender /
+  ComfyUI / Unreal tests, wsl) into rows: GPU driver, WSL2 (Windows), Blender, ComfyUI, FLUX.1-dev,
+  vision model, TRELLIS, Hugging Face token, Unreal (optional). Only missing / optional rows show, each
+  with one sentence and an official link (LINKS). The setup wizard's "What you still need" page
+  (between Installing and Finish, Check again re-reads) and the end of `ap doctor` both call `report`.
+  Stdlib-only at import: the wizard runs it before the app's packages exist.
+- ComfyUI models the user already has: the configured models folder, `<comfyui.service.cwd>/models` and
+  a folder the user types are scanned for the manifest's files (same path, same size). "Use this
+  folder" sets `comfyui.models_dir` to it, so the existing download skips those files. Nothing moves.

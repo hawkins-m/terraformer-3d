@@ -129,6 +129,20 @@ ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
 ## Install
 
+**Before you install**
+
+- [ ] Admin rights on the computer (to install the GPU driver, Blender and, on Windows, WSL2).
+- [ ] Windows (beta, untested): virtualization switched on in the BIOS/UEFI, which WSL2 needs.
+- [ ] Free disk space: the wizard's storage step shows what the chosen components need (about 50 GB
+      for the required models, 18 GB more for TRELLIS.2).
+- [ ] A Hugging Face account, signed in, with the
+      [FLUX.1-dev license](https://huggingface.co/black-forest-labs/FLUX.1-dev) accepted, and a
+      [read token](https://huggingface.co/settings/tokens).
+- [ ] Time: the model downloads are long (tens of GB); they resume if interrupted.
+
+After installing, the wizard's **What you still need** page (and the end of `ap doctor`) lists
+what this computer is still missing, each with a link to its official page, and **Check again**.
+
 ### Setup wizard
 
 The quickest install is the setup wizard, a classic installer in your browser:

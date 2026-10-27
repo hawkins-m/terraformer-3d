@@ -16,6 +16,14 @@
   let W = null, S = null, poll = null, slides = null, assets = [];
   const results = {};                                  // item id -> last Test result
   let showAdvanced = false;
+  let needsData = null, needsLoading = false;          // "What you still need" (asset_pipeline/needs.py)
+  function loadNeeds(folder) {                         // also Check again: every check runs again
+    needsLoading = true; needsData = null;
+    if (W.page.id === "needs") render();
+    const done = (r) => { needsLoading = false; needsData = r; if (W.page.id === "needs") render(); };
+    return api.get("api/needs" + (folder ? `?folder=${encodeURIComponent(folder)}` : "")).then(done)
+      .catch(() => done({ os_label: "", gpus: [], shown: [], folders: [], profile: null, error: true }));
+  }
 
   // --- chrome ---------------------------------------------------------------------------------------
   function fit() {
@@ -119,6 +127,26 @@
         <div class="overall"><span id="overall"></span><span id="inst-actions"></span></div>
         <div class="errors" id="errors"></div></div>`;
     },
+    needs() {
+      const n = needsData;
+      if (!n) return `<div class="pad"><p>Checking this computer…</p></div>`;
+      const p = n.profile;
+      const rows = n.shown.map(r => `<div class="need ${r.state}"><span class="mark">${r.state === "missing" ? "&#x2716;" : "&#x25CB;"}</span>
+        <div><b>${esc(r.name)}</b> <span class="tag">${r.state}</span><br>${esc(r.sentence)}
+        ${r.link ? `<br><a href="${esc(r.link)}" target="_blank" rel="noopener noreferrer">${esc(r.link)}</a>` : ""}</div></div>`).join("");
+      const folders = (n.folders || []).filter(f => f.exists).map(f => `<div class="folder"><span>${esc(f.path)}: ${f.found} of ${f.files}
+        model files${f.configured ? " (in use)" : ""}</span>${!f.configured && f.found ? ` <button class="btn small" data-use="${esc(f.path)}">Use this folder</button>` : ""}</div>`).join("");
+      return `<div class="pad needs-page">
+        <p class="detected">${esc(n.os_label)} · GPU: ${esc((n.gpus || []).join(", ") || "none found")}
+          · Profile: ${esc(p ? `${p.title} (${p.how})` : "none")}</p>
+        <div class="sunken needs-list">${rows || `<p>Nothing: every component is ready.</p>`}</div>
+        <fieldset><legend>ComfyUI models you already have</legend>
+          <div class="line"><input class="sunken field" id="needs-folder" placeholder="an existing ComfyUI models folder" spellcheck="false">
+          <button class="btn small" id="needs-look">Look</button></div>
+          ${folders || `<div class="note">No ComfyUI models folder found yet.</div>`}
+          <div class="note">Files already there are used where they are: not downloaded again, never moved or deleted.</div></fieldset>
+        <button class="btn" id="needs-again">Check again</button></div>`;
+    },
     finish() {
       const bad = W.install.status === "failed";
       return `<div class="split">${sideBanner()}<div class="text">
@@ -181,6 +209,7 @@
     if (W.page.id === "components") { space(); bindList(); }
     if (W.page.id === "destination") space();
     if (W.page.id === "installing") { strip(); drawProgress(); startPoll(); }
+    if (W.page.id === "needs" && needsData === null && !needsLoading) loadNeeds();
     document.body.dataset.page = W.page.id;
   }
 
@@ -369,6 +398,11 @@
       if (t) return testItem(t.dataset.test);
       if (e.target.id === "resume") install();
       if (e.target.id === "adv") { showAdvanced = !showAdvanced; render(); }
+      if (e.target.id === "needs-again") loadNeeds();
+      if (e.target.id === "needs-look") loadNeeds(($("needs-folder").value || "").trim());
+      if (e.target.dataset && e.target.dataset.use) {
+        api.post("api/needs/use", { folder: e.target.dataset.use }).then(r => { if (!r.error) { needsData = r; W.values.comfy_models_dir = e.target.dataset.use; render(); } });
+      }
     });
     Promise.all([api.get("api/state"), api.get("api/catalog")]).then(([st, cat]) => {
       S = st;

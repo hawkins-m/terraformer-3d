@@ -547,7 +547,8 @@ def _test_comfy_models_dir(v: str, _all: dict) -> dict:
         return _res(False, f"{p} isn't a folder.")
     comfy = [m for m in models.load() if m.root == "comfyui" and models.required(m)]
     have = [m for m in comfy if all((p / f.dest).is_file() for f in m.files)]
-    msg = f"Works: {p}; {len(have)} of {len(comfy)} required ComfyUI models in it."
+    msg = f"Works: {p}; {len(have)} of {len(comfy)} required ComfyUI models in it" + \
+        (" (already there: they won't be downloaded again)." if have else ".")
     if len(have) < len(comfy):
         return _res(True, msg + " Get the rest: " + models.download_command([m.id for m in comfy if m not in have]), warn=True)
     return _res(True, msg)

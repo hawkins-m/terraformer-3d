@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 
 import httpx
 
-from . import config, gpu, preflight, setup, wsl
+from . import config, gpu, needs, preflight, setup, wsl
 
 # feature -> what it is in plain words (the UI says "<what> needs <check>")
 FEATURES = {
@@ -320,4 +320,5 @@ def report() -> dict:
             "optional_missing": sum(c.level == "fail" and c.optional for c in checks),
             "notes": sum(c.level == "warn" for c in checks),
             "gpus": {"vision": int(config.get("jobs.gpu0_gpu", 0)), "comfy": int(config.get("jobs.comfy_gpu", 1))},
+            "needs": needs.report(),                 # "What you still need" (the setup wizard's page too)
             "at": time.time(), "seconds": round(time.time() - t0, 1)}

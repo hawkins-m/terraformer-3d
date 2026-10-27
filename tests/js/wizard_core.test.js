@@ -52,7 +52,7 @@ function setup(state = {}, store = memStore()) {
 const at = (w) => w.page.id;
 
 test("the pages come in the fixed order with Back, Next and Install / Finish labels", () => {
-  assert.deepEqual(C.IDS, ["welcome", "license", "hardware", "components", "destination", "connections", "ready", "installing", "finish"]);
+  assert.deepEqual(C.IDS, ["welcome", "license", "hardware", "components", "destination", "connections", "ready", "installing", "needs", "finish"]);
   const { w } = setup();
   assert.equal(at(w), "welcome");
   assert.equal(w.canBack(), false);
@@ -78,6 +78,9 @@ test("the pages come in the fixed order with Back, Next and Install / Finish lab
   w.onProgress({ status: "running", overall: { fraction: 0.5 } });
   assert.equal(w.canNext(), false);
   w.onProgress({ status: "done", overall: { fraction: 1 } });
+  assert.ok(w.next());
+  assert.equal(at(w), "needs", "what the machine still needs, before the last page");
+  assert.equal(w.canBack(), false);
   assert.ok(w.next());
   assert.equal(at(w), "finish");
   assert.equal(w.nextLabel(), "Finish");
@@ -127,9 +130,11 @@ test("sounds: door on the first Next, chime on later ones, tick on picks, shimme
   w.onProgress({ status: "done" });
   assert.equal(sounds.played.filter(s => s === "done").length, 1, "the shimmer plays once");
   w.next();                                           // Next on Installing: a later Next, the chime
+  assert.equal(at(w), "needs");
+  w.next();
   assert.equal(at(w), "finish");
   assert.ok(!w.next(), "Finish isn't a Next");
-  assert.equal(sounds.played.filter(s => s === "next").length, 6);
+  assert.equal(sounds.played.filter(s => s === "next").length, 7);
   assert.equal(sounds.played.filter(s => s === "open").length, 1);
 });
 
@@ -227,6 +232,7 @@ test("resume: a reopened window goes back to its page or to Installing", () => {
   assert.equal(w.startPage({ page: "installing", install: { status: "interrupted" } }), "installing");
   assert.equal(w.startPage({ page: "installing", install: { status: "done" } }), "installing");
   assert.equal(w.startPage({ page: "finish", install: { status: "done" } }), "finish");
+  assert.equal(w.startPage({ page: "needs", install: { status: "done" } }), "needs");
   assert.equal(w.startPage({ page: "installing", install: { status: "idle" } }), "welcome");
   assert.equal(w.startPage({ page: "nonsense", install: {} }), "welcome");
   assert.ok(w.shouldResume({ install: { status: "interrupted" } }), "the server stopped mid-install: resume by itself");

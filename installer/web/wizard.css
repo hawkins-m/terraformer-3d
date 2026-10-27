@@ -179,3 +179,16 @@ input[type=checkbox]:disabled:checked::after { opacity: .55; }
 .errors { margin-top: 6px; max-height: 58px; overflow: auto; color: var(--bad); line-height: 1.3; }
 .errors .fix { color: #000; }
 #adv { margin: 2px 0 4px; }
+
+/* What you still need (needs.py): one row per missing or optional component, its official link */
+.needs-page .needs-list { height: 190px; overflow: auto; padding: 4px 6px; background: #fff; }
+.needs-page .need { display: flex; gap: 6px; padding: 3px 0; border-bottom: 1px dotted #c0c0c0; }
+.needs-page .need .mark { width: 14px; flex: none; text-align: center; }
+.needs-page .need.missing .mark { color: #a31515; }
+.needs-page .need.optional { color: #555; }
+.needs-page .need a { color: #0b3d91; word-break: break-all; }
+.needs-page .folder { margin: 3px 0; }
+.needs-page .line { display: flex; gap: 6px; }
+.needs-page .line .field { flex: 1; }
+.needs-page #needs-again { margin-top: 6px; }
+.needs-page .note { color: var(--muted); margin-top: 3px; }

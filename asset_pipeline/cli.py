@@ -247,6 +247,8 @@ def cmd_doctor(a) -> None:
             print("\nOff until fixed: " + "; ".join(off) + ".")
         print("\n" + (f"{rep['missing']} required piece(s) missing." if rep["missing"] else "Everything required is in place.")
               + (f" {rep['optional_missing']} optional missing." if rep["optional_missing"] else ""))
+        from . import needs                          # the setup wizard's "What you still need" page, as text
+        print("\n" + "\n".join(needs.lines(rep["needs"])))
     if rep["missing"]:
         raise SystemExit(1)
 

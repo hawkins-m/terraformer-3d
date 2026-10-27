@@ -283,3 +283,18 @@ def test_ap_setup_opens_the_wizard(monkeypatch):
     monkeypatch.setattr(installer, "serve", lambda **kw: called.update(kw))
     cli.main(["setup", "--no-open"])
     assert called == {"open_page": False}
+
+
+def test_server_reports_what_is_still_needed_and_uses_a_folder_without_moving_it(server, tmp_path, monkeypatch):
+    port, _ = server
+    asked = []
+    monkeypatch.setattr(installer.needs, "report", lambda folder=None, f=None: asked.append(folder) or {"shown": [], "folder": folder})
+    code, data, _ = req(port, "GET", "/api/needs")
+    assert code == 200 and json.loads(data)["shown"] == [] and asked == [None]
+    code, data, _ = req(port, "GET", "/api/needs?folder=%2Fsome%2Fmodels")         # Look: that folder too
+    assert asked[-1] == "/some/models"
+    theirs = tmp_path / "theirs" / "models"
+    theirs.mkdir(parents=True)
+    assert req(port, "POST", "/api/needs/use", {"folder": str(tmp_path / "nope")})[0] == 400
+    code, data, _ = req(port, "POST", "/api/needs/use", {"folder": str(theirs)})
+    assert code == 200 and config.get("comfyui.models_dir") == str(theirs) and theirs.is_dir()

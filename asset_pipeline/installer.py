@@ -5,7 +5,7 @@ an installed system (`ap setup`).
     python3.12 -m asset_pipeline.installer [--port N] [--no-open] [--profile ID]
 
 Pages (installer/web/): Welcome, License, Hardware profile, Components, Destination, Connections,
-Ready, Installing, Finish. Pages 3-6 are data: the hardware profiles (profiles.PROFILES), the
+Ready, Installing, What you still need (needs.py, also the end of `ap doctor`), Finish. Pages 3-6 are data: the hardware profiles (profiles.PROFILES), the
 model manifest with the CC0 dressing assets (config/models.toml), and the setup items
 (setup.ITEMS, grouped by their `wizard` page), so a new model or setting shows up by itself.
 
@@ -29,9 +29,9 @@ import time
 import tomllib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
-from . import config, models, profiles, setup, wsl
+from . import config, models, needs, profiles, setup, wsl
 
 WEB = config.REPO_ROOT / "installer" / "web"
 ASSETS = config.REPO_ROOT / "installer" / "assets"
@@ -509,6 +509,9 @@ def make_handler(inst: Installer, server_state: dict):
                 return self._json(catalog())
             if path == "/api/progress":
                 return self._json(inst.progress())
+            if path == "/api/needs":                  # "What you still need" (Check again re-reads it)
+                q = parse_qs(urlparse(self.path).query)
+                return self._json(needs.report((q.get("folder") or [""])[0] or None))
             self._send(404, b"not found", "text/plain")
 
         def do_POST(self):
@@ -532,6 +535,12 @@ def make_handler(inst: Installer, server_state: dict):
                                                   "Python packages, which Installing adds. Run ap setup afterwards."})
                 except (KeyError, ValueError) as e:
                     return self._json({"error": str(e)}, 400)
+            if path == "/api/needs/use":               # use a folder that already holds ComfyUI models: nothing moves
+                folder = str(data.get("folder") or "").strip()
+                if not folder or not Path(os.path.expanduser(folder)).is_dir():
+                    return self._json({"error": "not a folder"}, 400)
+                setup.save({"comfy_models_dir": folder})
+                return self._json(needs.report())
             if path == "/api/disk":
                 return self._json({"free": free_bytes(data.get("path") or config.ap_root())})
             if path == "/api/install":
