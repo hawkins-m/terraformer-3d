@@ -212,7 +212,7 @@ def run_script(store: ProjectStore, script: str, args: dict, what: str) -> dict:
     log = work / f"{name}.log"
     log.unlink(missing_ok=True)
     try:
-        blender.run_logged(cmd, log, what, cwd=up.parent)
+        blender.run_logged(cmd, log, what, cwd=up.parent, track="headless Unreal")
         exit_error = None
     except RuntimeError as e:   # the commandlet exits 1 whenever anything logged an error
         exit_error = str(e).splitlines()[0]
@@ -448,7 +448,7 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
     log = work / f"{name}.log"
     log.unlink(missing_ok=True)
     try:
-        blender.run_logged(cmd, log, "UE shot render", cwd=up.parent)
+        blender.run_logged(cmd, log, "UE shot render", cwd=up.parent, track="headless Unreal")
     except RuntimeError:
         pass  # judged by the report
     finally:

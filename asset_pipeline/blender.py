@@ -35,9 +35,10 @@ def run(script: Path, args: list[str], log_path: Path, what: str, blend: Path | 
     run_logged(cmd, log_path, what)
 
 
-def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = None) -> None:
+def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = None, track: str | None = None) -> None:
     """Run any command with its output piped into log_path (appended), cancellable from a
-    job's Stop (the whole process group is killed)."""
+    job's Stop (the whole process group is killed). track: its name for Stop jobs' report
+    (procs.track), e.g. "headless Unreal"."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
     cmd, env, watch, copies = wsl.windows_cmd(cmd)
@@ -52,6 +53,8 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
             log.flush()
     pump = threading.Thread(target=pump_lines, daemon=True)
     pump.start()
+    from . import procs
+    forget = procs.track(proc.pid, f"{track} ({what})") if track else (lambda: None)
     job = current_job()
     release = job.on_cancel(lambda: stop(proc)) if job else (lambda: None)
     try:
@@ -62,6 +65,7 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
             time.sleep(0.5)
     finally:
         release()
+        forget()
         pump.join(timeout=5)
         log.close()
         wsl.read_back(watch, started, copies)

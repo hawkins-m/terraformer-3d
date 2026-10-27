@@ -137,6 +137,8 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
                                     env=dict(os.environ, TRELLIS_GPU=str(gpu), AP_ROOT=str(config.ap_root()),
                                              **profiles.allocator_env()))
         release = job.on_cancel(lambda: _stop(proc, gpu)) if job else (lambda: None)
+        from .. import procs
+        forget = procs.track(proc.pid, "TRELLIS", gpu)       # Stop jobs ends it too, and says what it freed
         try:
             while proc.poll() is None:
                 if job and job.cancel_event.is_set():
@@ -145,6 +147,7 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
                 time.sleep(1)
         finally:
             release()
+            forget()
             _reap(proc, gpu)                              # ended, failed or canceled: nothing keeps VRAM
         if job and job.cancel_event.is_set():
             shutil.rmtree(stage, ignore_errors=True)

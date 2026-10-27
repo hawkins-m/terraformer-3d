@@ -177,3 +177,12 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   asset's row). Generate 3D Model & Review shows `line` under each library asset's header.
 - Ready for Unreal names are `.jump-link[data-jump="views"]`: jump.js shows the Generate 3D Model & Review tab
   (showTab, not showSub) and jumps with the usual highlight.
+
+## Stop jobs frees the GPUs (2026-10-26)
+- `POST /api/jobs/stop_all`: `procs.snapshot()` (the vision model server from vlm.state(), plus the TRELLIS
+  and headless Unreal processes jobs registered with `procs.track`, each with the VRAM its process group
+  holds), then every active job is canceled, then `procs.stop` ends what is left and reports per GPU
+  ("Freed 27 GB on GPU 0: vision model."). The snapshot comes first: a cancel already kills TRELLIS
+  and Unreal, and their memory would read 0. ComfyUI is never touched (its jobs get the usual interrupt).
+- `/status` carries `loaded` (what Stop jobs would end), so the button is enabled with a model loaded and
+  no job running. Test: tests/test_stop_all.py.

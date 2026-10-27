@@ -1996,11 +1996,23 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                 prog[j.id] = _progress(store, j, started[j.id], now)
         sd = sw_site.site_dir(store)
         mt = lambda p: p.stat().st_mtime if p.is_file() else None  # noqa: E731
+        from .. import procs
         return {"progress": prog, "comfy": _comfy_up(), "comfy_service": gate.state,
+                "loaded": [x["what"] for x in procs.loaded()],          # what Stop jobs would also end
                 "comfy_error": gate.error, "layout_mtime": mt(sd / "layout.json"),
                 "plan_mtime": mt(sd / "city_plan.png"), "greybox_mtime": mt(sd / "greybox.json")}
 
     started: dict[int, float] = {}      # job id -> when this server first saw it running
+
+    @app.post("/api/jobs/stop_all")
+    def stop_all():
+        """Stop jobs: cancel every queued and running job, then stop and unload what the app's jobs
+        started (the vision model server, TRELLIS, headless Unreal) and say what VRAM that freed.
+        ComfyUI keeps running (its own jobs are canceled: an interrupt)."""
+        from .. import procs
+        targets = procs.snapshot()                 # before the cancels end TRELLIS and Unreal
+        canceled = [j.id for j in jobs.active() if jobs.cancel(j.id)]
+        return procs.stop(targets, log=lambda *a: None) | {"canceled": canceled}
 
     @app.post("/api/jobs/{job_id}/cancel")
     def cancel(job_id: int):

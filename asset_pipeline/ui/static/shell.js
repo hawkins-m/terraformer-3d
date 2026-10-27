@@ -224,7 +224,7 @@ const ACTIONS = {
   make3d: {run: () => { showTab("views"); $("#review-list").scrollIntoView(); }, enabled: () => !!reviewData && reviewData.assets.length},
   exportUe: {run: () => ueExport(), enabled: () => !!unrealData && unrealData.greybox && !activeJobs("ue.export").length},
   backupUe: {run: () => ueBackup(), enabled: () => !!unrealData && unrealData.project && !activeJobs("ue.backup").length},
-  stopAll: {run: () => stopAll(), enabled: () => allActive().some(j => STOPPABLE(j.kind))},
+  stopAll: {run: () => stopAll(), enabled: () => !!allActive().length || !!(statusData && (statusData.loaded || []).length)},
   comfyCheck: {run: () => comfyDialog()},
   vlmStatus: {run: () => vlmDialog()},
   planImage: {run: () => window.open(fileUrl(catalogData.plan_image, catalogData.plan_mtime), "_blank"), enabled: () => !!(catalogData && catalogData.plan_image)},
@@ -235,11 +235,18 @@ const ACTIONS = {
 };
 const siteBusy = () => SITE_JOBS.some(k => activeJobs(k).length);
 
+// Stop jobs: every job is canceled, and the model servers and headless Unreal the app started are
+// stopped (ComfyUI keeps running); the notice says what that freed ("Freed 27 GB on GPU 0: vision model.").
 async function stopAll(ask = false) {
-  const jobs = allActive().filter(j => STOPPABLE(j.kind));
-  if (!jobs.length) return;
-  if (ask && !confirm(`Stop ${jobs.length} job${jobs.length === 1 ? "" : "s"}?`)) return;
-  await cancelJobs(jobs);
+  const jobs = allActive(), loaded = (statusData && statusData.loaded) || [];
+  if (!jobs.length && !loaded.length) return;
+  const what = [jobs.length ? `${jobs.length} job${jobs.length === 1 ? "" : "s"}` : "", ...loaded].filter(Boolean).join(", ");
+  if (ask && !confirm(`Stop ${what}? ComfyUI keeps running.`)) return;
+  const b = $("#tb-stop"); if (b) { b.disabled = true; b.textContent = "Stopping…"; }
+  try { const r = await api("/api/jobs/stop_all", {}); appNotice(r.message); }
+  catch (err) { alert(errorText(err)); }
+  finally { if (b) b.textContent = "Stop jobs"; }
+  await load();
 }
 
 const JOBS_CLOSING = "Closing the browser doesn't stop jobs; closing the Terraformer window does.";   // also in the README
