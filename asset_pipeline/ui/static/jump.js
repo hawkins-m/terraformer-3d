@@ -209,11 +209,12 @@ jumpPop.addEventListener("click", e => { const li = e.target.closest("li[data-i]
 document.addEventListener("scroll", e => { if (!jumpPop.hidden && e.target !== jumpPop) jumpPopClose(); }, true);
 addEventListener("resize", () => jumpPopClose());
 
-// an asset's name in one Library sub-tab opens the same asset in the other
+// an asset's name in one Library sub-tab opens the same asset in the other; data-jump="views" (the
+// Unreal tab's Ready for Unreal box) opens it in Views and 3D
 document.addEventListener("click", e => {
   const a = e.target.closest(".jump-link[data-jump]"); if (!a) return;
   e.preventDefault();
   const k = a.dataset.jump;
-  showSub(k);
+  if (k === "views") showTab("views"); else showSub(k);
   requestAnimationFrame(() => jumpTo(k, a.dataset.asset));
 });

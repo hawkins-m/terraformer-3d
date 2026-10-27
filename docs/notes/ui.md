@@ -162,3 +162,11 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - Use this version / Delete moved to the model cards; `versionStrip(..., {manage: true})` (Asset
   review's detail view, no cards) keeps them on the rows. Keep / pin is gone (UI, API, versions.py);
   versions pinned before stay protected and still ask before Delete.
+
+## Next city build per asset; Ready for Unreal (2026-10-27)
+- `nextBuildData` (app.js `loadNextBuild`, every load) is `GET .../next-build?use_active=` for the Unreal
+  tab's Use Active versions tickbox; ticking it refetches and redraws Ready for Unreal (unreal.js
+  `renderReadiness`, redrawn only when its data changes) and the Views and 3D rows (their sig has the
+  asset's row). Views and 3D shows `line` under each library asset's header.
+- Ready for Unreal names are `.jump-link[data-jump="views"]`: jump.js shows the Views and 3D tab
+  (showTab, not showSub) and jumps with the usual highlight.

@@ -774,3 +774,11 @@ details summary { cursor: default; }
 .start-hint > span { flex: 1; min-width: 0; }
 @media (max-width: 520px) { #new-form { min-width: 0; } }
 #new-form button.link { background: none; border: 0; box-shadow: none; padding: 0; min-width: 0; color: #0B3D91; text-decoration: underline; font: inherit; cursor: pointer; }
+
+/* --- Unreal: Ready for Unreal (unreal.js renderReadiness) ---------------------------------- */
+#ue-ready { margin-bottom: 8px; }
+#ue-ready-counts { margin: 0 0 6px; }
+.ue-ready-table { max-height: 260px; overflow: auto; }
+.ue-ready-table table { width: 100%; }
+.ue-ready-table tr.ue-standin td { color: var(--muted); }
+.ue-ready-table tr.ue-standin td a { color: inherit; }

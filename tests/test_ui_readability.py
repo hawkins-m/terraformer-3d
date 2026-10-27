@@ -168,3 +168,13 @@ def test_views_row_order_and_version_actions():
     assert ver.index('<div class="ver-list">') < ver.index('class="row ver-cmp-row"')
     for step in ("Clean up", "Smooth shading", "Remove ground", "✓ cleaned", "✓ smoothed", "✓ ground removed"):
         assert step in ver, step
+
+
+def test_ready_for_unreal_sits_above_the_build_and_links_to_views():
+    html = (STATIC / "index.html").read_text()
+    assert html.index('id="ue-ready"') < html.index('id="ue-build-box"')
+    ue = (STATIC / "unreal.js").read_text()
+    assert 'data-jump="views"' in ue and "renderReadiness()" in ue and '$("#ueb-active").onchange' in ue
+    for col in ("Asset", "Version used", "Approved", "Cleanup", "Stand-in reason", "Placement issues"):
+        assert f"<th>{col}</th>" in ue, col
+    assert 'if (k === "views") showTab("views")' in (STATIC / "jump.js").read_text()

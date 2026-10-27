@@ -303,6 +303,11 @@
       <section class="tabpanel" data-tab="unreal" id="unreal-tab" hidden>
         <div class="applybar-slot"></div>
         <p class="needs-note" id="unreal-missing" role="status" hidden></p>
+        <fieldset id="ue-ready"><legend>Ready for Unreal</legend>
+          <p class="hint tab-help">What Build city in Unreal will place for each asset. <button type="button" class="help-q" title="Per library asset: the version the next build places and why, whether it is approved, its Clean up for the asset's tier (game, cine, hero), or why the greybox stands in. It follows Use Active versions below. Placement issues come from the last build's check. Click a name to open it in Views and 3D." aria-label="More about Ready for Unreal">?</button></p>
+          <p id="ue-ready-counts"></p>
+          <div id="ue-ready-table" class="ue-ready-table"></div>
+        </fieldset>
         <fieldset id="ue-build-box"><legend>Build city in Unreal</legend>
           <p class="hint tab-help">The whole city in Unreal, headless, in one job. <button type="button" class="help-q" title="Backs up the UE project, exports the greybox with the library builds, adds terrain, imports with the project light, then checks placement." aria-label="More about the build">?</button></p>
           <div class="row">

@@ -140,7 +140,13 @@ desktop app:
   (`ap export`, Ctrl+E) and *Back up Unreal project* (`ap ue backup`; it asks before
   backing up while an editor has the project open). Both are CPU jobs with a progress
   dialog counting meshes or files, and also have buttons in the *Unreal* tab.
-- **Unreal tab:** *Build city in Unreal* on top runs `ap ue build` as a CPU job (stages and Stop
+- **Unreal tab:** *Ready for Unreal* on top says what the next build will place: counts (approved,
+  active but not approved, stand-ins, need cleanup, placement-check issues from the last build) and
+  a table per asset (version used, approved, cleanup for its tier, stand-in reason, placement
+  issues). It follows the *Use Active versions* tickbox as you tick it; an asset's name opens it
+  in Views and 3D, highlighted. It reads the same choices the build makes (`next_build.py`;
+  API `GET /api/projects/{slug}/next-build?use_active=`).
+  Below it, *Build city in Unreal* runs `ap ue build` as a CPU job (stages and Stop
   in the Jobs panel; it asks first when the estimate is long). Options: *Use Active versions*
   (`--use-active`), *Keep my hand moves in Unreal* (on by default; off is `--reset-layout` and
   asks first), *Render shots after* (`--render`). Under it, *World dressing*: Ground textures,

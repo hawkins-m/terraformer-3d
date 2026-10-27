@@ -101,7 +101,13 @@ def test_no_greybox_and_excluded_entries_and_the_api(proj):    # noqa: F811
     assert _rows(proj)["bench"]["stand_in"] == "excluded"
     c = TestClient(ui_app.create_app(JobQueue()))
     d = c.get("/api/projects/p/next-build", params={"use_active": True}).json()
-    assert d["use_active"] and d["assets"][0]["entry"] == "bench" and "counts" in d and "placement" in d["assets"][0]
+    assert d["use_active"] and d["assets"][0]["entry"] == "bench" and d["assets"][0]["placement"] == {}
+    assert not d["placement_checked"] and d["counts"]["placement_issues"] == 0
+    from asset_pipeline import ue_build                    # the last build's check: issues per asset
+    write_json(ue_build.report_path(proj), {"placement": {"ok": False, "per_entry": {"bench": {"floating": 2}}}, "finished": 1.0})
+    d = c.get("/api/projects/p/next-build").json()
+    assert d["placement_checked"] and d["assets"][0]["placement"] == {"floating": 2} and d["counts"]["placement_issues"] == 1
+    assert not d["use_active"]
 
 
 def test_the_build_takes_its_choices_from_next_build(proj, monkeypatch):    # noqa: F811
