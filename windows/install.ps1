@@ -82,6 +82,9 @@ if (-not $LauncherOnly) {
         if (-not (Ask "Install $Distro now? It asks you to create a Linux user name and password.")) {
             Fail "Terraformer needs an Ubuntu in WSL. Install one with: wsl --install -d $Distro (or pass -Distro NAME)."
         }
+        Say ""
+        Say 'Ubuntu will open and ask you to create a Linux username and password. When you see a Linux prompt (ending in $), type exit and press Enter to return to this installer.'
+        Say ""
         & wsl.exe --install -d $Distro
         if ($LASTEXITCODE -ne 0) { Fail "wsl --install -d $Distro failed (exit $LASTEXITCODE)." }
         Read-Host "When Ubuntu has finished setting up your Linux user, press Enter to continue"
