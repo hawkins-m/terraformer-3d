@@ -7,25 +7,7 @@ let unrealData = null;
 const ueExportStale = () => !!(unrealData && unrealData.export && statusData &&
   unrealData.export.mtime + 1 < (statusData.greybox_mtime || 0));
 
-// The Unreal tab's numbered steps: each button is enabled only when its step can run, and says why
-// not beside it. [state text, done?, reason it can't run ("" = it can)].
-function ueSteps(u) {
-  const exp = u.export, imp = u.imported, ren = u.renders, looks = u.looks || [];
-  const when = t => new Date(t * 1000).toLocaleString();
-  const fresh = exp && !ueExportStale();
-  return {
-    init: [u.project ? `Created: ${u.uproject}` : "", !!u.project, u.project ? "Already created." : ""],
-    export: [null, !!fresh, !u.greybox ? "Build the greybox first (Greybox)." : ""],
-    import: [imp ? `Imported ${when(imp.mtime)}${imp.ok ? "" : " (with errors)"}${exp && imp.mtime < exp.mtime ? " · the export is newer: import again" : ""}` : "",
-      !!(imp && exp && imp.mtime >= exp.mtime && imp.ok),
-      !u.project ? "Create the UE project first (step 1)." : !exp ? "Export first (step 2)." : u.editor_open ? "Close the Unreal Editor first." : ""],
-    render: [ren ? `${ren.count} shot render${ren.count === 1 ? "" : "s"}, newest ${when(ren.mtime)}` : "",
-      !!(ren && imp && ren.mtime >= imp.mtime), !imp ? "Import first (step 3)." : ""],
-    look: [looks.length ? `${looks.length} look preset${looks.length === 1 ? "" : "s"}: ${looks.map(l => `${l.name}${l.runs ? ` (${l.runs} run${l.runs === 1 ? "" : "s"})` : ""}`).join(", ")}`
-      : "No look preset yet: one is created from an approved shot.", looks.some(l => l.runs),
-      !imp ? "Import first (step 3)." : !looks.length && !(u.approved_shots || []).length ? "Lock a shot on its approved frame first (Frames)." : ""],
-  };
-}
+// ueSteps (the numbered steps' state) lives in workflow.js: the Unreal stage's status reads it too.
 
 // Why the build can't start ("" = it can): the editor holding the project comes first.
 const ueBuildWhy = u => u.editor_open ? "The Unreal editor has the project open: close it to build."

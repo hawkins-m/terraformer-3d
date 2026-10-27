@@ -181,6 +181,12 @@ desktop app:
     Complete; Style says "Complete (text only)" for an anchor of style text alone); click one to
     open it. Layout is complete when the city plan is current (or the project has its own
     layout.json); Greybox when the greybox is built and neither the catalog nor the .blend changed since.
+    Library says *References ready* once every included asset has a decision and a chosen (starred)
+    reference; the next step (Views and 3D) says *Awaiting approval (N)* while models wait for
+    Approve, and is complete only when every included asset is approved. Unreal goes *Exported* →
+    *Scene assembled* (the city built or imported after the export) → *Render verified* (shots
+    rendered after that and a look match run), and is complete only there. A step is never
+    Complete while its *Next* button still asks for something.
   - *Jobs*: one row per lane (GPU 0, GPU 1, CPU) with a progress bar, time left, *Details*
     and *Stop*.
 

@@ -89,52 +89,103 @@ const STEP_STATE = {
     // (frames it considered and dropped as an older layout are in candidates too, and stay dropped)
     const considered = new Set((plan.candidates || []).map(c => c.frame));
     const missing = lockedFrames.filter(r => !considered.has(r.locked));
-    const ents = libEntries(), dec = e => libDecision(e);
-    const undecided = ents.filter(e => !dec(e)).length, included = ents.filter(e => dec(e) && dec(e) !== "exclude");
-    const sheeted = new Set(refs.filter(u => u.plan === "library" && u.sheets.length).map(u => u.key));
-    const builds = (lr.list && lr.list.assets) || [], approved = builds.filter(b => b.status === "approved").length;
-    const noSheet = included.filter(e => !sheeted.has(e.id) && !lrAssetsOf(e.id).length).length;
-    const st = run ? "running" : missing.length ? "stale" : undecided ? "input" : noSheet ? "ready"
-      : builds.length && approved < builds.length ? "review" : included.length ? "done" : "input";
+    // per asset, the strip's own step (libStepOf): the label and Next read the same counts
+    const ents = libEntries(), at = libWaiting();
+    const included = ents.filter(e => libDecision(e) && libDecision(e) !== "exclude");
+    const refsReady = !at.decide && !at.sheets && !at.star && included.length > 0;
+    const st = run ? "running" : missing.length ? "stale" : at.decide || !included.length ? "input" : at.sheets ? "ready"
+      : at.star ? "input" : "done";
     const detail = missing.length ? `${plural(missing.length, "locked shot")} not in the asset plan (${missing.map(r => r.id).join(", ")}): Discover assets again`
-      : [undecided && `${undecided} of ${plural(ents.length, "asset")} not decided`, noSheet && `${noSheet} without reference sheets`,
-        builds.length && `${approved} of ${plural(builds.length, "build")} approved`].filter(Boolean).join(" · ") || `${plural(included.length, "asset")} decided`;
-    return {status: st, detail, next};
+      : !included.length && !at.decide ? "no asset included: decide each asset in Asset review"
+      : [at.decide && `${at.decide} of ${plural(ents.length, "asset")} not decided`, at.sheets && `${plural(at.sheets, "asset")} without reference sheets`,
+        at.star && `${plural(at.star, "asset")} with no chosen reference (star a sheet)`].filter(Boolean).join(" · ")
+        || `every included asset decided, with a chosen reference (${plural(included.length, "asset")})`;
+    return {status: st, detail, label: st === "done" ? "References ready" : null,
+      next: refsReady ? {ok: true} : next};
   },
   views() {
     const r = reviewData;
     if (!r) return {status: "none", detail: "", next: {ok: false, reason: "Loading…"}};
     const withViews = r.assets.filter(a => a.views.length), with3d = r.assets.filter(a => a.results.length);
-    const waiting = withViews.filter(a => !a.results.length).length;
-    const unapproved = with3d.filter(a => a.review != null ? a.review !== "approved" : false).length;
-    const st = anyJob(["views.cut", "3d.trellis", "cleanup"]) ? "running" : !r.starred_sheets && !with3d.length ? "none"
-      : r.pending_sheets.length ? "ready" : waiting ? "input" : unapproved ? "review" : with3d.length ? "done" : "ready";
+    // library assets by the strip's step: complete only when every included one is approved
+    const at = libWaiting(), lib = libraryData && libraryData.plan;
+    const other = r.assets.filter(a => a.plan !== "library"), otherWaiting = other.filter(a => !a.results.length).length;
+    const pre = lib ? (at.decide || 0) + (at.sheets || 0) + (at.star || 0) : 0;
+    const building = (at.build || 0) + otherWaiting, approving = at.approve || 0;
+    const any = with3d.length || Object.values(at).some(Boolean);
+    const st = anyJob(["views.cut", "3d.trellis", "cleanup"]) ? "running" : !r.starred_sheets && !with3d.length && !building ? "none"
+      : r.pending_sheets.length ? "ready" : building ? "input" : approving ? "review" : pre ? "input"
+      : any && (lib || other.length) ? "done" : "ready";
     const detail = st === "none" ? "star reference sheets in Library › Reference sheets first"
       : [r.pending_sheets.length && `${plural(r.pending_sheets.length, "starred sheet")} to extract views from`,
-        waiting && `${plural(waiting, "asset")} with views but no 3D model`, unapproved && `${unapproved} not approved`]
-        .filter(Boolean).join(" · ") || `${plural(with3d.length, "asset")} with a 3D model`;
-    return {status: st, detail, next: {ok: !!siteData.summary, reason: "Build the greybox first (Greybox)."}};
+        building && `${plural(building, "asset")} with no 3D model yet`, approving && `${approving} not approved`,
+        pre && `${plural(pre, "asset")} still waiting in Library (decide, sheets, choose a reference)`]
+        .filter(Boolean).join(" · ") || `${plural(with3d.length, "asset")} with a 3D model, every one approved`;
+    return {status: st, detail, label: st === "review" ? `Awaiting approval (${approving})` : null,
+      next: {ok: !!siteData.summary, reason: "Build the greybox first (Greybox)."}};
   },
   unreal() {
+    // the detailed panel's own steps (ueSteps): Exported -> Scene assembled (imported or built) ->
+    // Render verified (shots rendered after the import and a look match run); Complete only there
     const u = unrealData;
     if (!u) return {status: "none", detail: "", next: {ok: false}};
     const run = (data.jobs || []).some(j => isActive(j) && j.kind.startsWith("ue."));
-    const st = run ? "running" : !u.greybox ? "none" : !u.export ? "ready" : ueExportStale() ? "stale" : !u.project ? "input" : "done";
-    const detail = !u.greybox ? "build the greybox first (Greybox)" : !u.export ? "export the greybox and library for Unreal"
-      : ueExportStale() ? "the greybox changed after the export: export again" : !u.project ? "create the UE project"
-      : "exported, UE project ready: import, render and match the look";
-    return {status: st, detail, next: {ok: false, reason: "This is the last step."}};
+    const k = ueSteps(u), exported = !!u.export && !ueExportStale(), assembled = exported && k.import[1];
+    const verified = assembled && k.render[1] && k.look[1];
+    const st = run ? "running" : !u.greybox ? "none" : !u.export ? "ready" : ueExportStale() ? "stale"
+      : verified ? "done" : assembled ? "review" : "input";
+    const label = st === "done" ? "Render verified" : st === "review" ? "Scene assembled" : st === "input" ? "Exported" : null;
+    const detail = !u.greybox ? "build the greybox first (Greybox)" : !u.export ? "build the city in Unreal (or export the greybox)"
+      : ueExportStale() ? "the greybox changed after the export: build or export again"
+      : !u.project ? "exported: create the UE project, then import (Build city in Unreal does both)"
+      : !assembled ? "exported: build the city in Unreal (or import) to assemble the scene"
+      : !k.render[1] ? "scene assembled: render the shots" : !k.look[1] ? "shots rendered: match the look to an approved frame"
+      : "rendered and look matched";
+    return {status: st, detail, label, next: {ok: false, reason: "This is the last step."}};
   },
 };
 
+// The Unreal tab's numbered steps (unreal.js draws them; the Unreal stage's status reads them): each button is enabled only when its step can run, and says why
+// not beside it. [state text, done?, reason it can't run ("" = it can)].
+function ueSteps(u) {
+  const exp = u.export, imp = u.imported, ren = u.renders, looks = u.looks || [];
+  const when = t => new Date(t * 1000).toLocaleString();
+  const fresh = exp && !ueExportStale();
+  return {
+    init: [u.project ? `Created: ${u.uproject}` : "", !!u.project, u.project ? "Already created." : ""],
+    export: [null, !!fresh, !u.greybox ? "Build the greybox first (Greybox)." : ""],
+    import: [imp ? `Imported ${when(imp.mtime)}${imp.ok ? "" : " (with errors)"}${exp && imp.mtime < exp.mtime ? " · the export is newer: import again" : ""}` : "",
+      !!(imp && exp && imp.mtime >= exp.mtime && imp.ok),
+      !u.project ? "Create the UE project first (step 1)." : !exp ? "Export first (step 2)." : u.editor_open ? "Close the Unreal Editor first." : ""],
+    render: [ren ? `${ren.count} shot render${ren.count === 1 ? "" : "s"}, newest ${when(ren.mtime)}` : "",
+      !!(ren && imp && ren.mtime >= imp.mtime), !imp ? "Import first (step 3)." : ""],
+    look: [looks.length ? `${looks.length} look preset${looks.length === 1 ? "" : "s"}: ${looks.map(l => `${l.name}${l.runs ? ` (${l.runs} run${l.runs === 1 ? "" : "s"})` : ""}`).join(", ")}`
+      : "No look preset yet: one is created from an approved shot.", looks.some(l => l.runs),
+      !imp ? "Import first (step 3)." : !looks.length && !(u.approved_shots || []).length ? "Lock a shot on its approved frame first (Frames)." : ""],
+  };
+}
+
 // [{...step, status, detail, next}] for the whole workflow, from the data already loaded
+// One rule for every step with a following one: it is never Complete while its Next button still
+// asks for something (the label and Next come from the same state). Such a step needs input, and
+// says what Next asks for.
 function workflow() {
   if (!data || !siteData) return [];
-  return STEPS.map(s => {
+  return STEPS.map((s, i) => {
     let r;
     try { r = STEP_STATE[s.id](); } catch (err) { r = {status: "none", detail: "", next: {ok: false, reason: ""}}; console.warn(s.id, err); }
+    if (r.status === "done" && i < STEPS.length - 1 && !r.next.ok)
+      r = {...r, status: "input", label: null, detail: [r.detail, r.next.reason].filter(Boolean).join(" · ")};
     return {...s, ...r};
   });
+}
+
+// {decide, sheets, star, build, approve: how many assets wait there} (the Library strip's counts)
+function libWaiting() {
+  const out = {};
+  if (!libraryData || !libraryData.plan) return out;
+  for (const st of Object.values(libStepOf())) if (st) out[st] = (out[st] || 0) + 1;
+  return out;
 }
 
 // --- empty states: the real missing prerequisite for the library (Reference sheets, Views and 3D) ---

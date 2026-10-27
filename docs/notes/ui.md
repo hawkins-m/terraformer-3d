@@ -72,6 +72,13 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - `showSub` hides every `[data-sub]` element in the Library tab and `showTab` every `.tabpanel[data-tab]`.
   Generated buttons use `data-go-tab` / `data-go-sub`; an empty-state button with `data-sub=""`
   vanished as soon as a sub-tab was shown.
+- Completion (2026-10-27): `workflow()` downgrades a Complete step whose Next is closed to Needs input
+  (with Next's reason), so a label and its Next can't disagree. Library and Views and 3D read the
+  Library strip's counts (`libWaiting` from `libStepOf`): References ready = nobody waits at Decide,
+  Sheets or Star; Views complete = nobody waits anywhere (every included asset approved), "Awaiting
+  approval (N)" while N wait at Approve. Unreal reads the Unreal panel's own `ueSteps` (moved from
+  unreal.js into workflow.js): Exported, Scene assembled (import done after the export), Render
+  verified (renders after the import and a look run) = Complete.
 - `tests/test_ui_workflow.py` runs workflow.js in node against stubbed project data. A new global
   that workflow.js touches needs a stub in its harness.
 - Test UI changes on a second instance (`ap ui --port 8701` from the checkout); the user's `ap ui`

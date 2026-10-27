@@ -107,15 +107,98 @@ def test_workflow_states_come_from_project_state_not_single_files():
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "stale"
     plan["candidates"] = [{"frame": "frames/a/b/f.png", "ok": False}]
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "ready"     # e1 has no sheets
+    # a sheet but none starred: no chosen reference yet, so not complete (the old bug)
     assert _wf(siteData=built, framesData=frames, libraryData=lib,
-               refs=[{"plan": "library", "key": "e1", "sheets": ["s"]}])["library"][0] == "done"
+               refs=[{"plan": "library", "key": "e1", "sheets": ["s"]}])["library"] == ("input", False)
     lib["decisions"] = {}
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "input"
 
     # unreal: exported but stale export is out of date even with a project
     ue = {"greybox": True, "export": {"mtime": 1}, "project": True}
-    assert _wf(siteData=built, unrealData=ue)["unreal"][0] == "done"
+    assert _wf(siteData=built, unrealData=ue)["unreal"][0] == "input"         # exported only: not complete
     assert _wf(siteData=built, unrealData=ue, ueStale=True)["unreal"][0] == "stale"
+
+
+BUILT = {"layout": True, "summary": {"slots": 3, "stale": False}, "shots": [{"id": "a", "rendered": "x", "stale": False}]}
+FRAMES = {"shots": [{"id": "a", "mood": False, "locked": "frames/a/b/f.png", "batches": []}]}
+PLAN = {"entries": [{"id": "e1"}, {"id": "e2"}, {"id": "gone"}], "unseen": [], "candidates": [{"frame": "frames/a/b/f.png"}], "sources": {}}
+DEC = {"e1": {"decision": "source"}, "e2": {"decision": "description"}, "gone": {"decision": "exclude"}}
+SHEETS = [{"plan": "library", "key": e, "sheets": [f"refs/library/{e}/sheet_000.png"]} for e in ("e1", "e2")]
+STARS = {f"refs/library/{e}/sheet_000.png": True for e in ("e1", "e2")}
+
+
+def _row(eid, built=False, review=None):
+    return {"plan": "library", "asset": {"id": eid}, "views": [{"key": "v"}] if built else [], "results": [{}] if built else [],
+            "current": {"n": 1} if built else None, "review": review}
+
+
+def _lib(rows=(), stars=None, sheets=SHEETS, **kw):
+    data = {"project": {"anchor": None}, "explore": [], "moodboard": {}, "jobs": [], "stars": STARS if stars is None else stars}
+    review = {"assets": list(rows), "pending_sheets": [], "starred_sheets": len(STARS if stars is None else stars)}
+    return _wf(data=data, siteData=BUILT, framesData=FRAMES, libraryData={"plan": PLAN, "decisions": DEC}, refs=sheets,
+               reviewData=review, expr="workflow().map(s => [s.id, s.status, s.next.ok, s.label])", **kw)
+
+
+def _st(rows, sid):
+    return tuple(next(r[1:] for r in rows if r[0] == sid))
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_library_is_references_ready_only_with_every_decision_and_a_chosen_reference():
+    # sheets for both, one starred: the Next action asks for a reference, so not complete
+    st, ok, label = _st(_lib(stars={"refs/library/e1/sheet_000.png": True}), "library")
+    assert st == "input" and label is None
+    st, ok, label = _st(_lib(), "library")                  # both decided, both with a starred sheet; "gone" excluded
+    assert (st, ok, label) == ("done", True, "References ready")
+    st, ok, label = _st(_lib(sheets=SHEETS[:1]), "library")      # e2 has no sheet yet
+    assert st == "ready" and label is None
+    # never Complete while Next asks for something: no starred sheet anywhere and nothing built
+    st, ok, label = _st(_lib(stars={}), "library")
+    assert st == "input" and not ok
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_views_awaits_approval_and_completes_only_when_every_asset_is_approved():
+    st, ok, label = _st(_lib([_row("e1", True), _row("e2", True, "approved")]), "views")
+    assert (st, label) == ("review", "Awaiting approval (1)")
+    st, ok, label = _st(_lib([_row("e1", True, "approved")]), "views")          # e2 has no model yet
+    assert st == "input" and label is None
+    st, ok, label = _st(_lib([_row("e1", True, "approved"), _row("e2", True, "approved")]), "views")
+    assert (st, ok) == ("done", True)
+    st, ok, label = _st(_lib([_row("e1", True, "approved"), _row("e2", True, "approved")], stars={}), "views")
+    assert st == "done"                                     # built from briefs: they passed sheets and stars
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_unreal_goes_exported_scene_assembled_render_verified():
+    def ue(**kw):
+        u = {"greybox": True, "export": {"mtime": 10}, "project": True, "imported": None, "renders": None, "looks": []} | kw
+        return tuple(_st(_wf(siteData=BUILT, unrealData=u, expr="workflow().map(s => [s.id, s.status, s.next.ok, s.label])"), "unreal"))
+    assert ue()[0::2] == ("input", "Exported")
+    assert ue(project=False)[0::2] == ("input", "Exported")
+    assert ue(imported={"mtime": 5, "ok": True})[0::2] == ("input", "Exported")          # imported before the export
+    assert ue(imported={"mtime": 20, "ok": True})[0::2] == ("review", "Scene assembled")
+    assert ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 30})[0::2] == ("review", "Scene assembled")
+    done = ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 30}, looks=[{"name": "dusk", "runs": 1}])
+    assert done[0::2] == ("done", "Render verified")
+    assert ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 10}, looks=[{"name": "dusk", "runs": 1}])[0] == "review"
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_no_step_is_complete_while_its_next_button_is_closed():
+    # views complete but no greybox: its Next (Unreal) needs the greybox, so it can't say Complete
+    data = {"project": {"anchor": None}, "explore": [], "moodboard": {}, "jobs": [], "stars": STARS}
+    rows = [_row("e1", True, "approved"), _row("e2", True, "approved")]
+    out = _wf(data=data, siteData={"layout": True, "summary": None, "shots": []}, framesData=FRAMES,
+              libraryData={"plan": PLAN, "decisions": DEC}, refs=SHEETS,
+              reviewData={"assets": rows, "pending_sheets": [], "starred_sheets": 2},
+              expr="workflow().map(s => [s.id, s.status, s.next.ok, s.label, s.detail])")
+    for sid, st, ok, label, detail in out[:-1]:
+        assert not (st == "done" and not ok), (sid, st, ok)
+    views = next(r for r in out if r[0] == "views")
+    assert views[1] == "input" and "Build the greybox first" in views[4]
+    wf = (STATIC / "workflow.js").read_text()
+    assert "function ueSteps" in wf and "function ueSteps" not in (STATIC / "unreal.js").read_text()
 
 
 def test_left_panel_is_the_same_on_every_tab_and_frames_has_its_shot_list_inside():
