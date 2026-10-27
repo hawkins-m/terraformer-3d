@@ -35,7 +35,7 @@ reason, until the step can go on). The Stages list in the side panel shows the s
 3. **Greybox**: **Rebuild greybox** builds the block-out from the layout. Optionally edit it in Blender
    and **Re-read .blend**: the .blend then becomes the source of truth. A project with no layout can
    **Start from the starter layout** here to lay the site out in Blender instead of generating a city.
-4. **Shots**, 5. **Frames**, 6. **Library**, 7. **Views and 3D**, 8. **Unreal**.
+4. **Shots**, 5. **Frames**, 6. **Library**, 7. **Generate 3D Model & Review**, 8. **Unreal**.
 
 Old links with `?tab=city` / `?tab=site` still open Layout / Greybox.
 
@@ -118,7 +118,7 @@ list, largest frame share first:
    (section 4) and press **Save & Rebuild** (a quick preview in seconds, Cycles about 15 s
    later). Approve with **A**, or **C** (Needs changes) with a note, then **Save review**. A new
    brief or a brief edit sets an Approved asset back to Needs review. TRELLIS results are
-   approved in Views and 3D (**Approve** / **Needs changes**).
+   approved in Generate 3D Model & Review (**Approve** / **Needs changes**).
 5. **Batches** for the area (panel buttons; each shows what it will do first): **Build all…**
    after brief edits or a tool update, **TRELLIS all…** for every prop with a chosen view,
    **Instances…** for every building at its own footprint and storeys.
@@ -135,7 +135,7 @@ goes on. After a crash, or after restarting ComfyUI, run the same batch again: f
 are skipped.
 
 **Versions.** Every build (procedural or TRELLIS) is a version of its asset, shown as a strip
-in Asset review and in Views and 3D: thumbnail, date, source (sheet, view, form, guidance,
+in Asset review and in Generate 3D Model & Review: thumbnail, date, source (sheet, view, form, guidance,
 seed) and size. Tick two and **Compare** (side by side, with the source and brief fields that
 differ); **Restore** brings one back (a procedural version is rebuilt from its saved brief; a
 one marked Keep, or a TRELLIS one, comes back as it was); **Keep** keeps a version and its 3D model
@@ -143,8 +143,8 @@ for good; **Delete** removes one (asks first; never the Approved one). The last 
 marked Keep stay (Tools › **Settings…**); when there are more, the strip offers to remove the
 old ones (nothing is pruned by a build). Versions marked Keep, the Approved one and the Active one are never removed. Tools › **Storage…** shows
 the space per asset and per project, with "Delete versions not marked Keep" per asset or for the
-whole project. In Views and 3D, **Reroll** (procedural assets) adds a new version from the sheet,
-steered by optional guidance, without making it Active. The **Approve** tooltip (Views and 3D) and
+whole project. In Generate 3D Model & Review, **Reroll** (procedural assets) adds a new version from the sheet,
+steered by optional guidance, without making it Active. The **Approve** tooltip (Generate 3D Model & Review) and
 one line in the build review say which version Unreal takes: cleanup and look scenes use the version marked "Active", look scenes
 only once the asset is Approved (a TRELLIS model only as a piece attached to an Approved
 building), and Export sends greybox stand-ins.
@@ -206,7 +206,7 @@ rebuild changes the size of an asset that a locked frame shows, the app asks fir
 | A yellow bar "The app was updated" | New code since the page loaded | **Reload** |
 | Brief & build: "no near-front view" | No view on the sheet is frontal enough (curved buildings) | Brief & build again and choose the left, middle or right view |
 | Brief & build: "has no building form" / "has no size" | The entry's catalog type has no generator, or no size | Choose Form / Size in the Brief & build dialog, or Manage entry… › Form, Size |
-| "no view chosen" (TRELLIS) | No view clicked | Views and 3D › click a view of the asset |
+| "no view chosen" (TRELLIS) | No view clicked | Generate 3D Model & Review › click a view of the asset |
 | "not decided yet" (sheets) | No source decision | Manage entry… › Decision (Frame crop, Description only, …) |
 | "GPU 0 is busy with TRELLIS" | Another TRELLIS run holds the GPU | Wait, or Stop it in the Jobs panel |
 | A wall or strip renders black | Two faces in one plane | The builder pulls these apart; if one remains, review it as Needs new feature |

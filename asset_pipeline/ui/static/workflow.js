@@ -14,7 +14,7 @@ const STEPS = [
   {id: "shots", tabs: ["shots"], name: "Shots", short: "Render each shot camera's passes.", desc: "render each shot camera's depth, edge and object-id passes from the greybox."},
   {id: "frames", tabs: ["frames"], name: "Frames", short: "Generate frames; lock one per shot.", desc: "generate concept frames per shot and lock the one to use for each shot."},
   {id: "library", tabs: ["library"], name: "Library", short: "Decide, sheet and build each asset.", desc: "discover the assets the locked shots show, decide how each is made, and build them."},
-  {id: "views", tabs: ["views"], name: "Views and 3D", short: "Pick views and make the 3D models.", desc: "extract reference views from starred sheets and make 3D models (TRELLIS) for props and irregular assets."},
+  {id: "views", tabs: ["views"], name: "Generate 3D Model & Review", short: "Pick views and make the 3D models.", desc: "extract reference views from starred sheets and make 3D models (TRELLIS) for props and irregular assets."},
   {id: "unreal", tabs: ["unreal"], name: "Unreal", short: "Export, import, render, match the look.", desc: "export, import into Unreal, render the shots and match the look to the approved frames."},
 ];
 const stepOfTab = tab => STEPS.find(s => s.tabs.includes(tab));
@@ -188,7 +188,7 @@ function libWaiting() {
   return out;
 }
 
-// --- empty states: the real missing prerequisite for the library (Reference sheets, Views and 3D) ---
+// --- empty states: the real missing prerequisite for the library (Reference sheets, Generate 3D Model & Review) ---
 // {text, go: [tab, sub], label}: world/city projects go greybox → locked frame → Discover assets →
 // decisions → sheets; a project with no site layout (scene mode) still starts from Scene plans.
 function libraryPrereq(views = false) {
@@ -250,9 +250,9 @@ function renderGuide() {
 const LIB_STEPS = [
   {id: "decide", name: "Decide", go: ["library", "assets"], tip: "Assets without a decision (Library › Asset review)."},
   {id: "sheets", name: "Sheets", go: ["library", "refs"], tip: "Included assets with no reference sheet yet (Library › Reference sheets)."},
-  {id: "star", name: "Star", go: ["library", "refs"], tip: "Assets with sheets but none starred (Library › Reference sheets)."},
-  {id: "build", name: "Build", go: ["views", null], tip: "Assets with a starred sheet and no 3D model yet (Views and 3D: Make 3D or Reroll)."},
-  {id: "approve", name: "Approve", go: ["views", null], tip: "Built assets not approved yet (Views and 3D › Approve)."},
+  {id: "star", name: "Choose Reference", go: ["library", "refs"], tip: "Assets with sheets but no chosen reference: star the sheet to build from (Library › Reference sheets)."},
+  {id: "build", name: "Build", go: ["views", null], tip: "Assets with a starred sheet and no 3D model yet (Generate 3D Model & Review: Make 3D or Reroll)."},
+  {id: "approve", name: "Approve", go: ["views", null], tip: "Built assets not approved yet (Generate 3D Model & Review › Approve)."},
 ];
 // {asset id: the step it waits at, or null (excluded, vegetation, approved)}
 function libStepOf() {
@@ -280,7 +280,7 @@ function libSteps() {
   for (const st of Object.values(libStepOf())) if (st) out[st]++;
   return LIB_STEPS.map(s => ({...s, waiting: out[s.id]}));
 }
-// The strip sits on the Library tab and on Views and 3D, so it can be followed left to right:
+// The strip sits on the Library tab and on Generate 3D Model & Review, so it can be followed left to right:
 // each step goes where it happens with the list filtered to what waits there, and the steps with a
 // batch (2 Sheets, 4 Build) offer it in a bar under the strip, counted by the batch's own dry run
 // over the whole library (/areas/batch everywhere).
@@ -352,7 +352,7 @@ function libOfferRender() {
       const needView = reviewData ? reviewData.assets.filter(VIEWS_FILTERS.view[1]).length : 0;
       const pending = reviewData ? reviewData.pending_sheets.length : 0;
       if (pending) html += ` <button type="button" class="small" data-offer-extract title="Cut the views out of newly starred sheets (SAM 3.1); then pick one per asset">Extract views from ${pending} new starred sheet${pending === 1 ? "" : "s"}</button>`;
-      if (needView) html += ` <button type="button" class="link" data-offer-views title="Views and 3D, showing the TRELLIS assets with no view picked yet">${needView} need a view picked</button>`;
+      if (needView) html += ` <button type="button" class="link" data-offer-views title="Generate 3D Model & Review, showing the TRELLIS assets with no view picked yet">${needView} need a view picked</button>`;
     }
     html += ` <button type="button" class="wclose" data-offer-close aria-label="Hide this bar">x</button>`;
     el.innerHTML = html;

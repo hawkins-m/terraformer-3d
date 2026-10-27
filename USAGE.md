@@ -144,7 +144,7 @@ desktop app:
   active but not approved, stand-ins, need cleanup, placement-check issues from the last build) and
   a table per asset (version used, approved, cleanup for its tier, stand-in reason, placement
   issues). It follows the *Use Active versions* tickbox as you tick it; an asset's name opens it
-  in Views and 3D, highlighted. It reads the same choices the build makes (`next_build.py`;
+  in Generate 3D Model & Review, highlighted. It reads the same choices the build makes (`next_build.py`;
   API `GET /api/projects/{slug}/next-build?use_active=`).
   Below it, *Build city in Unreal* runs `ap ue build` as a CPU job (stages and Stop
   in the Jobs panel; it asks first when the estimate is long). Options: *Use Active versions*
@@ -182,7 +182,7 @@ desktop app:
     open it. Layout is complete when the city plan is current (or the project has its own
     layout.json); Greybox when the greybox is built and neither the catalog nor the .blend changed since.
     Library says *References ready* once every included asset has a decision and a chosen (starred)
-    reference; the next step (Views and 3D) says *Awaiting approval (N)* while models wait for
+    reference; the next step (Generate 3D Model & Review) says *Awaiting approval (N)* while models wait for
     Approve, and is complete only when every included asset is approved. Unreal goes *Exported* →
     *Scene assembled* (the city built or imported after the export) → *Render verified* (shots
     rendered after that and a look match run), and is complete only there. A step is never
@@ -193,7 +193,7 @@ desktop app:
   It is the same on every tab; the Frames tab has its shot tree in its own left column.
 - **Tabs:** Style, Layout, Greybox, Shots, Frames, Library (Areas first, then Scene plans, Asset review
   and Reference sheets),
-  Views and 3D, Unreal.
+  Generate 3D Model & Review, Unreal.
 - **Status bar:** the tab's state (e.g. *Unsaved: storeys*, *Shot 5 of 17*), counts, GPU 1's
   job, and ComfyUI or the tab's keys.
 
@@ -766,7 +766,7 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   starred one is used), a procedural asset's row shows *Brief & build* (the brief from that
   sheet, as `ap library brief ... front`, then the build and review renders; job
   `library.brief_build`) and a TRELLIS asset's row *Extract reference views*, with links on to Asset review or
-  Views and 3D.
+  Generate 3D Model & Review.
 - **Guidance for the next build** (procedural assets): the Brief & build dialog and Asset review
   (*Guidance…*) take a few words ("taller windows, open arcade below"). The local vision model
   reads the sheet, the brief and the brief form's fields and proposes edits as before → after rows
@@ -775,7 +775,7 @@ ap files clean my-project       # remove unreferenced files (--dry-run to count)
   (validated, Approved goes back to Needs review) plus the text as `guidance` in the brief and
   rebuilds (`.../guide/apply`); Cancel changes nothing. No guidance: the dialog works as before.
   TRELLIS assets take their text steering on the sheet reroll (*+2 more*).
-- **Make 3D, new seed** (Views and 3D): the *New seed* box draws a random seed instead of 42;
+- **Make 3D, new seed** (Generate 3D Model & Review): the *New seed* box draws a random seed instead of 42;
   the seed is in the result's JSON and shown on the result.
 - `--district ID` works wherever `--area` does.
 - Batch commands skip approved assets and builds of an unchanged brief, report each failure
@@ -913,7 +913,7 @@ blocked unless `AP_ALLOW_PAID_APIS=1` is set.
    highlights its box; clicking a box jumps to its card. Solid boxes come from SAM 3.1,
    dashed ones are the LLM's own.
    - Untick *Include* to keep an asset in the plan but not generate it.
-   - Fix names, sizes, counts and descriptions. Set *Use* to `game` or `cine`.
+   - Fix names, sizes, counts and descriptions. Set *Use* to game or cinematic (stored as `cine`).
    - *Kit* groups modular pieces (wall segments, fence sections) that stage 2 draws
      together in one sheet. Leave it empty for everything else.
    - *Segment as* is the plain noun SAM 3.1 looks for ("market stall", not "rustic
@@ -989,7 +989,7 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
 
 # Stages 3–4: views, review and 3D
 
-**In the browser:** the **Views and 3D** tab.
+**In the browser:** the **Generate 3D Model & Review** tab.
 
 1. Star the good sheets in **References**, then click **Extract reference views** here. Each starred sheet
    is cut into its separate views (SAM 3.1 finds them; each view is cropped on white so
@@ -999,12 +999,12 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
    - Kit sheets are split into their pieces, left to right in the order asked.
    - Ground textures aren't cut.
 2. For each asset, click the view to build it from in its **Cut Sheets** box (✓ marks it; click
-   again to clear; **x** deletes a view) and tag it **game**, **cine** or **hero** with the toggle
+   again to clear; **x** deletes a view) and tag it **game**, **cinematic** (stored as `cine`) or **hero** with the toggle
    beside **New seed** and **Make 3D** on the right of the asset's header. The tag is stored on the
    plan asset. The review status, **Approve**, **Re-cut views…** and **Needs changes** sit on the
    line below.
-3. **Make 3D** runs TRELLIS.2 on GPU 0 (mode picker at the top; ~2.5 min for
-   `1024_cascade`, ~1.5 min for `512`). The result shows with a 3D preview, its stats, the
+3. **Make 3D** runs TRELLIS.2 on GPU 0 (3D mode picker at the top: **Detailed**, TRELLIS mode
+   `1024_cascade`, ~2.5 min; **Fast Preview**, mode `512`, ~1.5 min). The result shows with a 3D preview, its stats, the
    GLB and the image TRELLIS actually saw (**Image sourced**). Hero assets use TRELLIS too until the
    multi-view path exists (PLAN.md).
 4. Procedural assets get **Reroll** instead: optional guidance, then **Go** builds a new version
@@ -1022,7 +1022,7 @@ greybox; Build city in Unreal places the library models (Approved ones, or Activ
 Active versions). A TRELLIS model at building places takes its Clean up output for the asset's tier
 (else the raw model); props take the raw model.
 
-Explanations live in hover tooltips: the **Views and 3D** heading, every button, the Active
+Explanations live in hover tooltips: the **Generate 3D Model & Review** heading, every button, the Active
 badge and the Versions header.
 
 **From the command line:**
@@ -1042,7 +1042,7 @@ with the stats JSON, the TRELLIS input image and `trellis.log`. The chosen views
 
 # Stage 6: cleanup (Blender)
 
-**Clean up** on a version row in the Views and 3D tab's Versions box (or `ap cleanup`, which takes
+**Clean up** on a version row in the Generate 3D Model & Review tab's Versions box (or `ap cleanup`, which takes
 the Active version) turns that version's 3D model into a cleaned GLB for the asset's tier, in headless Blender on the CPU (so it never waits for or slows the GPUs):
 
 - **Every asset:** scaled uniformly to the plan's real-world size and given a pivot at the
@@ -1051,7 +1051,7 @@ the Active version) turns that version's 3D model into a cleaned GLB for the ass
   proportions are kept, and the width/depth mismatch is shown.
 - **game** assets are also cut down to a triangle budget for their category (props 10k,
   structures and buildings 30k, vegetation 15k, rocks 8k, vehicles 25k) with colour,
-  roughness and normal maps baked from the original. **cine** and **hero** assets keep the
+  roughness and normal maps baked from the original. **cinematic** (`cine`) and **hero** assets keep the
   full mesh and textures.
 - **Warnings** flag a flat result (TRELLIS sometimes makes a card instead of an object) and
   proportions far from the plan (e.g. "depth is 2.34x the plan"). Look at those before
@@ -1098,7 +1098,7 @@ The UI runs ComfyUI work (GPU 1) and GPU 0 work (analysis, 3D) in two separate q
 > for local experiments. `ap hero mesh` needs `AP_COMFY_BACKEND=httpx`: the Comfy API proxy
 > doesn't return 3D outputs.
 
-Tag an asset **hero** in the Views and 3D tab for the planned multi-view path (PLAN.md). Until it
+Tag an asset **hero** in the Generate 3D Model & Review tab for the planned multi-view path (PLAN.md). Until it
 exists, hero assets go through TRELLIS like the others. The first step can be tried from
 the command line:
 
@@ -1131,7 +1131,7 @@ version's brief, build settings and thumbnails). A TRELLIS version keeps no copy
 and input image stay where TRELLIS wrote them. A procedural version holds no GLB (unless it was marked Keep in an earlier version of the app
 while it was current).
 
-- Views and 3D shows each asset's **Versions** box ("Versions 3 · 133.2 MB") beside its 3D model
+- Generate 3D Model & Review shows each asset's **Versions** box ("Versions 3 · 133.2 MB") beside its 3D model
   cards. Each version row has its Compare tick, thumbnail, number, method, date, source, size and
   Active badge, plus the cleanup steps not done yet for that version: **Clean up** (any version with
   a 3D model), **Smooth shading** and **Remove ground** (TRELLIS versions only). Done steps show as

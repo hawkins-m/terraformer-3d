@@ -1,4 +1,4 @@
-// Keyed redraws for the long lists (Views and 3D, Asset review, Reference sheets): while jobs run
+// Keyed redraws for the long lists (Generate 3D Model & Review, Asset review, Reference sheets): while jobs run
 // the page reloads its data every ~2 s, and rebuilding every row made images blank and the layout
 // jump. keyedList keeps a row's DOM when its data hasn't changed; a changed row is rebuilt but takes
 // over the old row's loaded media (img / model-viewer showing the same file), and a file whose

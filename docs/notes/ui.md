@@ -13,7 +13,7 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - UI scripts share one global scope: a second top-level `const clone` silently broke a whole
   script. Check with `cat asset_pipeline/ui/static/*.js > all.js && node --check all.js`.
 
-## Library / Views and 3D layout (2026-10-18)
+## Library / Generate 3D Model & Review layout (2026-10-18)
 - Only the lists scroll (`.scroll-list`: #assets-list, #refs-list, #review-list; #asset-detail):
   #library-tab / #review-tab are flex columns with overflow hidden. jump.js keeps a scroll position
   per list and project (localStorage `ap.scroll.<slug>`), restored after every re-render and on
@@ -27,7 +27,7 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   (skipped without it). A district-only area no longer needs the greybox (areas.members).
 
 ## Polling redraws (2026-10-18)
-- While jobs run, `load()` re-renders every ~2 s. Views and 3D, Asset review and Reference sheets
+- While jobs run, `load()` re-renders every ~2 s. Generate 3D Model & Review, Asset review and Reference sheets
   now redraw through `keyed.js`: rows keyed by asset with a data signature; unchanged rows keep
   their DOM, changed rows take over the old row's img / model-viewer elements (a file whose `?v=`
   changed is swapped in once loaded). Put everything a row shows into its `sig`, or it goes stale.
@@ -73,7 +73,7 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   Generated buttons use `data-go-tab` / `data-go-sub`; an empty-state button with `data-sub=""`
   vanished as soon as a sub-tab was shown.
 - Completion (2026-10-27): `workflow()` downgrades a Complete step whose Next is closed to Needs input
-  (with Next's reason), so a label and its Next can't disagree. Library and Views and 3D read the
+  (with Next's reason), so a label and its Next can't disagree. Library and Generate 3D Model & Review read the
   Library strip's counts (`libWaiting` from `libStepOf`): References ready = nobody waits at Decide,
   Sheets or Star; Views complete = nobody waits anywhere (every included asset approved), "Awaiting
   approval (N)" while N wait at Approve. Unreal reads the Unreal panel's own `ueSteps` (moved from
@@ -100,7 +100,7 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 ## Version actions refresh the row (2026-10-23)
 - Every version action (Delete, Use this version, a cleanup step, Remove old versions) and a finished
   Make 3D / Reroll / rebuild / restore / Clean up job goes through `versionsChanged(asset, onChange)` (versions.js):
-  it refetches the listing into VER_CACHE, bumps `ROW_REV` (part of the Views and 3D row's sig, so the
+  it refetches the listing into VER_CACHE, bumps `ROW_REV` (part of the Generate 3D Model & Review row's sig, so the
   row is rebuilt), runs onChange, then redraws every `.version-strip` of the asset. Before, a Keep (gone
   since 2026-10-27) or a delete that changed no model card left the row and its strip stale until a reload.
 - `versionsAfterLoad()` (called in `load()`) spots version jobs finished since the last load.
@@ -123,12 +123,12 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   `desc` behind the "?". Wordy card notes go through `shortNote` (first words, the rest as tooltip).
   Nothing is removed, only moved. `tests/test_ui_readability.py` fails on any `.hint` in index.html
   longer than one line (80 characters).
-- Library step strip (`#lib-steps`, `libSteps()` in workflow.js): Decide → Sheets → Star → Build →
+- Library step strip (`#lib-steps`, `libSteps()` in workflow.js): Decide → Sheets → Choose Reference (id `star`) → Build →
   Approve, each asset counted at the first step it hasn't done; the first step with work waiting is
   highlighted, and each step jumps to where it happens.
-- The step strip does the work (2026-10-25): it is on Library and on Views and 3D; each step goes where it happens
+- The step strip does the work (2026-10-25): it is on Library and on Generate 3D Model & Review; each step goes where it happens
   with the list filtered to what waits there (Asset review Not decided; Reference sheets No sheets yet / Sheets, none
-  starred; Views and 3D Needs a view picked / Built, not approved). 2 Sheets and 4 Build offer their batches in a bar
+  starred; Generate 3D Model & Review Needs a view picked / Built, not approved). 2 Sheets and 4 Build offer their batches in a bar
   under the strip (`.lib-offer`), counted by `/areas/batch` with `everywhere: true` (the whole library), plus Extract
   views and "N need a view picked". The filters use `libStepOf()` (workflow.js), so their counts match the strip's.
   Test: tests/test_ui_lib_step_strip.py.
@@ -154,9 +154,9 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   the best view and each view's score in the labels; `FormNeeded` -> "Choose the form and size" (the form fields).
 - Test: tests/test_ui_job_fixes.py (API cases, plus a browser case).
 
-## Views and 3D row layout; Keep removed (2026-10-27)
+## Generate 3D Model & Review row layout; Keep removed (2026-10-27)
 - Per asset, top to bottom: header (thumb, name, id, Active vN, Manage entry…, size; right: the
-  game/cine/hero toggle, New seed, Make 3D, so the tier is set before building); the review line
+  game/cinematic/hero toggle (stored game/cine/hero), New seed, Make 3D, so the tier is set before building); the review line
   right-aligned (status, Approve, Re-cut views…, Needs changes); the cut views in a "Cut Sheets"
   group box; then Versions (left) beside the 3D model cards (right). The cards column has an 8 px
   top margin so the cards start on the Versions box's border line (it runs through the middle of
@@ -173,7 +173,7 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 ## Next city build per asset; Ready for Unreal (2026-10-27)
 - `nextBuildData` (app.js `loadNextBuild`, every load) is `GET .../next-build?use_active=` for the Unreal
   tab's Use Active versions tickbox; ticking it refetches and redraws Ready for Unreal (unreal.js
-  `renderReadiness`, redrawn only when its data changes) and the Views and 3D rows (their sig has the
-  asset's row). Views and 3D shows `line` under each library asset's header.
-- Ready for Unreal names are `.jump-link[data-jump="views"]`: jump.js shows the Views and 3D tab
+  `renderReadiness`, redrawn only when its data changes) and the Generate 3D Model & Review rows (their sig has the
+  asset's row). Generate 3D Model & Review shows `line` under each library asset's header.
+- Ready for Unreal names are `.jump-link[data-jump="views"]`: jump.js shows the Generate 3D Model & Review tab
   (showTab, not showSub) and jumps with the usual highlight.

@@ -207,7 +207,7 @@ function refsNextStep(u, el) {
     box.append(" ", a);
   } else if (nx.route !== "procedural" && nx.views > 0) {
     const a = document.createElement("a"); a.href = "#"; a.className = "next-views";
-    a.textContent = "Choose view in Views and 3D";
+    a.textContent = "Choose view in Generate 3D Model & Review";
     a.onclick = ev => { ev.preventDefault(); showTab("views"); };
     box.append(" ", a);
   }

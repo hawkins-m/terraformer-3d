@@ -174,7 +174,7 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - **A duplicate copied its source's `districts` instance counts and `instances`** (shown as "1×",
   and counted in district areas) though it owned no slots. Duplicates now start with no slots,
   instances 0 and no district counts; the source keeps all of its slots.
-- Plan names were written once by `asset_plan`: a later rename left Views and 3D (and Reference
+- Plan names were written once by `asset_plan`: a later rename left Generate 3D Model & Review (and Reference
   sheets) on the old name. `set_name` now refreshes plans/library.json, and the UI labels every
   library asset from `sw_library.asset_names` (served as `names` with /library).
 - Rename carries the id into variant sets and areas/*.md; Unreal assets made under the old id
@@ -282,7 +282,7 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - `travertine` is a library type (Travertine009, already the limestone alternative); `TYPES` (what the VLM
   reads off sheets) is unchanged. Material words without a scan (granite, sandstone, slate…) go into the
   Changed line: "no surface-library texture for …".
-- Audit (scratch, one reroll per builder, geometry + material guidance): all 7 builders on Views and 3D
+- Audit (scratch, one reroll per builder, geometry + material guidance): all 7 builders on Generate 3D Model & Review
   reach both. The one failure was arcade: "taller arches" set arch_h past the storey (crown 0.3 m under h)
   and validation dropped it. `brief_guide._companions` now moves the coupled arcade field with the edit.
 - Geometry checks: compare `building_proc.generate` parts from the two briefs; GLB vertex data differs with
@@ -342,7 +342,7 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   builds), and Unreal builds every imported mesh with the GLB's normals (`ap_import.keep_normals`;
   existing TRELLIS models in CityLibrary switch on the next build). A ~1M-face model takes ~3 s.
 - Existing versions: `ap library smooth PROJECT ASSET | --all` (UI: Smooth shading on a TRELLIS
-  version row in Views and 3D's Versions box, Pipeline › Smooth TRELLIS models…) writes `<stem>_smooth.glb` as a new version that
+  version row in Generate 3D Model & Review's Versions box, Pipeline › Smooth TRELLIS models…) writes `<stem>_smooth.glb` as a new version that
   takes over as Active when its source was; the original stays.
 - The 30 deg pass leaves real creases on ~18% of a TRELLIS mesh's positions (its noisy surface plus
   cornices and steps); in clay renders the dome's facet bands go, what remains is the remesh's own
@@ -381,11 +381,11 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   (`s6_cleanup.for_source`), else the raw GLB; the mesh is `active_<entry>_v<n>_<usage>` and the
   build report's line per entry says which ("Cleaned (game, decimate) 30,000 faces" / "raw GLB").
 - A Clean up of an older version doesn't count: a new version (smoothed, ground removed) needs its
-  own Clean up. Views and 3D labels each Clean up card "Cleaned from vN" (Active marked) and hides
+  own Clean up. Generate 3D Model & Review labels each Clean up card "Cleaned from vN" (Active marked) and hides
   other versions' behind Show older cleanups (remembered per asset until reload).
 
 ## Cleanup steps per version; Keep removed (2026-10-27)
-- Clean up runs per version from its row in Views and 3D (`POST /cleanup` with that version's
+- Clean up runs per version from its row in Generate 3D Model & Review (`POST /cleanup` with that version's
   `glb`); `s6_cleanup.run` records it on the version (`cleaned: {usage: output}` in versions.json,
   `versions.note_cleaned`). `versions.cleaned` also infers it for older cleanups from the report's
   `source` (`s6_cleanup.for_source`). Smoothed / ground looked for already come from the GLB's stats
@@ -401,4 +401,4 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   `output_dims_m`, `base_z` (pivot at the base centre) and `retopo_method`.
 - `s6_cleanup.details` returns only recorded values; for older reports the texture size is read
   from the output GLB's image headers (`texture_sizes`, cached per file and mtime). The version
-  listing carries it as `cleanup`; Views and 3D shows it under a collapsed "Cleanup details".
+  listing carries it as `cleanup`; Generate 3D Model & Review shows it under a collapsed "Cleanup details".

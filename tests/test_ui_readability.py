@@ -178,3 +178,20 @@ def test_ready_for_unreal_sits_above_the_build_and_links_to_views():
     for col in ("Asset", "Version used", "Approved", "Cleanup", "Stand-in reason", "Placement issues"):
         assert f"<th>{col}</th>" in ue, col
     assert 'if (k === "views") showTab("views")' in (STATIC / "jump.js").read_text()
+
+
+def test_renamed_labels_keep_their_ids_and_values():
+    html = _html()
+    assert '<button role="tab" data-tab="views">Generate 3D Model &amp; Review</button>' in html          # id "views" stays
+    assert "Views and 3D" not in html + "".join((STATIC / f).read_text() for f in ("shell.js", "workflow.js", "review.js", "unreal.js"))
+    assert 'views: "Generate 3D Model & Review"' in (STATIC / "shell.js").read_text()
+    wf = (STATIC / "workflow.js").read_text()
+    assert 'name: "Generate 3D Model & Review"' in wf and '{id: "star", name: "Choose Reference"' in wf
+    # 3D mode: friendly names, the TRELLIS mode still the value (and in the tooltip)
+    assert '<option value="1024_cascade" title="TRELLIS mode 1024_cascade: detailed, about 2.5 min">Detailed</option>' in html
+    assert '<option value="512" title="TRELLIS mode 512: quicker and coarser">Fast Preview</option>' in html
+    # quality: the button says cinematic, the stored value stays cine
+    rv = (STATIC / "review.js").read_text()
+    assert 'const USAGES = ["game", "cine", "hero"];' in rv and "${usageLabel(u)}</button>" in rv and 'data-u="${u}"' in rv
+    assert 'const usageLabel = u => u === "cine" ? "cinematic" : u;' in (STATIC / "app.js").read_text()
+    assert '<option value="cine" ${a.usage === "cine" ? "selected" : ""}>cinematic</option>' in (STATIC / "plan.js").read_text()

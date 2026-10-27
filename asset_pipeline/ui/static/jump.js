@@ -1,4 +1,4 @@
-// Library and Views and 3D lists: the header (tabs, instructions, toolbar) stays fixed and only the
+// Library and Generate 3D Model & Review lists: the header (tabs, instructions, toolbar) stays fixed and only the
 // list scrolls (style.css). Each list keeps its own scroll position per project, across sub-tab
 // switches, re-renders and reloads. "Jump to" boxes (Areas too) centre and mark an asset's row; an
 // asset's name in Asset review opens its row in Reference sheets, and the other way round.
@@ -210,7 +210,7 @@ document.addEventListener("scroll", e => { if (!jumpPop.hidden && e.target !== j
 addEventListener("resize", () => jumpPopClose());
 
 // an asset's name in one Library sub-tab opens the same asset in the other; data-jump="views" (the
-// Unreal tab's Ready for Unreal box) opens it in Views and 3D
+// Unreal tab's Ready for Unreal box) opens it in Generate 3D Model & Review
 document.addEventListener("click", e => {
   const a = e.target.closest(".jump-link[data-jump]"); if (!a) return;
   e.preventDefault();

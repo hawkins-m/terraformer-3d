@@ -50,7 +50,7 @@ const S = JSON.parse(process.argv[2]);
 const ctx = {console, JSON, Object, Set, Array, Math, String, Number, ACTIONS: {},
   data: S.data, statusData: S.statusData || null, siteData: S.siteData, framesData: S.framesData, libraryData: S.libraryData, reviewData: S.reviewData,
   unrealData: S.unrealData, refs: S.refs || [], lr: {list: S.builds ? {assets: S.builds} : null}, slug: "p", currentTab: "city",
-  TAB_NAMES: {style: "Style", site: "Site", city: "City", shots: "Shots", frames: "Frames", library: "Library", views: "Views and 3D", unreal: "Unreal"},
+  TAB_NAMES: {style: "Style", site: "Site", city: "City", shots: "Shots", frames: "Frames", library: "Library", views: "Generate 3D Model & Review", unreal: "Unreal"},
   activeJobs: k => (S.jobs || []).filter(j => j === k), isActive: () => false, applyRunning: () => false,
   outOfDate: () => S.ood || {plan: false, greybox: false, passes: 0, any: false}, isCity: () => !!S.city,
   ueExportStale: () => !!S.ueStale, lrAssetsOf: () => [],

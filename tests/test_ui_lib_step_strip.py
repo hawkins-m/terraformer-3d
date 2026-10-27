@@ -90,7 +90,7 @@ print("RESULT " + json.dumps(out))
 @pytest.mark.skipif(not BROWSER_PY.exists(), reason="needs the browser-test env (Playwright + system Chrome)")
 def test_following_the_strip_left_to_right(tmp_path, monkeypatch):
     out = _browse(tmp_path, monkeypatch, SCRIPT, seed=_seed)
-    assert out["strip"] == ["1 Decide: 1 waiting", "2 Sheets: 2 waiting", "3 Star: 43 waiting", "4 Build: 1 waiting", "5 Approve: 1 waiting"]
+    assert out["strip"] == ["1 Decide: 1 waiting", "2 Sheets: 2 waiting", "3 Choose Reference: 43 waiting", "4 Build: 1 waiting", "5 Approve: 1 waiting"]
     assert out["decide"] == {"tab": "library", "sub": "assets", "filter": "todo", "cards": 1}
     assert out["sheets"]["tab"] == "library" and out["sheets"]["sub"] == "refs" and out["sheets"]["filter"] == "missing"
     assert out["sheets"]["units"] == 2 and out["sheets"]["offer"] == ["Make sheets for all (2) across all areas…"]

@@ -116,7 +116,7 @@ function assetCard(a, i) {
       <label>Depth m <input data-f="dimensions.depth" type="number" min="0.01" step="any" value="${d.depth}"></label>
       <label>Height m <input data-f="dimensions.height" type="number" min="0.01" step="any" value="${d.height}"></label>
       <label>Kit <input data-f="kit" value="${esc(a.kit || "")}" placeholder="none" list="kit-names"></label>
-      <label>Use <select data-f="usage"><option ${a.usage === "game" ? "selected" : ""}>game</option><option ${a.usage === "cine" ? "selected" : ""}>cine</option></select></label>
+      <label>Use <select data-f="usage"><option ${a.usage === "game" ? "selected" : ""}>game</option><option value="cine" ${a.usage === "cine" ? "selected" : ""}>cinematic</option></select></label>
     </div>
     <label>Description <textarea data-f="description" rows="2">${esc(a.description)}</textarea></label>
     <label>Placement <input data-f="placement" value="${esc(a.placement)}"></label>`;

@@ -295,7 +295,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             rows = [r for r in rows if r["route"] == "trellis" and r["status"] != "approved" and (req.more or not r["trellis"])]
             nochoice = [r["asset"] for r in rows if not review.chosen(store, sw_library.PLAN_NAME, r["asset"])]
             if nochoice:
-                notes.append("no view chosen (Views and 3D), skipped: " + ", ".join(nochoice))
+                notes.append("no view chosen (Generate 3D Model & Review), skipped: " + ", ".join(nochoice))
             return [r["asset"] for r in rows if r["asset"] not in nochoice], notes + (
                 ["procedural assets are never switched to TRELLIS"] if any(r["route"] == "procedural" for r in all_rows) else [])
         entries = sorted({r["asset"] for r in rows if r["route"] == "procedural" and r["brief"] and r["kind"] == "building"})

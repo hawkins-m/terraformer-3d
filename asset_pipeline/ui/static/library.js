@@ -578,7 +578,7 @@ function entrySavedNotice(id, saved) {
   if (saved.includes("form")) lines.push("Form and size saved. Used on the next Reroll (without guidance) or Brief & build, which make the brief " +
     "again from the sheet. A Reroll with guidance edits the current brief and keeps its form and size.");
   if (saved.includes("route")) lines.push("Build method saved. Used on the next build: procedural builds come from Reroll or Brief & build, " +
-    "TRELLIS ones from Make 3D on Views and 3D.");
+    "TRELLIS ones from Make 3D on Generate 3D Model & Review.");
   if (saved.includes("name")) lines.push("Name saved: shown everywhere now; the next sheets use it too.");
   if (saved.includes("variant")) lines.push(variantOf(id) ? `Now a variant of ${assetName(variantOf(id))}: it takes an even share of its places once it has a built Active version (Unreal › Export to Unreal places it).`
     : "No longer a variant: its original keeps all of its places.");

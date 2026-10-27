@@ -106,11 +106,11 @@ async function ueBuild() {
 }
 
 $("#ue-build").onclick = () => ueBuild();
-// Use Active versions: what the next build places changes with it (Ready for Unreal, Views and 3D's line per asset)
+// Use Active versions: what the next build places changes with it (Ready for Unreal, Generate 3D Model & Review's line per asset)
 $("#ueb-active").onchange = async () => { await loadNextBuild(); renderReadiness(); if (typeof renderReview === "function") renderReview(); };
 
 // Ready for Unreal: counts and one row per asset the city uses (next_build.explain via nextBuildData);
-// a name opens the asset in Views and 3D (jump.js .jump-link). Redrawn only when its data changes.
+// a name opens the asset in Generate 3D Model & Review (jump.js .jump-link). Redrawn only when its data changes.
 function renderReadiness() {
   const box = $("#ue-ready-table"), cn = $("#ue-ready-counts"), nb = nextBuildData;
   const sig = JSON.stringify(nb);
@@ -126,12 +126,12 @@ function renderReadiness() {
     + (off ? ` <span class="hint" style="margin:0">(${n(off, "other asset")} not in the city layout)</span>` : "");
   if (!rows.length) { box.innerHTML = `<p class="hint">No library asset stands in the city layout yet.</p>`; return; }
   const cleanup = r => r.version == null && r.model == null ? "–"
-    : r.model === "procedural" ? "procedural build" : r.model === "cleaned" ? `cleaned for ${r.usage || "its tier"}`
-    : r.cleanup_used ? `not cleaned for ${r.usage || "its tier"}` : "raw model (props don't use Clean up)";
+    : r.model === "procedural" ? "procedural build" : r.model === "cleaned" ? `cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"}`
+    : r.cleanup_used ? `not cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"}` : "raw model (props don't use Clean up)";
   const issues = r => Object.entries(r.placement || {}).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ");
   box.innerHTML = `<table class="grid-table"><thead><tr><th>Asset</th><th>Version used</th><th>Approved</th><th>Cleanup</th><th>Stand-in reason</th><th>Placement issues</th></tr></thead><tbody>
     ${rows.map(r => `<tr data-asset="${esc(r.entry)}" class="${r.placed ? "" : "ue-standin"}">
-      <td><a href="#" class="jump-link" data-jump="views" data-asset="${esc(r.entry)}" title="Open it in Views and 3D">${esc(assetName(r.entry, r.name))}</a></td>
+      <td><a href="#" class="jump-link" data-jump="views" data-asset="${esc(r.entry)}" title="Open it in Generate 3D Model & Review">${esc(assetName(r.entry, r.name))}</a></td>
       <td title="${esc(r.why || "")}">${r.placed ? (r.version != null ? `v${r.version}` : "build on disk") : "–"}</td>
       <td>${r.approved ? "yes" : "no"}</td><td>${esc(cleanup(r))}</td>
       <td>${r.placed ? "" : esc(r.stand_in || "")}</td>

@@ -1,10 +1,10 @@
 // Asset version bank (server side: asset_pipeline/versions.py, ui/versions_api.py).
-// - versionStrip(box, asset, onChange, opts): the box of an asset's builds (Views and 3D, and
+// - versionStrip(box, asset, onChange, opts): the box of an asset's builds (Generate 3D Model & Review, and
 //   Library › Asset review's detail view). Per version: Compare tick, thumbnail, vN, method, date,
 //   source (sheet, view, guidance, seed), size, Active badge, and the cleanup steps: the ones not
 //   done yet as buttons (Clean up, Smooth shading, Remove ground), done ones as grey ticks; a step
 //   that doesn't apply (a procedural version has no Smooth or Remove ground) shows neither.
-//   Views and 3D puts Use this version / Delete on its 3D model cards; opts.manage (Asset review,
+//   Generate 3D Model & Review puts Use this version / Delete on its 3D model cards; opts.manage (Asset review,
 //   which has no cards) puts them on the rows. Two ticked = Compare, at the bottom of the box.
 //   There is no Keep any more: retention never removes the Active or an Approved version, and
 //   versions marked Keep in the earlier UI ("pinned") stay protected.
@@ -35,7 +35,7 @@ const verSource = v => {
 // Beside Approve: which version Cleanup and Unreal take. Cleanup takes the version in use; Unreal
 // look scenes place only Approved builds. Plain Export (Unreal tab) sends only the greybox; Build
 // city in Unreal places library models (next_build.py: Approved ones, or Active ones with Use Active
-// versions) - Views and 3D's line per asset says which. cur: {n, kind} or null.
+// versions) - Generate 3D Model & Review's line per asset says which. cur: {n, kind} or null.
 function versionUseLine(cur, approved) {
   const EXPORT_VS_BUILD = "Export to Unreal sends only the greybox; Build city in Unreal places the library models (Approved, or Active with Use Active versions).";
   if (!cur) return `No version in use yet: Unreal look scenes keep the greybox here. ${EXPORT_VS_BUILD}`;
@@ -74,8 +74,8 @@ async function versionStrip(boxOrSel, asset, onChange, opts = {}) {
 
 // One refresh for every version action (Delete, Use this version, Remove old versions, a cleanup
 // step, and a finished Make 3D / Reroll / rebuild / restore / Clean up): fetch the asset's versions, mark
-// its rows changed (ROW_REV, in the Views and 3D row's sig), reload the view, then redraw every
-// strip of the asset on the page. The bug: Views and 3D rows are keyed on /review data, which
+// its rows changed (ROW_REV, in the Generate 3D Model & Review row's sig), reload the view, then redraw every
+// strip of the asset on the page. The bug: Generate 3D Model & Review rows are keyed on /review data, which
 // deleting a version without a 3D model doesn't change, so the row and its strip stayed stale.
 const ROW_REV = {};
 const verRev = asset => ROW_REV[`${slug}/${asset}`] || 0;
@@ -108,8 +108,8 @@ const SMOOTH_TIP = "Weld the model and shade it smooth by angle (30°: curves sm
 const GROUND_TIP = "Cut off a thin ground slab TRELLIS built under the model from the sheet's shadow or floor, and stand the model on its own base, as a new version; plinths, podiums and steps stay. A few seconds.";
 function verSteps(v, usage) {
   const out = [];
-  if (v.glb) out.push(["cleanup", !!v.cleaned, "ver-clean", "Clean up", `✓ cleaned${usage ? ` (${usage})` : ""}`,
-    v.cleaned ? `Clean up has made this version's ${usage || ""} model (Unreal places it for the Active version).` : ""]);
+  if (v.glb) out.push(["cleanup", !!v.cleaned, "ver-clean", "Clean up", `✓ cleaned${usage ? ` (${usageLabel(usage)})` : ""}`,
+    v.cleaned ? `Clean up has made this version's ${usage ? usageLabel(usage) : ""} model (Unreal places it for the Active version).` : ""]);
   if (v.kind === "trellis" && (v.smoothable || v.smoothed))
     out.push(["smooth", !!v.smoothed, "ver-smooth", "Smooth shading", "✓ smoothed", v.smoothed ? "Welded and shaded smooth by angle." : SMOOTH_TIP]);
   if (v.kind === "trellis" && (v.groundable || v.ground_checked))
@@ -123,7 +123,7 @@ const CLEANUP_OPEN = new Set();           // "asset/n" whose details are open, k
 function cleanupDetails(c) {
   const num = x => Number(x).toLocaleString("en");
   const lines = [];
-  if (c.tier) lines.push(["Tier", c.tier]);
+  if (c.tier) lines.push(["Tier", usageLabel(c.tier)]);
   if (c.faces_in != null || c.faces_out != null)
     lines.push(["Triangles", [c.faces_in != null ? num(c.faces_in) : null, c.faces_out != null ? num(c.faces_out) : null].filter(x => x != null).join(" → ")
       + (c.budget ? ` (budget ${num(c.budget)}${c.method ? `, ${c.method}` : ""})` : c.method ? ` (${c.method})` : "")]);

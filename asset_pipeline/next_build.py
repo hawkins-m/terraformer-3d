@@ -186,7 +186,7 @@ def line(r: dict) -> str:
     if not r["placed"]:
         return f"Next city build: greybox stand-in ({r['stand_in']})"
     bits = [f"v{r['version']}" if r["version"] is not None else "the procedural build on disk"]
-    tier = r["usage"] or "its tier"
+    tier = {"cine": "cinematic"}.get(r["usage"], r["usage"]) or "its tier"      # as the UI names the tiers
     if r["model"] == "cleaned":
         bits.append(f"cleaned for {tier}")
     elif r["model"] == "raw" and r["cleanup_used"]:

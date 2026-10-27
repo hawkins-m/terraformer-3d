@@ -30,9 +30,9 @@ const AREA_TIERS = {
   C: "Tier C: a repeated fill typology from the catalog, one entry per typology and material shared by all its buildings. Sized from the catalog's middle size; procedural by default.",
   D: "Tier D: a prop (a market stall, tent or canopy table). A fixed prop size, TRELLIS by default and a lighter look reference on its sheets.",
 };
-const AREA_ROUTES = {procedural: "Built in Blender from a brief measured off its sheet.", trellis: "Built by TRELLIS.2 from one chosen sheet view (Views and 3D)."};
+const AREA_ROUTES = {procedural: "Built in Blender from a brief measured off its sheet.", trellis: "Built by TRELLIS.2 from one chosen sheet view (Generate 3D Model & Review)."};
 const AREA_BUILDS = {fresh: "Built from the current brief: nothing to rebuild.", stale: "The brief changed since the last build: Build makes it again.",
-  TRELLIS: "Has a TRELLIS model (Views and 3D).", "–": "Not built yet."};
+  TRELLIS: "Has a TRELLIS model (Generate 3D Model & Review).", "–": "Not built yet."};
 const AREA_REVIEWS = {approved: "Approved: done; Unreal look scenes place it.", needs_changes: "Needs changes: a reviewer asked for another build (the note is in Asset review).",
   needs_feature: "Needs new feature: the builder lacks a part this asset needs.", ready: "Ready for review: built and waiting for a review.",
   needs_review: "Needs review: changed after it was approved; review it again.", "not reviewed": "Not reviewed yet."};

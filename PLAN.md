@@ -206,7 +206,7 @@ Open questions:
 
 UI (2026-10-09): the browser UI is now Terraformer, a classic desktop layout:
 - menus, toolbar, a side panel with stage states and per-lane jobs, and tabs (Style,
-  Site, City, Shots, Frames, Library, Views and 3D, Unreal);
+  Site, City, Shots, Frames, Library, Generate 3D Model & Review, Unreal);
 - an *Apply changes* chain (re-plan → rebuild → passes), the City tab as a table plus a
   detail form, and frame review with a shot tree and one-key decisions (new `rejected`
   role);

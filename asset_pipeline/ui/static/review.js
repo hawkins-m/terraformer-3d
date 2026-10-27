@@ -3,7 +3,7 @@
 
 // assets whose older cleanups are shown (Show older cleanups), kept across redraws
 const OLD_CLEANUPS = new Set();
-const USAGES = ["game", "cine", "hero"];
+const USAGES = ["game", "cine", "hero"];          // stored values; the buttons say usageLabel(u)
 const USAGE_TIPS = {game: "Game use: Clean up decimates and bakes this asset for real time.",
   cine: "Cinematic use: Clean up keeps the full mesh and textures.", hero: "Hero use: full mesh and textures, for the assets seen closest in shots."};
 const ACTIVE_TIP = "This version is the one later steps (Cleanup, Unreal look scenes) will use.";
@@ -104,7 +104,7 @@ function assetReview(a) {
       ${lib && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, build method, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
       <span class="hint">${places} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
       <span class="actions"><span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
-        `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
+        `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${usageLabel(u)}</button>`).join("")}</span>
         ${a.procedural ? `<button type="button" class="${a.reroll ? "secondary " : ""}brief-build" data-needs="vlm blender">${noForm ? "Choose form…" : "Brief & build"}</button>` : ""}
         ${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}
         ${a.procedural ? "" : `<label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Without it, Make 3D from the same view and mode repeats the same version."><input type="checkbox" class="new-seed-box"> New seed</label>`}
@@ -298,7 +298,7 @@ function assetReview(a) {
       const box = document.createElement("div"); box.className = "result" + (lib && !c.active ? " old-cleanup" : "");
       box.innerHTML = `<model-viewer src="${fileUrl(c.glb)}" camera-controls ${MV_LOOK}
           alt="Cleaned model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
-        <span>Cleaned${lib ? (c.version ? ` from v${c.version}` : " from a removed version") : ""} (${esc(c.usage)}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})${c.active ? ` <span class="mark ver-used" title="Cleaned from the Active version: what Unreal places for this tier.">Active</span>` : ""}</span>
+        <span>Cleaned${lib ? (c.version ? ` from v${c.version}` : " from a removed version") : ""} (${esc(usageLabel(c.usage))}${c.retopo_method ? `, ${esc(c.retopo_method)}` : ""})${c.active ? ` <span class="mark ver-used" title="Cleaned from the Active version: what Unreal places for this tier.">Active</span>` : ""}</span>
         <span class="hint">${(c.output_faces / 1000).toFixed(c.output_faces < 10000 ? 1 : 0)}k faces · ${d} m (plan ${x.dimensions.width} × ${x.dimensions.depth} × ${x.dimensions.height})</span>
         ${c.warnings.length ? `<span class="error">${c.warnings.map(esc).join("; ")}</span>` : ""}
         <span><a href="${fileUrl(c.glb)}" download title="Download the cleaned 3D model (GLB).">GLB</a></span>`;

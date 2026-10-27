@@ -13,8 +13,10 @@ let slug = null, data = null, statusData = null, plans = [], refs = [], reviewDa
 // jobs); callers pass a finer one where they know it (a pass's render time). The server
 // also marks files no-cache, so renders run from the CLI show on the next refresh.
 let fileVersion = 0;
+// a quality tier as the UI says it (the stored value stays game / cine / hero)
+const usageLabel = u => u === "cine" ? "cinematic" : u;
 // what the next city build places per asset (next_build.py), for the Unreal tab's "Use Active
-// versions" state: Views and 3D's line per asset and the Ready for Unreal box read it
+// versions" state: Generate 3D Model & Review's line per asset and the Ready for Unreal box read it
 let nextBuildData = null;
 const nextBuildOf = id => nextBuildData && nextBuildData.assets.find(r => r.entry === id) || null;
 async function loadNextBuild() {

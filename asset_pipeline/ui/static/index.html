@@ -54,7 +54,7 @@
         <button role="tab" data-tab="shots">Shots</button>
         <button role="tab" data-tab="frames">Frames</button>
         <button role="tab" data-tab="library">Library</button>
-        <button role="tab" data-tab="views">Views and 3D</button>
+        <button role="tab" data-tab="views">Generate 3D Model &amp; Review</button>
         <button role="tab" data-tab="unreal">Unreal</button>
       </div>
 
@@ -278,17 +278,17 @@
         </div>
       </section>
 
-      <!-- Views and 3D (stages 3-6) -->
+      <!-- Generate 3D Model &amp; Review (stages 3-6) -->
       <section class="tabpanel" data-tab="views" id="review-tab" hidden>
         <div class="applybar-slot"></div>
         <nav class="lib-steps" id="views-steps" aria-label="Library steps"></nav>
         <div class="lib-offer" hidden></div>
-        <fieldset><legend title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cine or hero, then Make 3D (TRELLIS.2 on GPU 0, about 2.5 min). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance.">Views and 3D</legend>
-          <p class="hint tab-help">Pick a view per asset, then Make 3D or Reroll. <button type="button" class="help-q" title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cine or hero, then Make 3D (TRELLIS.2 on GPU 0, about 2.5 min). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance. Hover any control for details." aria-label="More about Views and 3D">?</button></p>
+        <fieldset><legend title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cinematic or hero, then Make 3D (TRELLIS.2 on GPU 0: Detailed about 2.5 min, Fast Preview quicker). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance.">Generate 3D Model &amp; Review</legend>
+          <p class="hint tab-help">Pick a view per asset, then Make 3D or Reroll. <button type="button" class="help-q" title="Reference views are extracted from starred sheets (SAM 3.1). Per asset, pick the view to build from, tag it game, cinematic or hero, then Make 3D (TRELLIS.2 on GPU 0). 3D mode: Detailed is TRELLIS mode 1024_cascade (about 2.5 min); Fast Preview is mode 512 (quicker, coarser). Procedural assets get Reroll instead: a new version from their sheet, steered by optional guidance. Hover any control for details." aria-label="More about Generate 3D Model &amp; Review">?</button></p>
           <div class="row">
             <button id="cut-views" type="button" class="default" title="Cut the asset views out of newly starred reference sheets with SAM 3.1.">Extract reference views</button>
             <button type="button" id="cut-stop" class="stop" hidden>Stop</button>
-            <label title="TRELLIS resolution for Make 3D: 1024_cascade is detailed (about 2.5 min), 512 is quicker and coarser.">3D mode: <select id="trellis-mode"><option>1024_cascade</option><option>512</option></select></label>
+            <label title="TRELLIS resolution for Make 3D. Detailed: mode 1024_cascade (about 2.5 min). Fast Preview: mode 512 (quicker, coarser).">3D mode: <select id="trellis-mode"><option value="1024_cascade" title="TRELLIS mode 1024_cascade: detailed, about 2.5 min">Detailed</option><option value="512" title="TRELLIS mode 512: quicker and coarser">Fast Preview</option></select></label>
             <label>Show: <select id="views-filter"></select></label>
             <span id="review-summary" class="hint" style="margin:0"></span>
             <label class="jump">Jump to: <input type="search" id="views-jump" class="jump-box" data-list="views" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-pop"
@@ -304,7 +304,7 @@
         <div class="applybar-slot"></div>
         <p class="needs-note" id="unreal-missing" role="status" hidden></p>
         <fieldset id="ue-ready"><legend>Ready for Unreal</legend>
-          <p class="hint tab-help">What Build city in Unreal will place for each asset. <button type="button" class="help-q" title="Per library asset: the version the next build places and why, whether it is approved, its Clean up for the asset's tier (game, cine, hero), or why the greybox stands in. It follows Use Active versions below. Placement issues come from the last build's check. Click a name to open it in Views and 3D." aria-label="More about Ready for Unreal">?</button></p>
+          <p class="hint tab-help">What Build city in Unreal will place for each asset. <button type="button" class="help-q" title="Per library asset: the version the next build places and why, whether it is approved, its Clean up for the asset's tier (game, cinematic, hero), or why the greybox stands in. It follows Use Active versions below. Placement issues come from the last build's check. Click a name to open it in Generate 3D Model &amp; Review." aria-label="More about Ready for Unreal">?</button></p>
           <p id="ue-ready-counts"></p>
           <div id="ue-ready-table" class="ue-ready-table"></div>
         </fieldset>

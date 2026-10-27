@@ -4,7 +4,7 @@
 // Tab ids stay "city" (shown as Layout) and "site" (shown as Greybox): old links and saved tabs keep working.
 const TABS = ["style", "city", "site", "shots", "frames", "library", "views", "unreal"];
 const TAB_NAMES = {style: "Style", city: "Layout", site: "Greybox", shots: "Shots", frames: "Frames", library: "Library",
-  views: "Views and 3D", unreal: "Unreal"};
+  views: "Generate 3D Model & Review", unreal: "Unreal"};
 const TAB_ALIASES = {layout: "city", greybox: "site", review: "views"};
 const LANES = [["gpu0", "GPU 0"], ["comfy", "GPU 1"], ["cpu", "CPU"], ["service", "Comfy"]];   // "service" shows only while active
 let currentTab = "style";
@@ -50,7 +50,7 @@ tabKeys($("#lib-tabs"), "sub", s => showSub(s));
   // Library opens on Areas (its first sub-tab) on every page load; old links still open plan / refs
   let t = URL_ARGS.get("tab"), sub = null;
   try { t = t || localStorage.getItem("ap.tab"); } catch (_) { /* ignore */ }
-  // links from the earlier UI: plan/refs live in Library now, review is Views and 3D
+  // links from the earlier UI: plan/refs live in Library now, review is Generate 3D Model & Review
   if (t === "plan" || t === "refs") { sub = t; t = "library"; }
   showTab(t || "style");
   showSub(["areas", "plan", "assets", "refs"].includes(sub) ? sub : "areas");

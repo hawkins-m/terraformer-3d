@@ -383,7 +383,7 @@ It needs an existing project with a shot and library entries; see `scripts/demo.
 
 ## Pipeline overview
 
-**Style → Layout → Greybox → Shots → Frames → Library → Views and 3D → Review → Unreal**
+**Style → Layout → Greybox → Shots → Frames → Library → Generate 3D Model & Review → Review → Unreal**
 
 Each step is a tab or button in the app (the [RUNBOOK](RUNBOOK.md) describes the clicks) and a
 command. **Artist** marks a decision point; everything else runs unattended.
@@ -394,7 +394,7 @@ command. **Artist** marks a decision point; everything else runs unattended.
 4. **Shots.** `ap shots render`: depth, edge, object-id and normal passes per camera shot (Blender Cycles, CPU).
 5. **Frames.** `ap frames generate SHOT -n 4`: FLUX.1-dev, ControlNet Union Pro 2.0 (depth) and Redux through ComfyUI. **Artist:** picks and locks frames (`ap frames lock`).
 6. **Library.** `ap library plan`, `ap library check` (SAM 3.1), `ap library sheets` (FLUX.1-dev reference sheets). **Artist:** decides each entry's source and picks the sheet view.
-7. **Views and 3D.** `ap library brief` (Qwen3-VL reads the sheet), then `ap library build` (procedural Blender, ambientCG materials) or `ap library trellis` (TRELLIS.2); Reroll with guidance. **Artist:** edits the brief and picks versions.
+7. **Generate 3D Model & Review.** `ap library brief` (Qwen3-VL reads the sheet), then `ap library build` (procedural Blender, ambientCG materials) or `ap library trellis` (TRELLIS.2); Reroll with guidance. **Artist:** edits the brief and picks versions.
 8. **Review.** Library › Asset review, `ap library review apply`, silhouette and openings checks. **Artist:** approves or sends back with a note.
 9. **Unreal.** `ap export`, `ap ue build` (the whole city, headless), `ap ue look PROJECT SHOT` (OneFormer and Depth Anything V2 read the frame's look). **Artist:** chooses and tunes the look preset.
 
