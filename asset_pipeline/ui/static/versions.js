@@ -36,8 +36,8 @@ const verSource = v => {
 // look scenes place only Approved builds. Plain Export (Unreal tab) sends only the greybox; Build
 // city in Unreal places library models (next_build.py: Approved ones, or Active ones with Use Active
 // versions) - Views and 3D's line per asset says which. cur: {n, kind} or null.
-const EXPORT_VS_BUILD = "Export to Unreal sends only the greybox; Build city in Unreal places the library models (Approved, or Active with Use Active versions).";
 function versionUseLine(cur, approved) {
+  const EXPORT_VS_BUILD = "Export to Unreal sends only the greybox; Build city in Unreal places the library models (Approved, or Active with Use Active versions).";
   if (!cur) return `No version in use yet: Unreal look scenes keep the greybox here. ${EXPORT_VS_BUILD}`;
   if (cur.kind === "trellis")       // look scenes place TRELLIS models only as pieces attached to a placed building
     return `Cleanup uses v${cur.n} (TRELLIS), the version marked “Active”; Unreal look scenes place it only as a piece ` +
