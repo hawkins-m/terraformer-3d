@@ -1,13 +1,18 @@
-"""Desktop launcher for the Terraformer UI: `ap launcher install|remove|status`.
+"""Desktop launcher for the Terraformer UI: `ap launcher install|remove|status`, and app windows.
 
 Writes, under the user's home (never the repo):
-  ~/.local/share/applications/terraformer.desktop   the menu entry (Name=Terraformer)
-  ~/.local/share/icons/hicolor/scalable/apps/terraformer.svg   a simple neutral icon
+  ~/.local/share/applications/terraformer.desktop   the menu entry (Name=Terraformer, StartupWMClass)
+  ~/.local/share/icons/hicolor/256x256/apps/terraformer.png   the Terraformer icon (installer/assets;
+                                                    a simple SVG in scalable/ when the art is missing)
   ~/.local/bin/terraformer-launch                   the script the entry runs
 
 The script asks http://127.0.0.1:PORT/api/version; if nothing answers it starts `ap ui` detached
 (setsid, nohup, log to $AP_ROOT/logs/ui.log) with the venv that was running when the launcher
-was installed, waits up to 60 s, then opens the page with xdg-open.
+was installed, waits up to 60 s, then opens the page in an app window.
+
+App window (`open_app`): Chrome, Chromium or Edge with --app=URL (its own window, no tabs or address
+bar; the page's title and icon), [ui] app_browser first when set; inside WSL, Edge or Chrome on
+Windows. Without one of them, the default browser.
 """
 import os
 import shlex
@@ -20,6 +25,12 @@ from . import config
 
 APP_NAME = "terraformer"
 DEFAULT_PORT = 8700
+WM_CLASS = "Terraformer"           # the app window's class: the .desktop entry's icon in the dock
+ICON_PNG = config.REPO_ROOT / "installer" / "assets" / "5a-green-wave-256.png"
+# browsers with an app mode (--app=URL), in the order tried
+APP_BROWSERS = ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge",
+                "microsoft-edge-stable")
+WINDOWS_APP_BROWSERS = ("msedge", "chrome")          # Start-Process names (App Paths) inside WSL
 
 ICON_SVG = """<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
@@ -48,6 +59,12 @@ if ! up; then
   done
 fi
 if up; then
+  for b in {browsers}; do          # an app window: no tabs or address bar
+    if [ -n "$b" ] && command -v "$b" >/dev/null 2>&1; then
+      setsid "$b" --app="$URL/" --class={wm_class} >/dev/null 2>&1 </dev/null &
+      exit 0
+    fi
+  done
   exec xdg-open "$URL/"
 fi
 echo "Terraformer did not start within 60 s; see $AP_ROOT/logs/ui.log" >&2
@@ -65,6 +82,7 @@ Icon={icon}
 Categories=Graphics;3DGraphics;
 Terminal=false
 StartupNotify=false
+StartupWMClass={wm_class}
 """
 
 
@@ -80,8 +98,9 @@ def _data_home(home: Path) -> Path:
 def paths(home: Path | str | None = None) -> dict[str, Path]:
     h = _home(home)
     d = _data_home(h)
-    return {"desktop": d / "applications" / f"{APP_NAME}.desktop",
-            "icon": d / "icons" / "hicolor" / "scalable" / "apps" / f"{APP_NAME}.svg",
+    icon = (d / "icons" / "hicolor" / "256x256" / "apps" / f"{APP_NAME}.png" if ICON_PNG.is_file()
+            else d / "icons" / "hicolor" / "scalable" / "apps" / f"{APP_NAME}.svg")
+    return {"desktop": d / "applications" / f"{APP_NAME}.desktop", "icon": icon,
             "script": h / ".local" / "bin" / f"{APP_NAME}-launch"}
 
 
@@ -116,11 +135,15 @@ def install(home: Path | str | None = None, port: int = DEFAULT_PORT, ap_bin: Pa
     ap_bin = Path(ap_bin) if ap_bin else ap_binary()
     for f in p.values():
         f.parent.mkdir(parents=True, exist_ok=True)
-    p["script"].write_text(SCRIPT.format(port=int(port), ap_bin=shlex.quote(str(ap_bin)),
-                                         ap_root=shlex.quote(str(config.ap_root()))))
+    browsers = " ".join(shlex.quote(b) for b in dict.fromkeys([str(config.get("ui.app_browser") or ""), *APP_BROWSERS]) if b)
+    p["script"].write_text(SCRIPT.format(port=int(port), ap_bin=shlex.quote(str(ap_bin)), browsers=browsers,
+                                         wm_class=WM_CLASS, ap_root=shlex.quote(str(config.ap_root()))))
     p["script"].chmod(0o755)
-    p["icon"].write_text(ICON_SVG)
-    p["desktop"].write_text(DESKTOP.format(exec=str(p["script"]), icon=str(p["icon"])))
+    if p["icon"].suffix == ".png":
+        shutil.copyfile(ICON_PNG, p["icon"])
+    else:
+        p["icon"].write_text(ICON_SVG)
+    p["desktop"].write_text(DESKTOP.format(exec=str(p["script"]), icon=str(p["icon"]), wm_class=WM_CLASS))
     p["desktop"].chmod(0o755)
     if update_db:
         _update_db(p["desktop"])
@@ -137,3 +160,51 @@ def remove(home: Path | str | None = None, update_db: bool = True) -> list[str]:
     if gone and update_db:
         _update_db(p["desktop"])
     return gone
+
+
+# --- app windows ---------------------------------------------------------------------------------
+
+def app_browser() -> str | None:
+    """A browser with an app mode on this machine: [ui] app_browser, else the first of APP_BROWSERS."""
+    for b in (str(config.get("ui.app_browser") or ""), *APP_BROWSERS):
+        if b and (found := shutil.which(os.path.expanduser(b))):
+            return found
+    return None
+
+
+def app_command(url: str) -> list[str] | None:
+    b = app_browser()
+    return [b, f"--app={url}", f"--class={WM_CLASS}"] if b else None
+
+
+def open_app(url: str) -> str:
+    """Open url in an app window; returns "app", "browser" (the default browser) or "" (nothing opened)."""
+    from . import wsl
+    if wsl.is_wsl():                                   # the Windows side: Edge is always there on Windows 10/11
+        for b in WINDOWS_APP_BROWSERS:
+            cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                   f"Start-Process {b} -ArgumentList '--app={url}'"]
+            if _run_ok(cmd):
+                return "app"
+        for cmd in (["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", f"Start-Process '{url}'"],
+                    ["cmd.exe", "/c", "start", "", url]):
+            if _run_ok(cmd):
+                return "browser"
+        return ""
+    cmd = app_command(url)
+    if cmd:
+        try:
+            subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             start_new_session=True)
+            return "app"
+        except OSError:
+            pass
+    import webbrowser
+    return "browser" if webbrowser.open(url) else ""
+
+
+def _run_ok(cmd: list[str]) -> bool:
+    try:
+        return subprocess.run(cmd, capture_output=True, timeout=20).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False

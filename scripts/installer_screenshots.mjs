@@ -33,7 +33,7 @@ await page.click("[data-test=storage]");
 await page.waitForSelector("[data-result=storage] .result.ok");
 await shot(5);
 await next("connections");
-for (const id of ["comfy_url", "blender", "unreal"]) {
+for (const id of ["comfy_url", "comfy_models_dir", "blender"]) {
   await page.click(`[data-test=${id}]`);
   await page.waitForSelector(`[data-result=${id}] .result:not(:empty)`);
 }

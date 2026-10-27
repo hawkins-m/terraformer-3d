@@ -99,8 +99,9 @@
       const rows = C.groups(W.catalog.components).map(g => `<div class="grp">${esc(g.name)}</div>` + g.items.map(c => {
         const locked = C.isLocked(c, vlm), on = W.selected.has(c.id);
         const tag = c.installed ? "installed" : C.isRequired(c, vlm) ? "required" : c.need === "experimental" ? "experimental" : "";
+        const rec = W.isRecommended(c.id) && !c.installed ? `<span class="tag rec">Recommended</span>` : "";
         return `<div class="it" data-id="${esc(c.id)}"><input type="checkbox" data-id="${esc(c.id)}"${on ? " checked" : ""}${locked ? " disabled" : ""}>
-          <span class="name">${esc(c.title)}${tag ? `<span class="tag">${tag}</span>` : ""}</span><span class="sz">${C.size(c.size)}</span></div>`;
+          <span class="name">${esc(c.title)}${tag ? `<span class="tag">${tag}</span>` : ""}${rec}</span><span class="sz">${C.size(c.size)}</span></div>`;
       }).join("")).join("");
       return `<div class="pad"><div class="sunken listbox" id="complist">${rows}</div>
         <fieldset><legend>Description</legend><div class="desc" id="desc">Point at a component to see what it is for.</div></fieldset>
@@ -114,7 +115,11 @@
     },
     connections() {
       const adv = W.items("advanced").filter(W.shown);
-      return `<div class="pad">${W.items("connections").filter(W.shown).map(it => rowHtml(it)).join("")}
+      const cf = W.catalog.comfyui || {};
+      const local = W.selected.has("comfyui") && !cf.found;
+      return `<div class="pad"><p class="note127">127.0.0.1 is this computer: Terraformer talks to ComfyUI here, and nothing is sent online.${
+          local ? " No ComfyUI was found, so Setup installs one and starts it (Components page)." : cf.where ? ` ComfyUI found ${esc(cf.where)}.` : ""}</p>
+        ${W.items("connections").filter(W.shown).map(it => rowHtml(it)).join("")}
         ${adv.length ? `<button class="btn" id="adv">${showAdvanced ? "Hide advanced" : "Advanced..."}</button>` : ""}
         ${adv.length && showAdvanced ? `<fieldset><legend>Advanced</legend>${adv.map(it => rowHtml(it)).join("")}</fieldset>` : ""}</div>`;
     },
@@ -174,7 +179,8 @@
         const label = (it.labels || {})[c] || c;
         const note = notes[c] ? `<span class="note">${esc(notes[c].split(/(?<=\.)\s/)[0])}</span>` : "";
         return `<label class="choice" title="${esc(notes[c] || "")}"><input type="radio" name="${id}" data-id="${esc(it.id)}" value="${esc(c)}"${c === v ? " checked" : ""}>
-          <span>${esc(label)}${tested === false && !/untested|beta/i.test(label) ? `<span class="tag">untested</span>` : ""}${note}</span></label>`;
+          <span>${esc(label)}${tested === false && !/untested|beta/i.test(label) ? `<span class="tag">untested</span>` : ""}${
+            it.recommended === c ? `<span class="tag rec">Recommended</span>` : ""}${note}</span></label>`;
       }).join("")}</div>`;
     }
     if (it.kind === "gpu") {
@@ -199,6 +205,7 @@
     return `<div class="row" data-row="${esc(it.id)}"><span class="lbl">${esc(it.label)}${it.optional ? " (optional)" : ""}:</span>
       <div class="line">${inputHtml(it)}${radio ? "" : test}</div>
       ${withHelp ? `<div class="help">${esc(it.help)}</div>` : ""}
+      ${it.kind === "secret" && it.optional ? `<div class="help">Skip for now — you can add these later in Settings.</div>` : ""}
       <div data-result="${esc(it.id)}">${resultHtml(it.id)}</div></div>`;
   }
 
@@ -367,6 +374,7 @@
   }
   function finish(launch) {
     api.post("api/finish", { launch }).then(r => {
+      if (r.url && r.window) return closed("Terraformer is starting in its own window. You can close this one.");
       closed(r.url ? "Starting Terraformer…" : "Setup has finished. You can close this window.", r.url);
     }).catch(() => closed("Setup has finished. You can close this window."));
   }

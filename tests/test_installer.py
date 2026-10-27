@@ -24,6 +24,7 @@ def _machine(tmp_path, monkeypatch):
     monkeypatch.setattr(setup.gpu, "list_gpus", lambda: [])
     monkeypatch.setattr(installer, "app_python", lambda: sys.executable)
     monkeypatch.setattr(installer.Path, "home", classmethod(lambda cls: tmp_path / "home"))
+    monkeypatch.setattr(installer, "comfy_found", lambda: {"found": True, "where": "answering at http://127.0.0.1:8188"})
     config.backends.cache_clear()
 
 
@@ -78,7 +79,7 @@ def snapshots(monkeypatch) -> list[dict]:
 def test_components_come_from_the_manifest_with_required_ones_and_dressing_by_default():
     comps = installer.components()
     ids = {c["id"] for c in comps}
-    assert ids == {m.id for m in models.load()}
+    assert ids == {m.id for m in models.load()} | {"comfyui"}           # plus the local ComfyUI (a runtime)
     assert {c["group"] for c in comps if c["feature"] == "dressing"} == {"World dressing (CC0 assets)"}
     default = installer.default_components(comps, "32b")
     assert "flux1-dev-fp8" in default and "vlm-32b" in default and "vlm-8b" not in default
@@ -193,7 +194,7 @@ def test_resume_after_the_window_and_the_server_closed(tmp_path, monkeypatch):
     assert p["status"] == "done", p
     by = {s["id"]: s["status"] for s in p["steps"]}
     assert by["settings"] == by["app"] == by["command"] == "done"
-    assert [c[0] for c in calls] == ["scripts/install_trellis2.sh"]   # only the runtime still to do ran
+    assert [c[:2] for c in calls] == [["scripts/install_trellis2.sh", "venv"], ["scripts/ap", "launcher"]]  # only what's left
     # ap setup later: the finished runtime is skipped
     third = installer.Installer(models_cmd=fake_download(tmp_path, [EVENTS[-1]]), run=run)
     calls.clear()
@@ -298,3 +299,103 @@ def test_server_reports_what_is_still_needed_and_uses_a_folder_without_moving_it
     assert req(port, "POST", "/api/needs/use", {"folder": str(tmp_path / "nope")})[0] == 400
     code, data, _ = req(port, "POST", "/api/needs/use", {"folder": str(theirs)})
     assert code == 200 and config.get("comfyui.models_dir") == str(theirs) and theirs.is_dir()
+
+
+# --- recommendations, a local ComfyUI, app windows, missing keys -----------------------------------
+
+def test_recommendations_follow_the_vision_gpu(monkeypatch):
+    monkeypatch.setattr(setup.gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 24}, {"index": 1, "name": "B", "vram_gb": 24}])
+    cat = installer.catalog()
+    by = {i["id"]: i for i in cat["items"]}
+    assert by["vlm_model"]["recommended"] == "8b"              # under 28 GB on the TRELLIS/vision GPU
+    assert by["hardware_profile"]["recommended"] == "rocm-2gpu"
+    assert "vlm-8b" in cat["recommended_components"] and "vlm-32b" not in cat["recommended_components"]
+    monkeypatch.setattr(setup.gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 32}])
+    assert {i["id"]: i for i in installer.catalog()["items"]}["vlm_model"]["recommended"] == "32b"
+
+
+def test_no_comfyui_found_offers_a_local_one_installed_before_the_downloads(monkeypatch, tmp_path):
+    monkeypatch.setattr(installer, "comfy_found", lambda: {"found": False, "where": ""})
+    cat = installer.catalog()
+    tool = next(c for c in cat["components"] if c["id"] == "comfyui")
+    assert tool["title"] == "Install ComfyUI (local)" and not tool["installed"] and tool["size"] > 0
+    assert "comfyui" in cat["default_components"] and "comfyui" in cat["recommended_components"]
+    assert cat["comfyui"]["planned"]["comfy_models_dir"] == "{storage}/ComfyUI/models"
+    ids = [s["id"] for s in installer.plan({"comfy_backend": "sdk"}, ["comfyui", "flux1-dev-fp8"])]
+    assert ids.index("runtime:comfyui") < ids.index("models") < ids.index("runtime:comfy-api-proxy") \
+        < ids.index("runtime:comfyui-start")
+    models_step = next(s for s in installer.plan({}, ["comfyui", "flux1-dev-fp8"]) if s["id"] == "models")
+    assert models_step["ids"] == ["flux1-dev-fp8"]           # the tool isn't a download
+    # the settings step fills its folder, models folder and launch command from the storage folder
+    calls = []
+    inst = installer.Installer(models_cmd=fake_download(tmp_path, EVENTS), run=lambda cmd, log, env=None: calls.append(cmd) or 0)
+    store = tmp_path / "store"
+    inst.update({"values": {"storage": str(store), "comfy_backend": "httpx"}, "components": ["comfyui", "flux1-dev-fp8"]})
+    inst.start()
+    assert wait(inst)["status"] == "done"
+    assert config.get("comfyui.models_dir") == str(store / "ComfyUI" / "models")
+    assert config.get("comfyui.service.cwd") == str(store / "ComfyUI")
+    assert config.get("comfyui.service.launch").startswith(str(store / "ComfyUI" / "venv/bin/python main.py"))
+    assert calls[0] == ["scripts/install_comfyui.sh", str(store / "ComfyUI")]
+    assert ["scripts/ap", "comfy", "start"] in calls
+
+
+def test_comfy_tests_pass_before_the_local_comfyui_is_installed(monkeypatch, server):
+    port, inst = server
+    monkeypatch.setattr(installer, "comfy_found", lambda: {"found": False, "where": ""})
+    monkeypatch.setattr(setup, "_probe_comfy", lambda url, timeout=1.0: None)
+    for id_ in ("comfy_url", "comfy_models_dir"):
+        r = json.loads(req(port, "POST", "/api/test", {"id": id_, "value": "", "values": {}})[1])
+        assert r["ok"] and not r["warn"] and "installs ComfyUI on this computer" in r["message"], r
+    req(port, "POST", "/api/state", {"components": ["flux1-dev-fp8"]})        # unticked: the real answer again
+    r = json.loads(req(port, "POST", "/api/test", {"id": "comfy_url", "value": "http://127.0.0.1:8188", "values": {}})[1])
+    assert not r["ok"]
+
+
+def test_a_found_comfyui_is_not_installed_again():
+    comps = {c["id"]: c for c in installer.components()}
+    assert comps["comfyui"]["installed"]
+    ids = [s["id"] for s in installer.plan({"comfy_backend": "httpx"}, ["comfyui", "flux1-dev-fp8"])]
+    assert "runtime:comfyui" not in ids and "runtime:comfyui-start" not in ids
+
+
+def test_app_window_prefers_an_app_mode_browser(monkeypatch):
+    from asset_pipeline import launcher, wsl
+    opened = []
+    monkeypatch.setattr(launcher.subprocess, "Popen", lambda cmd, **kw: opened.append(cmd))
+    monkeypatch.setattr(launcher.shutil, "which", lambda b: f"/usr/bin/{b}" if b == "chromium" else None)
+    assert launcher.open_app("http://localhost:8700/") == "app"
+    assert opened == [["/usr/bin/chromium", "--app=http://localhost:8700/", "--class=Terraformer"]]
+    config.save_user({"ui": {"app_browser": "brave-browser"}})
+    monkeypatch.setattr(launcher.shutil, "which", lambda b: f"/usr/bin/{b}" if b in ("chromium", "brave-browser") else None)
+    assert launcher.app_browser() == "/usr/bin/brave-browser"         # the configured one first
+    monkeypatch.setattr(launcher.shutil, "which", lambda b: None)
+    import webbrowser
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(["default", url]) or True)
+    assert launcher.open_app("http://localhost:8700/") == "browser" and opened[-1] == ["default", "http://localhost:8700/"]
+    ran = []
+    monkeypatch.setattr(wsl, "is_wsl", lambda proc=None: True)
+    monkeypatch.setattr(launcher, "_run_ok", lambda cmd: ran.append(cmd[-1]) or True)
+    assert launcher.open_app("http://localhost:8705/") == "app"
+    assert ran == ["Start-Process msedge -ArgumentList '--app=http://localhost:8705/'"]
+
+
+def test_the_wizard_opens_in_an_app_window(monkeypatch):
+    from asset_pipeline import launcher
+    got = []
+    monkeypatch.setattr(launcher, "open_app", lambda url: got.append(url) or "app")
+    installer.open_browser("http://localhost:8705/")
+    assert got == ["http://localhost:8705/"]
+
+
+def test_a_missing_hf_token_for_a_gated_required_model_is_a_missing_key(monkeypatch):
+    from asset_pipeline import doctor
+    monkeypatch.setattr(models, "hf_token", lambda: None)
+    gated = models.get("flux1-redux-dev")
+    monkeypatch.setattr(models, "missing", lambda feature=None, required_only=True: [gated])
+    [c] = doctor.check_hf_token()
+    assert c.level == "fail" and c.key == "HF_TOKEN" and "Settings" in c.fix
+    monkeypatch.setattr(doctor, "run", lambda: [c])
+    assert doctor.report()["keys_missing"] == [{"key": "HF_TOKEN", "name": "Hugging Face token", "features": ["comfy"]}]
+    monkeypatch.setattr(models, "hf_token", lambda: "hf_x")
+    assert doctor.check_hf_token() == []

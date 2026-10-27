@@ -313,7 +313,7 @@ def test_ui_scripts_are_wired_and_free_of_commands():
     st = Path(app_mod.__file__).parent / "static"
     assert 'src="/static/versions.js"' in (st / "index.html").read_text()
     js = (st / "versions.js").read_text()
-    for needle in ('"Storage…"', '"Settings…"', "library.restore", "ver-compare", "st-prune-all", "set-keep", "version-compare-dialog"):
+    for needle in ('"Storage…"', '"Project settings…"', "library.restore", "ver-compare", "st-prune-all", "set-keep", "version-compare-dialog"):
         assert needle in js, needle
     assert not re.search(r"\bap [a-z]+ |--[a-z]", js)
     assert "versionStrip(" in (st / "library_review.js").read_text() and "versionStrip(" in (st / "review.js").read_text()

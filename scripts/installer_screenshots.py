@@ -24,12 +24,9 @@ sys.path.insert(0, str(REPO))
 
 GPUS = [{"index": 0, "name": "AMD Radeon AI PRO R9700", "vram_gb": 31.9},
         {"index": 1, "name": "AMD Radeon AI PRO R9700", "vram_gb": 31.9}]
-TESTS = {
+TESTS = {           # canned; the ComfyUI items get the wizard's own answer (no ComfyUI here: Setup installs one)
     "storage": (True, False, "Works: {v} will be created, 812 GB free."),
     "comfy_backend": (True, False, "sdk: Comfy SDK through the local proxy (test the proxy below)."),
-    "comfy_url": (True, False, "Works: ComfyUI 0.24.0 answers at {v} on AMD Radeon AI PRO R9700."),
-    "sdk_url": (True, True, "The proxy isn't installed yet: Setup installs it (Installing page)."),
-    "comfy_models_dir": (True, True, "Works: {v}; 0 of 5 required ComfyUI models in it. Setup downloads them."),
     "blender": (True, False, "Works: Blender 5.2.2 ({v})."),
     "unreal": (True, True, "Not set: the Unreal tab stays off; everything else works."),
 }
@@ -45,15 +42,16 @@ def synthetic(tmp: Path, assets: Path | None):
     wsl.is_wsl = lambda proc=None: False
     profiles.detect = lambda: {"vendor": "amd", "count": 2, "gpus": GPUS, "profile": "rocm-2gpu", "wsl": False}
     det = setup.detect
-    setup.detect = lambda: det() | {"comfy_url": "http://127.0.0.1:8188", "blender": "/usr/bin/blender",
-                                    "comfy_models_dir": "~/ComfyUI/models", "storage": "~/.local/share/terraformer"}
+    setup.detect = lambda: {k: v for k, v in det().items() if not k.startswith("comfy_") or k == "comfy_backend"} | {
+        "blender": "/usr/bin/blender", "storage": "~/.local/share/terraformer"}
     setup.first_run = lambda: True
     state = setup.state
     setup.state = lambda: state() | {"items": [i | ({"value": "~/.local/share/terraformer"} if i["id"] == "storage" else {})
                                                for i in state()["items"]]}
     setup.test = lambda item_id, value=None, values=None: (
         {"id": item_id, "ok": TESTS[item_id][0], "warn": TESTS[item_id][1], "message": TESTS[item_id][2].format(v=value)}
-        if item_id in TESTS else {"id": item_id, "ok": True, "warn": False, "message": "Works."})
+        if item_id in TESTS else {"id": item_id, "ok": False, "warn": False, "message": "Nothing answers."})
+    installer.comfy_found = lambda: {"found": False, "where": ""}
     installer.free_bytes = lambda path: 812 * 10**9
     if assets:
         installer.ASSETS = assets
@@ -65,14 +63,16 @@ def synthetic(tmp: Path, assets: Path | None):
             with self.lock:
                 vals, sel = self.st["values"], self.st["components"] or []
                 steps = installer.plan(vals, sel)
-                for s in steps[:3]:
+                at = next(i for i, s in enumerate(steps) if s["kind"] == "models")
+                for s in steps[:at]:
                     s["status"] = "done"
-                steps[3]["status"] = "running"
-                steps[3]["done"] = int(steps[3]["weight"] * 0.52)
+                dl = steps[at]
+                dl["status"] = "running"
+                dl["done"] = int(dl["weight"] * 0.52)
                 self.st["install"] = {"status": "running", "steps": steps, "errors": [],
                                       "current": {"label": f"Downloading {vlm.title}", "model": vlm.id,
                                                   "done": int(vlm.size * 0.508), "total": vlm.size},
-                                      "download": {"done": int(steps[3]["weight"] * 0.52), "total": steps[3]["weight"]}}
+                                      "download": {"done": dl["done"], "total": dl["weight"]}}
                 return self.progress()
 
         def finish_demo(self):
@@ -112,9 +112,8 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory() as td:
         installer, demo = synthetic(Path(td), Path(a.assets).resolve() if a.assets else None)
-        from http.server import ThreadingHTTPServer
         state = {"profile": ""}
-        httpd = ThreadingHTTPServer(("127.0.0.1", 0), installer.make_handler(demo, state))
+        httpd = installer.Server(("127.0.0.1", 0), installer.make_handler(demo, state))
         state["httpd"] = httpd
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         url = f"http://localhost:{httpd.server_address[1]}/"

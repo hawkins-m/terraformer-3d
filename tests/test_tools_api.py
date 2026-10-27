@@ -287,13 +287,14 @@ def test_launcher_files_and_script(tmp_path, monkeypatch):
     d = Path(out["desktop"]).read_text()
     assert out["desktop"] == str(tmp_path / ".local/share/applications/terraformer.desktop")
     for line in ("Name=Terraformer", f"Exec={tmp_path}/.local/bin/terraformer-launch", "Categories=Graphics;3DGraphics;", "Terminal=false",
-                 f"Icon={tmp_path}/.local/share/icons/hicolor/scalable/apps/terraformer.svg"):
+                 f"Icon={tmp_path}/.local/share/icons/hicolor/256x256/apps/terraformer.png", "StartupWMClass=Terraformer"):
         assert line in d
-    assert Path(out["icon"]).read_text().lstrip().startswith("<?xml") and "<svg" in Path(out["icon"]).read_text()
+    assert Path(out["icon"]).read_bytes() == launcher.ICON_PNG.read_bytes()     # the Terraformer icon
     s = Path(out["script"]).read_text()
     assert Path(out["script"]).stat().st_mode & 0o111
     assert "PORT=8700" in s and "AP_BIN=/venv/bin/ap" in s and f"AP_ROOT={tmp_path}/root" in s
     assert "/api/version" in s and "setsid nohup" in s and "logs/ui.log" in s and "seq 1 60" in s and "xdg-open" in s
+    assert '--app="$URL/"' in s and "google-chrome" in s and "chromium" in s and "microsoft-edge" in s   # an app window first
     assert launcher.status(tmp_path)["installed"]
     assert len(launcher.remove(home=tmp_path, update_db=False)) == 3 and not launcher.status(tmp_path)["installed"]
 

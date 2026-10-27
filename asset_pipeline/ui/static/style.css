@@ -799,3 +799,13 @@ details summary { cursor: default; }
 /* Library › Scene plans: an optional, experimental side path (shell.js; normal for a concept-images project) */
 #lib-tabs [role=tab].tab-optional { color: #6A6863; }      /* greyed, yet readable and still a working tab */
 .experimental-note { color: var(--danger); margin: 0 0 6px; }
+
+/* Settings (settings.js): pages on the left, the page on the right */
+.settings-window { width: min(760px, 94vw); }
+.settings { display: grid; grid-template-columns: 150px 1fr; gap: 12px; }
+.settings-nav { display: flex; flex-direction: column; gap: 2px; }
+.settings-nav button { text-align: left; }
+.settings-nav button.on { font-weight: bold; }
+.settings .setup-row input { flex: 1; min-width: 0; }
+.toolbar .gear { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; }
+.doctor-line .key-link { flex-basis: 100%; }

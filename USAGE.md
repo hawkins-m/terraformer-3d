@@ -1167,7 +1167,7 @@ while it was current).
   can't be deleted). Library › Asset review's detail view, which has no cards, keeps them on the
   version rows. Restoring a procedural version puts its brief back and rebuilds (or copies back a
   saved GLB); restoring a TRELLIS version makes it the newest result.
-- There is no Keep any more. The last N versions stay (Tools › Settings…, per project, default 3).
+- There is no Keep any more. The last N versions stay (Tools › Project settings…, per project, default 3).
   Older ones are never removed silently: no build, reroll or Make 3D prunes anything; afterwards
   the box offers "N old versions can be removed". The Active and Approved versions are never
   removed (nor any marked Keep in an earlier version of the app), and the Active one can't be
