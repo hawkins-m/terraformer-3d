@@ -167,3 +167,32 @@ def test_assembly_glb_in_real_blender_with_a_placeholder(store):
     assert st["fresh"] and filestore.is_ref(store.root / r["glb"])
     assembly.set_children(store, "portico", [{"entry": "gate", "anchor": "centre"}])
     assert not assembly.assembly_state(store, "portico")["fresh"]       # an edit makes it stale
+
+
+def test_attached_pieces_take_their_clean_up_output_for_the_tier_else_the_raw_model(store, monkeypatch):
+    """A gate attached to a portico: its Clean up output for the asset's tier (next_build.piece_model)
+    stands in the city in metres, at the same place and size as the raw model would; another tier's
+    output doesn't count; without one the raw model stays."""
+    from types import SimpleNamespace
+    from asset_pipeline import next_build
+    from asset_pipeline.stages import s6_cleanup
+    tier = SimpleNamespace(usage="game")
+    monkeypatch.setattr(s6_cleanup, "_asset", lambda *a: tier)
+    _procedural(store, "portico", [-10, -5, 0], [10, 5, 8])
+    raw = _trellis(store, "gate", [-0.4, -0.25, -0.5], [0.4, 0.25, 0.5]).relative_to(store.root).as_posix()
+    assembly.set_children(store, "portico", [{"entry": "gate", "anchor": "front", "offset": [0, 0, 0]}])
+    pl = {"key": "portico_s1", "entry": "portico", "glb": "3d/library/portico/procedural.glb",
+          "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0, "w": 20, "d": 10, "slot": "s1"}
+    k = assembly.child_placements(store, [pl])[0][0]
+    assert k["glb"] == raw and k["mesh"] == "child_gate"
+    out = store.root / "cleanup/library/gate/a_1024_cascade_s1_game.glb"     # cleaned: 9.6 x 6 x 12 m, pivot at base
+    glb_box(out, [-4.8, -3, 0], [4.8, 3, 12])
+    write_json(out.with_suffix(".json"), {"glb": out.relative_to(store.root).as_posix(), "source": raw, "usage": "game"})
+    kids, entries, missing = assembly.child_placements(store, [pl])
+    c = kids[0]
+    assert c["glb"] == out.relative_to(store.root).as_posix() and c["mesh"] == "child_gate_game" and not missing
+    assert next_build.piece_model(store, "gate")["cleaned"]["usage"] == "game"
+    m = np.asarray(c["matrix"])                                     # the same base centre on the front edge, same height
+    assert (m @ [0, 0, 0, 1])[:3] == pytest.approx([0, -5, 0]) and np.linalg.norm(m[:3, 2]) * 12 == pytest.approx(12.0)
+    tier.usage = "hero"                                              # another tier's output: the raw model again
+    assert assembly.child_placements(store, [pl])[0][0]["glb"] == raw

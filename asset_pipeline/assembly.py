@@ -211,11 +211,14 @@ def layout(store: ProjectStore, eid: str) -> dict:
     par = model(store, eid)
     an = anchors(par)
     out = []
+    from . import next_build
     for c in children(store, eid):
-        ch = model(store, c["entry"])
+        pm = next_build.piece_model(store, c["entry"])        # its Clean up output for the tier, else raw
+        ch = model(store, c["entry"], glb=pm["glb"] if pm else None)
         at = np.asarray(an[c["anchor"]]) + np.asarray(c["offset"], float)
         m = _t(at) @ _rz(c["yaw"]) @ _s(c["scale"]) @ piece_matrix(ch)
         out.append(c | {"glb": ch["glb"], "kind": ch["kind"], "matrix": m.tolist(),
+                        "tier": pm["cleaned"]["usage"] if pm and pm["cleaned"] else None,
                         "size": [v * c["scale"] for v in ch["size"]], "at": [float(v) for v in at]})
     return {"parent": {"glb": par["glb"], "kind": par["kind"], "matrix": piece_matrix(par).tolist(), "size": par["size"]},
             "children": out, "anchors": an}
@@ -327,11 +330,12 @@ def child_placements(store: ProjectStore, placements: list[dict]) -> tuple[list[
                 missing.append(c["entry"])
                 continue
             m = W @ np.asarray(c["matrix"])
+            tier = c.get("tier")             # a Clean up output: its own mesh per tier, its own baked maps
             out.append({"key": f"{p['key']}__{c['entry']}".replace("-", "m"), "entry": c["entry"],
                         "glb": c["glb"].relative_to(store.root).as_posix(), "matrix": m.tolist(),
-                        "parent": p["key"], "mesh": f"child_{c['entry']}".replace("-", "m")})
+                        "parent": p["key"], "mesh": (f"child_{c['entry']}" + (f"_{tier}" if tier else "")).replace("-", "m")})
             job = kit_proc.out_dir(store, c["entry"]) / "procedural" / "job.json"
-            if c["kind"] == "procedural" and job.is_file():
+            if c["kind"] == "procedural" and job.is_file() and not tier:
                 entries[c["entry"]] = job.relative_to(store.root).as_posix()
     return out, entries, sorted(set(missing))
 

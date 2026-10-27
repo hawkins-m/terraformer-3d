@@ -143,6 +143,22 @@
             <div id="city-detail" class="city-detail"></div>
           </div>
         </div>
+        <!-- a starting option, kept away from Update / Re-plan: it replaces the city rules (asks first) -->
+        <fieldset id="city-roll" hidden><legend>Start from a random city</legend>
+          <p class="hint tab-help">Roll random city rules and a seed as a starting point. <button type="button" class="help-q" title="Roll a city picks the city rules at random within believable ranges (city size, civic nodes, density, street pattern, green space, waterfront) and a new seed, then re-plans the city. Tick Keep beside a group to leave it as it is. The last 10 rolls are remembered: Previous roll / Next roll step through them. Type a seed to reproduce a roll. It replaces the current city rules, so it asks first." aria-label="More about Roll a city">?</button></p>
+          <p id="city-roll-hint" class="roll-hint" role="status" hidden><span><b>New project:</b> click <b>Roll a city</b> below to start from a random city instead of a blank map.</span></p>
+          <div class="row">
+            <button type="button" id="city-roll-btn" title="Random city rules and a new seed, then re-plan (asks first)"><svg class="dice" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><rect x="1.5" y="1.5" width="13" height="13" rx="2.5" fill="#fff" stroke="currentColor"/><circle cx="5" cy="5" r="1.3"/><circle cx="11" cy="5" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="5" cy="11" r="1.3"/><circle cx="11" cy="11" r="1.3"/></svg> Roll a city</button>
+            <label title="Leave empty for a random seed; type one to reproduce a roll">Seed: <input type="number" id="city-roll-seed" min="0" max="2147483647" step="1" placeholder="random" style="width:9em"></label>
+            <span class="hint" id="city-roll-current" style="margin:0"></span>
+          </div>
+          <div class="row city-roll-keep" id="city-roll-keep" role="group" aria-label="Keep these rule groups when rolling"></div>
+          <div class="row">
+            <button type="button" id="city-roll-prev" class="small" title="Restore the previous roll's rules and seed, and re-plan">◂ Previous roll</button>
+            <button type="button" id="city-roll-next" class="small" title="Restore the next roll's rules and seed, and re-plan">Next roll ▸</button>
+            <span class="hint" id="city-roll-pos" style="margin:0"></span>
+          </div>
+        </fieldset>
       </section>
 
       <!-- Greybox (tab id "site"): the block-out built from the layout -->

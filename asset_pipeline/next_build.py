@@ -10,8 +10,10 @@ city_library takes its choices from here, so the explanation can't disagree with
     there is one, else the raw model (city_library.active_model);
   - prop_model(store, entry): the model a prop takes: the Active version's Clean up output for
     the asset's tier when there is one, else its raw model (city_library.prop_placements);
-  - placed_glb(store, entry): the model an attached piece takes: the Active version's raw model
-    (assembly.model);
+  - piece_model(store, entry): the model an attached piece takes (a gate or statue attached to a
+    portico): the same as a prop, its Clean up output for the tier else raw (assembly.layout);
+  - placed_glb(store, entry): the Active version's raw model (a parent's own frame and footprint,
+    assembly.model);
   - procedural builds stand as they are on disk (look._candidates): procedural_build(store, entry)
     names the version that build is.
 explain(store, use_active) puts these together per entry: placed or not, the version, why it,
@@ -56,6 +58,11 @@ def prop_model(store: ProjectStore, entry: str) -> dict | None:
     cleaned = s6_cleanup.for_source(store, versions.PLAN, entry, raw)
     return {"n": n, "kind": versions.get(store, entry, n)["kind"] if n is not None else None,
             "glb": store.root / cleaned["glb"] if cleaned else g, "raw": raw, "cleaned": cleaned}
+
+
+def piece_model(store: ProjectStore, entry: str) -> dict | None:
+    """The model an attached piece places: as prop_model (Clean up output for the tier, else raw)."""
+    return prop_model(store, entry)
 
 
 def building_model(store: ProjectStore, entry: str) -> dict | None:

@@ -788,3 +788,10 @@ details summary { cursor: default; }
 .ue-ready-table table { width: 100%; }
 .ue-ready-table tr.ue-standin td { color: var(--muted); }
 .ue-ready-table tr.ue-standin td a { color: inherit; }
+
+/* --- Layout: Roll a city (city.js) --------------------------------------------------------- */
+#city-roll { margin-top: 8px; }
+#city-roll .dice { vertical-align: -3px; margin-right: 4px; }
+#city-roll .city-roll-keep { gap: 4px 12px; flex-wrap: wrap; }
+#roll-warning { max-width: 46ch; margin: 0; }
+#city-roll .roll-hint { margin: 0 0 6px; padding: 3px 6px; border: 1px solid var(--border); background: var(--field); }

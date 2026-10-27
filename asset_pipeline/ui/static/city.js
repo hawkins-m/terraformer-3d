@@ -65,6 +65,7 @@ const isDirty = name => !!(cityDrafts[name] && cityDrafts[name].dirty.size);
 
 // --- rendering ------------------------------------------------------------------------------
 function renderCatalog() {
+  renderRoll();
   const wrap = $("#catalog");
   wrap.hidden = !catalogData || !catalogData.city;
   if (wrap.hidden) return;
@@ -344,3 +345,70 @@ function updateCityStatus() { if (cityDrafts[citySection]) updateCityDirty(); }
 saveHandlers.city = () => { if (citySection !== "report" && isDirty(citySection)) citySave(); };
 revertHandlers.city = () => { if (isDirty(citySection)) cityRevert(); };
 window.addEventListener("beforeunload", e => { if (Object.keys(CITY).some(isDirty)) { e.preventDefault(); e.returnValue = ""; } });
+
+
+// --- Roll a city (city_roll.py): a starting option under the catalog ---------------------------
+// Random city rules within believable ranges and a seed, then the re-plan (a site.plan job). Every
+// roll asks first, with Cancel the default (Enter or Esc cancels). Keep ticks leave a rule group as
+// it is (remembered per project in this browser). Previous / Next roll step through the last 10.
+const ROLL_WARNING = "WARNING: This /roll command will give you a random assortment of buildings to start your city. If you click continue, all progress done already will be erased.";
+let rollData = null, rollKey = null;
+const rollKeepKey = () => `ap.rollKeep.${slug}`;
+function rollKeep() { try { return JSON.parse(localStorage.getItem(rollKeepKey()) || "[]"); } catch (_) { return []; } }
+function rollKeepSave(keep) { try { localStorage.setItem(rollKeepKey(), JSON.stringify(keep)); } catch (_) { /* private window */ } }
+
+function renderRoll() {
+  const box = $("#city-roll");
+  const own = !!(siteData && siteData.layout) && !isCity();          // the project's own layout: no city rules to roll
+  box.hidden = !slug || !siteData || own;
+  if (box.hidden) return;
+  const busy = activeJobs("site.plan").length;
+  const key = JSON.stringify([slug, catalogData && catalogData.plan_mtime, busy, !!siteData.layout]);
+  if (key !== rollKey) {                       // refetch only when a plan or a job changed
+    rollKey = key;
+    api(`/api/projects/${slug}/site/roll`, undefined, "GET").then(d => { rollData = d; paintRoll(); }).catch(() => {});
+  }
+  paintRoll();
+}
+function paintRoll() {
+  const d = rollData, busy = !!activeJobs("site.plan").length;
+  const p = data && data.project;
+  $("#city-roll-hint").hidden = !(p && p.start === "city" && !(siteData && siteData.layout));
+  $("#city-roll-btn").disabled = busy;
+  $("#city-roll-current").textContent = d && d.seed != null ? `City seed: ${d.seed}` : "";
+  const keepBox = $("#city-roll-keep");
+  if (d && !keepBox.children.length) {
+    const keep = new Set(rollKeep());
+    keepBox.innerHTML = `<span>Keep:</span>` + Object.entries(d.groups).map(([k, label]) =>
+      `<label class="check" title="Keep: a roll leaves the ${esc(label.toLowerCase())} as it is"><input type="checkbox" data-keep="${k}"${keep.has(k) ? " checked" : ""}> ${esc(label)}</label>`).join("");
+    keepBox.onchange = () => rollKeepSave([...keepBox.querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep));
+  }
+  const pos = d ? d.pos : -1, n = d ? d.count : 0;
+  $("#city-roll-prev").disabled = busy || pos <= 0;
+  $("#city-roll-next").disabled = busy || pos < 0 || pos >= n - 1;
+  $("#city-roll-pos").textContent = n ? `Roll ${pos + 1} of ${n} (the last ${d.kept} are kept)` : "No rolls yet.";
+}
+
+// The confirmation: exactly the warning text; Continue / Cancel, Cancel the default
+function rollConfirm() {
+  return new Promise(resolve => {
+    let ok = false;
+    const body = document.createElement("p"); body.id = "roll-warning"; body.textContent = ROLL_WARNING;
+    const d = dialog({title: "Roll a city", body, className: "danger-window", onClose: () => resolve(ok),
+      buttons: [{label: "Continue", onClick: () => { ok = true; }}, {label: "Cancel", default: true}]});
+    d.win.id = "roll-dialog";
+  });
+}
+async function rollCity() {
+  if (!(await rollConfirm())) return;
+  const v = $("#city-roll-seed").value.trim();
+  const keep = [...$("#city-roll-keep").querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep);
+  await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep});
+}
+async function rollStep(delta) {
+  if (!(await rollConfirm())) return;
+  await siteAction("site/roll/step", {delta});
+}
+$("#city-roll-btn").onclick = () => rollCity();
+$("#city-roll-prev").onclick = () => rollStep(-1);
+$("#city-roll-next").onclick = () => rollStep(1);

@@ -17,7 +17,7 @@ from fastapi import Body, Depends, FastAPI, Form, HTTPException, UploadFile
 from fastapi import Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from .. import config, library_entries, review, silhouette, ue, versions, vlm
 from ..comfy import service as comfy_service
@@ -301,6 +301,15 @@ class CleanupReq(BaseModel):
 class SiteReq(BaseModel):
     force: bool = False
     city: bool = False            # site/init: the starter city instead of the starter precinct
+
+
+class RollReq(BaseModel):
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
+    keep: list[str] = []          # rule groups a roll leaves as they are (city_roll.GROUPS)
+
+
+class StepReq(BaseModel):
+    delta: Literal[-1, 1]
 
 
 class ShotsReq(BaseModel):
@@ -1390,6 +1399,50 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def site_plan(slug: str):
         store = _store(slug)
         return jobs.submit("site.plan", slug, lambda: sw_site.plan_city(store)["buildings"], lane="cpu").public()
+
+    # --- Roll a city (city_roll.py): random rules + a seed, then the re-plan above ------------
+    @app.get("/api/projects/{slug}/site/roll")
+    def site_roll_state(slug: str):
+        from .. import city_roll
+        return city_roll.summary(_store(slug))
+
+    def _roll_check(store):
+        from .. import city_roll
+        try:
+            lay = sw_site.load_layout(store)
+        except FileNotFoundError:
+            return
+        if lay.city is None:
+            raise HTTPException(400, "this project's layout is its own (no city rules): rolling a city needs a city layout")
+        return city_roll
+
+    @app.post("/api/projects/{slug}/site/roll")
+    def site_roll(slug: str, req: RollReq):
+        """A roll as a site.plan job (tag roll): the same busy state, progress and lock as Re-plan."""
+        from .. import city_roll
+        store = _store(slug)
+        _roll_check(store)
+        bad = set(req.keep) - set(city_roll.GROUPS)
+        if bad:
+            raise HTTPException(400, f"unknown rule group(s): {', '.join(sorted(bad))}")
+
+        def run():
+            from ..jobs import current_job
+            job = current_job()
+            r = city_roll.roll(store, req.seed, req.keep, log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print)
+            return {"seed": r["seed"], "tries": r["tries"], "buildings": r["stats"]["buildings"], "warnings": r["stats"]["warnings"]}
+        return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
+
+    @app.post("/api/projects/{slug}/site/roll/step")
+    def site_roll_step(slug: str, req: StepReq):
+        from .. import city_roll
+        store = _store(slug)
+        _roll_check(store)
+        h = city_roll.history(store)
+        if not 0 <= h["pos"] + req.delta < len(h["rolls"]):
+            raise HTTPException(400, "no previous roll" if req.delta < 0 else "no next roll")
+        return jobs.submit("site.plan", slug, lambda: city_roll.step(store, req.delta)["seed"], lane="cpu",
+                           tag={"roll": True}).public()
 
     # --- asset library (phase 3): plan, SAM checks, the user's review per entry --------------
 

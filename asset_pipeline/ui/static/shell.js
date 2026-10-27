@@ -131,7 +131,7 @@ function dialog({title, body, buttons = [{label: "OK", default: true}], onClose,
 // have none: they count as a procedural city (startOf).
 const START_POINTS = {
   city: {label: "Procedural city", desc: "Generate a city plan from rules.", tab: "style",
-    hint: "Start with the look: a style text, or generate scenes and star the ones you like. Layout then plans the city from rules."},
+    hint: "Start with the look: a style text, or generate scenes and star the ones you like. In Layout, Roll a city (the dice) gives you a random city to start from."},
   blender: {label: "Custom Blender layout", desc: "Bring your own block-out.", tab: "site",
     hint: "Start from the starter layout, Build greybox, then open site/greybox.blend in Blender, block out your site in it, save, and click Re-read .blend. From then on the .blend is the layout."},
   assets: {label: "Concept images to assets", desc: "Make individual assets without a city layout.", tab: "library", sub: "plan",

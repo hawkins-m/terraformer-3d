@@ -246,3 +246,20 @@ World and city mode: greybox and passes, concept frames and their control settin
   - The masked landmark ref makes each frame ~100 s.
 - `ap frames lock SHOT --greybox`: camera and greybox locked, no frame (wides: Flux
   can't resolve a whole city at frame size; they render in UE from the real assets).
+
+## Roll a city (2026-10-27)
+- `asset_pipeline/city_roll.py`: groups size, civic, density, streets, green, waterfront (city spec
+  plus the terrain's coast); `random_rules(seed)` draws every group in a fixed order, so a kept group
+  doesn't shift the others and seed + keeps reproduce a roll. Ranges stay near the starter city's;
+  the shoreline follows the city's half-height so the city reaches the water; nodes are kept apart
+  and on land. The seed is also `city.seed`.
+- A roll saves layout.json, re-plans with `sw_site.plan_city` (UI: a `site.plan` job tagged roll, so
+  the Re-plan busy state and the site lock apply) and re-places the auto shots (`set_city_shots`:
+  locked shots and shot edits stay). A random roll that fails the housing-share warning tries up
+  to 6 seeds; a typed seed is kept. History: `site/rolls.json` {rolls (last 10: seed, rules, keep,
+  warnings, at), pos}. A project with its own layout (no city spec) can't roll; one with no layout
+  starts from the starter city.
+- The dice box (`#city-roll`, city.js) sits after the catalog, away from Update / Re-plan. Its
+  confirm is a plain `dialog()` with Cancel as the default button (focused: Enter cancels, Esc too).
+  Its new-project hint is `.roll-hint`, not `.start-hint` (renderStartHint removes every
+  `.start-hint` on each redraw).

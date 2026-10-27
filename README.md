@@ -505,6 +505,7 @@ workspace for artists rather than a web-app look.
 - More procedural builder parts (multi-box masses, set-back top storey, framed openings)
 - Native app packaging
 - Blender hand-finish workflow
+- Optional API vision backends (OpenAI-compatible: ChatGPT, Grok, other servers)
 
 ## Docs
 

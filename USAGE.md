@@ -320,6 +320,26 @@ ap site build my-project                            # then the greybox
 
   The generator itself backs off a type as it nears its cap; what's left are warnings.
 
+**Roll a city** (Layout tab, the dice under the catalog; `ap site roll`). A starting point for a
+new city: random city rules within believable ranges plus a new seed, then the usual re-plan
+(and the auto shots placed again for it). It asks first, every time, with *Cancel* the default
+(Enter or Esc cancels): it replaces the city rules, so progress made on the old city is lost.
+- The rule groups: city size, civic nodes (how many, where, size, role, monument), density
+  (falloff, the urban edge, storeys), street pattern (radials, their turn and spiral, markets,
+  block and parcel sizes), green space (corridors, park share) and waterfront (shoreline, its
+  irregularity, a bay). Tick *Keep* beside a group to leave it as it is; kept values never change.
+- A random roll whose plan fails the housing-share check (housing under 60% of the footprint) is
+  rolled again with another seed. The seed shows beside the button: type it into *Seed* (or
+  `ap site roll PROJECT --seed N`) to get the same city again (with the same *Keep* ticks).
+- The last 10 rolls (rules and seed, in `site/rolls.json`) are kept: *Previous roll* / *Next roll*
+  (`ap site roll PROJECT --step previous|next`) restore one and re-plan.
+- A new project with the *Procedural city* starting point shows a hint pointing at the dice.
+
+```
+ap site roll my-project                              # a random city; prints its seed
+ap site roll my-project --seed 2024 --keep size,waterfront
+```
+
 **In the UI** (Layout tab): building types, districts, materials, zones and rules (checks and
 variation) are editable and saved to `site/layout.json`. Each is a table plus a detail form
 (building types: Massing, Placement, Look, Limits); *Plan report* shows the report and the

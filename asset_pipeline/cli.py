@@ -573,6 +573,23 @@ def cmd_site_plan(a) -> None:
         print("warning:", w)
 
 
+def cmd_site_roll(a) -> None:
+    from . import city_roll
+    store = ProjectStore.open(a.project)
+    keep = [k.strip() for k in (a.keep or "").split(",") if k.strip()]
+    if a.step:
+        r = city_roll.step(store, -1 if a.step == "previous" else 1)
+        print(f"roll {r['pos'] + 1} of {r['count']}: seed {r['seed']}, {r['stats']['buildings']} buildings")
+        return
+    r = city_roll.roll(store, a.seed, keep)
+    print(f"rolled a city: seed {r['seed']}{f' (keeping {', '.join(r['keep'])})' if r['keep'] else ''}, "
+          f"{r['stats']['buildings']} buildings{f', {r['tries']} tries' if r['tries'] > 1 else ''}; "
+          f"plan {city_roll.rolls_path(store).parent / 'city_plan.png'}")
+    for w in r["stats"]["warnings"]:
+        print("warning:", w)
+    print(f"reproduce it: ap site roll {a.project} --seed {r['seed']}" + (f" --keep {','.join(r['keep'])}" if r["keep"] else ""))
+
+
 def cmd_site_catalog(a) -> None:
     from .stages import sw_site
     store = ProjectStore.open(a.project)
@@ -1698,6 +1715,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--shots", action="store_true", help="also replace the layout's shots with the auto-placed ones")
     p.add_argument("--shot", action="append", help="re-place only this auto shot (repeatable); the others keep their cameras")
     p.set_defaults(fn=cmd_site_plan)
+    p = sisub.add_parser("roll", help="city mode: roll a random city (rules + seed) and plan it; replaces the city rules")
+    p.add_argument("project")
+    p.add_argument("--seed", type=int, help="this seed (reproduces a roll); default a random one")
+    p.add_argument("--keep", help="rule groups to leave as they are, comma-separated: "
+                                  "size, civic, density, streets, green, waterfront")
+    p.add_argument("--step", choices=["previous", "next"], help="go back / forward through the last 10 rolls instead")
+    p.set_defaults(fn=cmd_site_roll)
     p = sisub.add_parser("catalog", help="city mode: import / export the typology catalog (YAML)")
     p.add_argument("what", choices=["import", "export"])
     p.add_argument("project")
