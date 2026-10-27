@@ -3,11 +3,10 @@
     GET     /api/projects/{slug}/library/asset/{asset}/versions          the strip (migrates lazily)
     GET     .../versions/compare?a=&b=                                   two versions side by side
     POST    .../versions/{n}/restore    job library.restore (cpu)        brief back (+ rebuild) / TRELLIS result current
-    POST    .../versions/{n}/pin, /unpin
-    DELETE  .../versions/{n}?confirm_pinned=true
+    DELETE  .../versions/{n}?confirm_pinned=true                     (pinned: marked Keep in an earlier UI)
     POST    .../versions/prune {dry_run}                                 versions beyond the project's "keep"
     GET     /api/projects/{slug}/storage                                 totals per asset and project
-    POST    /api/projects/{slug}/storage/prune {asset?, dry_run}         delete unpinned versions
+    POST    /api/projects/{slug}/storage/prune {asset?, dry_run}         delete all but the Active, Approved (and earlier pinned) versions
     POST    /api/projects/{slug}/storage/clean {dry_run}                 shared-store files nothing references
     POST    /api/projects/{slug}/storage/loose                           remove builds that are no version
     GET     /api/projects/{slug}/disk?dirty=                             size on disk by category (toolbar, Properties)
@@ -122,14 +121,6 @@ def register(app: FastAPI, jobs, store_of) -> None:
                                   smooth=sm, ground=gr)
         return jobs.submit("library.smooth_all", slug, run, lane="cpu",
                            tag={"assets": todo, "smooth": sm, "ground": gr}).public()
-
-    @app.post(base + "/{n}/pin")
-    def versions_pin(slug: str, asset: str, n: int):
-        return _call(versions.pin, store_of(slug), asset, n)
-
-    @app.post(base + "/{n}/unpin")
-    def versions_unpin(slug: str, asset: str, n: int):
-        return _call(versions.unpin, store_of(slug), asset, n)
 
     @app.delete(base + "/{n}")
     def versions_delete(slug: str, asset: str, n: int, confirm_pinned: bool = False):

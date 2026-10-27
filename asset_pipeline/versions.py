@@ -1,21 +1,23 @@
 """Asset version bank: every build of a library asset is kept as a numbered version, so an
-earlier look can be compared, restored or pinned.
+earlier look can be compared or restored.
 
 On disk, per asset, under 3d/<plan>/<asset>/versions/ (for the library plan this is the same dir
 as the procedural build, kit_proc.out_dir):
     versions.json     the index: [{n, kind, created, source, thumb, bytes, pinned, approved,
-                                   files, note, ...}]
+                                   files, note, cleaned?, ...}]; cleaned: {usage: Clean up output}
     v<N>/             a procedural version: brief.json (the brief incl. "guidance"), build.json
                       (settings and report), threeq.png / sheet.png (thumbnails), and
-                      procedural.glb (+ .zones.json) only while pinned and current when pinned
+                      procedural.glb (+ .zones.json) only for a version pinned (Keep, an earlier
+                      UI) while it was current
 A TRELLIS version keeps no copy: its GLB, stats json and input png stay where s5_3d put them
 (so s5_3d.results is unchanged); `files` lists them, project-relative. Restoring one makes it the
 newest result (the one cleanup picks); deleting one removes those files.
 
-Retention: the last K unpinned versions (project.json `versions_keep`, default 3) stay; older
-ones are only removed after a confirmation in the UI (prune): a build never prunes, so a failed
-build costs no version. Pinned, Approved and the current (Active) version are never removed, and
-the current one can't be deleted while other versions exist. Instances (library_instances) are not versions.
+Retention: the last K versions (project.json `versions_keep`, default 3) stay; older ones are
+only removed after a confirmation in the UI (prune): a build never prunes, so a failed build costs
+no version. The Active (current) and Approved versions are never removed, and the current one
+can't be deleted while other versions exist. The UI no longer has Keep (pin); versions pinned
+before stay protected and don't count towards K. Instances (library_instances) are not versions.
 """
 import json
 import os
@@ -345,6 +347,40 @@ def change_lines(store: ProjectStore, asset: str, rows: list[dict], plan: str = 
     return out
 
 
+def _usage(store, asset, plan=PLAN) -> str | None:
+    """The asset's tier (game, cine, hero) from its plan; None when it isn't in one."""
+    from .stages import s6_cleanup
+    try:
+        return s6_cleanup._asset(store, plan, asset).usage
+    except (FileNotFoundError, ValueError):
+        return None
+
+
+def note_cleaned(store: ProjectStore, asset: str, source: Path, usage: str, out: Path, plan: str = PLAN) -> int | None:
+    """Clean up made `out` from `source`: the version whose model that is records it ("cleaned":
+    {usage: out}). Returns that version's n (None: no version has that model)."""
+    rows = load(store, asset, plan)
+    cur = current(store, asset, plan)
+    for r in sorted(rows, key=lambda r: r["n"] != cur):          # the Active one wins a shared file
+        g = current_glb(store, asset, plan) if r["n"] == cur else version_glb(store, asset, r, plan)
+        if g is not None and g.resolve() == Path(source).resolve():
+            r["cleaned"] = (r.get("cleaned") or {}) | {usage: _rel(store, out)}
+            _save(store, asset, rows, plan)
+            return r["n"]
+    return None
+
+
+def cleaned(store: ProjectStore, asset: str, r: dict, glb: Path, usage: str, plan: str = PLAN) -> bool:
+    """Whether a version's model has a Clean up output for the tier `usage`: recorded on the version
+    (note_cleaned), or, for versions cleaned before that record, a Clean up report whose source is
+    its model (s6_cleanup.for_source)."""
+    from .stages import s6_cleanup
+    out = (r.get("cleaned") or {}).get(usage)
+    if out and (store.root / out).is_file():
+        return True
+    return s6_cleanup.for_source(store, plan, asset, _rel(store, glb)) is not None
+
+
 def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
     """The strip: versions newest first, sizes, what retention would remove, and each procedural
     version's "what changed" (full and short)."""
@@ -356,11 +392,18 @@ def listing(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
     lines = change_lines(store, asset, rows, plan)
     from .smooth import ground_checked, ground_info, ground_line, is_smoothed
     trellis = lambda r: r["kind"] == "trellis" and bool(r["files"])  # noqa: E731
-    return {"asset": asset, "keep": keep_limit(store), "current": cur,
-            "versions": [_view(store, r, cur) | lines.get(r["n"], {})
-                         | {"smoothable": trellis(r) and not is_smoothed(store, r),
-                            "groundable": trellis(r) and not ground_checked(store, r),
-                            "ground": ground_line(ground_info(store, r))}
+    usage = _usage(store, asset, plan)
+
+    def steps(r):         # the row's cleanup steps: what applies, what is done (Views and 3D)
+        glb = current_glb(store, asset, plan) if r["n"] == cur else version_glb(store, asset, r, plan)
+        t = trellis(r)
+        return {"smoothable": t and not is_smoothed(store, r), "smoothed": t and is_smoothed(store, r),
+                "groundable": t and not ground_checked(store, r), "ground_checked": t and ground_checked(store, r),
+                "ground": ground_line(ground_info(store, r)),
+                "glb": _rel(store, glb) if glb else None,
+                "cleaned": glb is not None and usage is not None and cleaned(store, asset, r, glb, usage, plan)}
+    return {"asset": asset, "keep": keep_limit(store), "current": cur, "usage": usage,
+            "versions": [_view(store, r, cur) | lines.get(r["n"], {}) | steps(r)
                          for r in sorted(rows, key=lambda r: -r["n"])],
             "bytes": sum(r["bytes"] for r in rows), "prunable": pr["remove"], "prunable_bytes": pr["bytes"]}
 
@@ -375,16 +418,17 @@ def get(store, asset, n, plan=PLAN) -> dict:
 # --- retention, delete ---------------------------------------------------------------------
 
 def _protected(store, asset, rows, plan) -> set[int]:
-    """Never removed by retention: pinned, Approved, the version in use, and the one "Use this
-    version" points at (even while current() falls back to another, e.g. a file went missing)."""
+    """Never removed by retention: the Approved versions, the version in use, the one "Use this
+    version" points at (even while current() falls back to another, e.g. a file went missing), and
+    any pinned (marked Keep) before the UI dropped Keep."""
     cur = current(store, asset, plan)
     ptr = (read_json(_pointer_path(store, asset, plan), default=None) or {}).get("n")
     return {r["n"] for r in rows if r["pinned"] or r["approved"]} | {x for x in (cur, ptr) if x is not None}
 
 
 def prune(store: ProjectStore, asset: str, dry_run: bool = True, plan: str = PLAN, keep: int | None = None) -> dict:
-    """Versions beyond the last K unpinned ones (K: project setting). Pinned, Approved and the
-    current version stay. dry_run lists them (n and size) and removes nothing."""
+    """Versions beyond the last K (K: project setting; earlier pinned ones don't count). The Active,
+    Approved and earlier pinned versions stay. dry_run lists them (n and size) and removes nothing."""
     rows = load(store, asset, plan)
     k = keep if keep is not None else keep_limit(store)
     unpinned = sorted((r for r in rows if not r["pinned"]), key=lambda r: -r["n"])
@@ -399,7 +443,7 @@ def prune(store: ProjectStore, asset: str, dry_run: bool = True, plan: str = PLA
 
 
 def removable(store: ProjectStore, asset: str, plan: str = PLAN) -> dict:
-    """Every unpinned version except the Approved and the current one (Storage › Delete unpinned)."""
+    """Every version except the Active, the Approved and earlier pinned ones (Tools › Storage…)."""
     rows = load(store, asset, plan)
     stay = _protected(store, asset, rows, plan)
     old = [r for r in rows if r["n"] not in stay]
@@ -441,46 +485,7 @@ def delete(store: ProjectStore, asset: str, n: int, confirm_pinned: bool = False
     return {"deleted": n, "bytes": r["bytes"]}
 
 
-# --- pin, approve, restore -----------------------------------------------------------------
-
-def pin(store: ProjectStore, asset: str, n: int, plan: str = PLAN) -> dict:
-    """Keep a version for good. A procedural one also keeps its GLB when it is the current build
-    (the GLB on disk is that build's); an older one is protected without a GLB."""
-    from . import kit_proc
-    rows = load(store, asset, plan)
-    r = next((x for x in rows if x["n"] == n), None)
-    if r is None:
-        raise KeyError(f"{asset} has no version {n}")
-    r["pinned"] = True
-    if r["kind"] == "procedural" and current(store, asset, plan) == n:
-        glb = kit_proc.out_dir(store, asset) / "procedural.glb"
-        if glb.is_file():
-            d = vdir(store, asset, n, plan)
-            filestore.copy(store, glb, d / "procedural.glb")
-            z = kit_proc.zones_path(glb)
-            if z.is_file():
-                shutil.copy2(z, d / "procedural.zones.json")
-            r["files"] = sorted(set(r["files"]) | {"procedural.glb"} | ({"procedural.zones.json"} if z.is_file() else set()))
-            r["bytes"] = _dir_size(d)
-    _save(store, asset, rows, plan)
-    return r
-
-
-def unpin(store: ProjectStore, asset: str, n: int, plan: str = PLAN) -> dict:
-    rows = load(store, asset, plan)
-    r = next((x for x in rows if x["n"] == n), None)
-    if r is None:
-        raise KeyError(f"{asset} has no version {n}")
-    r["pinned"] = False
-    if r["kind"] == "procedural":
-        d = vdir(store, asset, n, plan)
-        for f in ("procedural.glb", "procedural.zones.json"):
-            filestore.release(store, d / f)
-        r["files"] = [f for f in r["files"] if not f.startswith("procedural.")]
-        r["bytes"] = _dir_size(d)
-    _save(store, asset, rows, plan)
-    return r
-
+# --- approve, restore, clean up ---------------------------------------------------------------
 
 def mark_approved(store: ProjectStore, asset: str, approved: bool = True, plan: str = PLAN) -> int | None:
     """The version current now is the Approved one (library_review.set_status); any other
@@ -611,6 +616,7 @@ def cards(store: ProjectStore, asset: str, plan: str = PLAN) -> list[dict]:
             continue
         stats = stats or {}
         out.append({"n": r["n"], "kind": r["kind"], "current": r["n"] == cur, "glb": _rel(store, glb),
+                    "approved": bool(r.get("approved")), "pinned": bool(r.get("pinned")),
                     "input": inp if inp and (store.root / inp).is_file() else None,
                     "faces": stats.get("glb_faces") or stats.get("faces"), "file_bytes": glb.stat().st_size,
                     "peak_vram_gb": stats.get("peak_vram_gb"), "seed": (r.get("source") or {}).get("seed"),

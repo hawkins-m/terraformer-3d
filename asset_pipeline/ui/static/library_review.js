@@ -114,7 +114,7 @@ function lrRender() {
 }
 
 function lrRenderVersions() {      // the version strip (versions.js); restoring reloads the brief and images
-  versionStrip("#lr-versions", lr.asset, () => lrLoad(true));
+  versionStrip("#lr-versions", lr.asset, () => lrLoad(true), {manage: true});     // no model cards here: Use / Delete on the rows
 }
 
 function lrImg(path, cap, extra = "", cls = "") {

@@ -150,3 +150,21 @@ def test_library_sub_tabs_follow_the_workflow_order():
     assert re.findall(r'<button role="tab" data-sub="(\w+)"', lib) == order
     assert re.findall(r'<div data-sub="(\w+)" id=', lib) == order
     assert '["areas", "plan", "assets", "refs"]' in (STATIC / "shell.js").read_text()
+
+
+def test_views_row_order_and_version_actions():
+    # Views and 3D, per asset: header right side = tier toggle, New seed, Make 3D; then the review row
+    # (status, Approve, Re-cut views…, Needs changes); the Cut Sheets box; Versions beside the cards.
+    js = (STATIC / "review.js").read_text()
+    head = js[js.index('el.innerHTML = `<div class="head">'):js.index('<div class="review-row">')]
+    assert head.index('class="usage"') < head.index('class="new-seed"') < head.index('class="make3d"')
+    assert "recut" not in head and "approve" not in head and "cleanup" not in head
+    row2 = js[js.index('<div class="review-row">'):js.index("reroll-form")]
+    assert row2.index("a.review ||") < row2.index("secondary approve") < row2.index("secondary recut") < row2.index("secondary changes")
+    assert "<legend>Cut Sheets</legend>" in js and 'class="small ver-restore"' in js and 'class="small ver-delete"' in js
+    ver = (STATIC / "versions.js").read_text()
+    assert "ver-pin" not in ver and "/pin`" not in ver and "Stop keeping" not in ver
+    assert "Versions ${d.versions.length} " in ver and "ver-cmp-row" in ver
+    assert ver.index('<div class="ver-list">') < ver.index('class="row ver-cmp-row"')
+    for step in ("Clean up", "Smooth shading", "Remove ground", "✓ cleaned", "✓ smoothed", "✓ ground removed"):
+        assert step in ver, step

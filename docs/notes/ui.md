@@ -91,11 +91,11 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - Jobs the panel can't count show their time left from the job's est_s.
 
 ## Version actions refresh the row (2026-10-23)
-- Every version action (Delete, Use this version, Keep / Stop keeping, Remove old versions) and a finished
-  Make 3D / Reroll / rebuild / restore job goes through `versionsChanged(asset, onChange)` (versions.js):
+- Every version action (Delete, Use this version, a cleanup step, Remove old versions) and a finished
+  Make 3D / Reroll / rebuild / restore / Clean up job goes through `versionsChanged(asset, onChange)` (versions.js):
   it refetches the listing into VER_CACHE, bumps `ROW_REV` (part of the Views and 3D row's sig, so the
-  row is rebuilt), runs onChange, then redraws every `.version-strip` of the asset. Before, a Keep or a
-  delete that changed no model card left the row and its strip stale until a reload.
+  row is rebuilt), runs onChange, then redraws every `.version-strip` of the asset. Before, a Keep (gone
+  since 2026-10-27) or a delete that changed no model card left the row and its strip stale until a reload.
 - `versionsAfterLoad()` (called in `load()`) spots version jobs finished since the last load.
 - Test: `tests/test_ui_versions_refresh.py` (browser); `_browse(..., seed=fn)` adds project data.
 
@@ -146,3 +146,19 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   failed; carries the scores) -> "Try another view to measure", which reopens Brief & build with View to measure on
   the best view and each view's score in the labels; `FormNeeded` -> "Choose the form and size" (the form fields).
 - Test: tests/test_ui_job_fixes.py (API cases, plus a browser case).
+
+## Views and 3D row layout; Keep removed (2026-10-27)
+- Per asset, top to bottom: header (thumb, name, id, Active vN, Manage entry…, size; right: the
+  game/cine/hero toggle, New seed, Make 3D, so the tier is set before building); the review line
+  right-aligned (status, Approve, Re-cut views…, Needs changes); the cut views in a "Cut Sheets"
+  group box; then Versions (left) beside the 3D model cards (right). The cards column has an 8 px
+  top margin so the cards start on the Versions box's border line (it runs through the middle of
+  the 16 px legend); below 1100 px the two stack.
+- Version rows (versions.js `verSteps`) carry the cleanup steps: a button while a step is to do, a
+  grey tick once done, nothing when it doesn't apply (procedural: no Smooth / Remove ground). The
+  listing gives `glb`, `cleaned` (for the asset's current tier), `smoothed`/`smoothable`,
+  `ground_checked`/`groundable` and the asset's `usage`. Clean up posts that version's `glb`; the
+  job's tag carries it, so the row shows Cleaning….
+- Use this version / Delete moved to the model cards; `versionStrip(..., {manage: true})` (Asset
+  review's detail view, no cards) keeps them on the rows. Keep / pin is gone (UI, API, versions.py);
+  versions pinned before stay protected and still ask before Delete.

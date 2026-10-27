@@ -214,10 +214,10 @@ def test_approve_says_which_version_export_and_unreal_use():
 def test_confusing_labels_are_renamed():
     ui = "".join((STATIC / f).read_text() for f in ("index.html", "library.js", "review.js", "refs.js", "areas.js", "versions.js", "shell.js"))
     for old in ('"Good source"', '"Use description"', '"Description + reference frame"', "<th>Route</th>", '"Cut views"',
-                '`Cut views (', '"Unpin" : "Pin"', '"3D route:"'):
+                '`Cut views (', '"Unpin" : "Pin"', '"3D route:"', '"Stop keeping" : "Keep"'):
         assert old not in ui, old
     for new in ('"Frame crop"', '"Description only"', '"Description + chosen image"', "\"Build method\": \"",
-                "Extract reference views", '"Stop keeping" : "Keep"', '"Build method:"'):
+                "Extract reference views", '"Build method:"'):
         assert new in ui, new
 
 

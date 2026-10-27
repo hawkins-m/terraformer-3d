@@ -342,7 +342,7 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   builds), and Unreal builds every imported mesh with the GLB's normals (`ap_import.keep_normals`;
   existing TRELLIS models in CityLibrary switch on the next build). A ~1M-face model takes ~3 s.
 - Existing versions: `ap library smooth PROJECT ASSET | --all` (UI: Smooth shading on a TRELLIS
-  version card, Pipeline › Smooth TRELLIS models…) writes `<stem>_smooth.glb` as a new version that
+  version row in Views and 3D's Versions box, Pipeline › Smooth TRELLIS models…) writes `<stem>_smooth.glb` as a new version that
   takes over as Active when its source was; the original stays.
 - The 30 deg pass leaves real creases on ~18% of a TRELLIS mesh's positions (its noisy surface plus
   cornices and steps); in clay renders the dome's facet bands go, what remains is the remesh's own
@@ -364,7 +364,7 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   stall's deck: the hull fixed those. Sampling triangles by 3D area matters (coarse walls).
 - Runs on every TRELLIS result after smoothing (`[trellis] remove_ground`) and in Clean up (before
   the fit). Existing versions: `ap library remove-ground PROJECT ASSET|--all [--smooth]`, the version
-  card's Remove ground, Pipeline › Remove ground from TRELLIS models… (a tick smooths in the same
+  row's Remove ground, Pipeline › Remove ground from TRELLIS models… (a tick smooths in the same
   Blender pass; one new version per asset). No ground found: no version, the source's stats JSON
   records it (its mtime kept: `result_time` reads it) and the card says so.
 - Prevention: stage 3 mattes the floor and shadow under SAM-found views (`s3_views.matte_ground`,
@@ -383,3 +383,13 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - A Clean up of an older version doesn't count: a new version (smoothed, ground removed) needs its
   own Clean up. Views and 3D labels each Clean up card "Cleaned from vN" (Active marked) and hides
   other versions' behind Show older cleanups (remembered per asset until reload).
+
+## Cleanup steps per version; Keep removed (2026-10-27)
+- Clean up runs per version from its row in Views and 3D (`POST /cleanup` with that version's
+  `glb`); `s6_cleanup.run` records it on the version (`cleaned: {usage: output}` in versions.json,
+  `versions.note_cleaned`). `versions.cleaned` also infers it for older cleanups from the report's
+  `source` (`s6_cleanup.for_source`). Smoothed / ground looked for already come from the GLB's stats
+  JSON and file name (`smooth.is_smoothed`, `ground_checked`); a fix version copies the source's stats,
+  so it carries the steps done before.
+- Keep (pin) is gone: retention (`prune`, `removable`) always protects the Active and Approved
+  versions, and versions pinned earlier stay protected (and don't count towards the last N).

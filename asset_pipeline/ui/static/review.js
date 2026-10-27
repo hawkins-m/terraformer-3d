@@ -94,23 +94,26 @@ function assetReview(a) {
   const places = lib && libraryData && libraryData.splits && libraryData.splits[x.id]
     ? `<span class="asset-split" title="${esc(splitTip(x.id))}">${esc(splitText(x.id))}</span>`
     : vof ? `shares ${esc(assetName(vof))}'s places` : `×${x.count}`;
+  // row 1: who it is on the left; on the right everything Make 3D takes (tier, seed), then Make 3D.
+  // row 2: the review. row 3: the cut views. row 4: Versions beside the 3D model cards.
   el.innerHTML = `<div class="head">
       ${a.current && a.current.thumb ? `<span class="cur-thumb" title="${ACTIVE_TIP}"><img alt="" src="${fileUrl(a.current.thumb)}"></span>` : ""}
       <span class="title">${lib ? `<b>${esc(assetName(x.id))}</b>${vof ? `<span class="variant-of"> · variant of ${esc(assetName(vof))}</span>` : ""}${assetName(x.id) !== x.id ? ` <span class="hint" style="margin:0">${esc(x.id)}</span>` : ""}` : esc(x.name)}</span>
       ${a.current ? `<span class="cur-version" title="${ACTIVE_TIP}"><span class="mark ver-used">Active</span><b>v${a.current.n}</b></span>` : ""}
       ${lib && assetEntry(x.id) ? `<button type="button" class="small secondary manage-entry" title="Rename, describe, build method, duplicate (Library › Asset review)">Manage entry…</button>` : ""}
       <span class="hint">${places} · ${d.width}×${d.depth}×${d.height} m${x.kit ? ` · kit ${esc(x.kit)}` : ""}</span>
-      <span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
+      <span class="actions"><span class="usage" role="group" aria-label="Usage">${USAGES.map(u =>
         `<button type="button" data-u="${u}" aria-pressed="${x.usage === u}" title="${USAGE_TIPS[u]}">${u}</button>`).join("")}</span>
-      <span class="actions">${a.procedural ? `<button type="button" class="${a.reroll ? "secondary " : ""}brief-build" data-needs="vlm blender">${noForm ? "Choose form…" : "Brief & build"}</button>` : ""}
+        ${a.procedural ? `<button type="button" class="${a.reroll ? "secondary " : ""}brief-build" data-needs="vlm blender">${noForm ? "Choose form…" : "Brief & build"}</button>` : ""}
         ${a.reroll ? `<button type="button" class="secondary reroll" aria-expanded="false" title="Generate a new procedural model for this asset. Add guidance to steer it. Seeds only apply to TRELLIS builds.">Reroll</button>` : ""}
-        <button type="button" class="make3d" data-needs="trellis">Make 3D</button>
         ${a.procedural ? "" : `<label class="new-seed" title="Draw a random seed for Make 3D instead of 42 (the seed is recorded with the result). Without it, Make 3D from the same view and mode repeats the same version."><input type="checkbox" class="new-seed-box"> New seed</label>`}
-        <button type="button" class="secondary recut">Re-cut views…</button>
-        <button type="button" class="secondary cleanup" title="Scale the Active version to the plan size and set its pivot at the base${x.usage === "game" ? ", then decimate and bake it for game use" : ""}.">Clean up</button>
-        ${a.plan === "library" ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
-          <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>
-          <button type="button" class="secondary changes" title="Mark this asset as needing another build; add the note in Library › Asset review.">Needs changes</button>` : ""}</span>
+        <button type="button" class="make3d" data-needs="trellis">Make 3D</button></span>
+    </div>
+    <div class="review-row">
+      ${lib ? `<span class="mark ${a.review === "approved" ? "m-ok" : a.review ? "m-chg" : "m-none"}" title="This asset's review status (also in Library › Asset review).">${esc((a.review || "not reviewed").replace("_", " "))}</span>
+        <button type="button" class="secondary approve" ${a.results.length ? `title="${APPROVE_TIP}"` : "disabled title=\"Make 3D first.\""}>Approve</button>` : ""}
+      <button type="button" class="secondary recut">Re-cut views…</button>
+      ${lib ? `<button type="button" class="secondary changes" title="Mark this asset as needing another build; add the note in Library › Asset review.">Needs changes</button>` : ""}
     </div>
     ${a.reroll ? `<div class="reroll-form row" hidden><input type="text" class="reroll-guidance" maxlength="500"
         placeholder="Guidance (optional): taller windows, an open arcade…" aria-label="Guidance for the reroll">
@@ -142,6 +145,8 @@ function assetReview(a) {
     catch (err) { alert(errorText(err)); }
   });
 
+  const sheets = document.createElement("fieldset"); sheets.className = "cut-sheets";
+  sheets.innerHTML = `<legend>Cut Sheets</legend>`;
   const g = document.createElement("div"); g.className = "grid views";
   if (!a.views.length) g.innerHTML = `<span class="hint no-views" title="Star a sheet in Library › Reference sheets, then click Extract reference views at the top of this tab.">No views yet: star a sheet, then Extract reference views</span>`;
   const viewName = v => `${v.sheet.split("/").pop().replace(".png", "").replace("sheet_", "s")} v${v.position}`;
@@ -172,13 +177,14 @@ function assetReview(a) {
     cell.append(b, del);
     g.append(cell);
   }
-  el.append(g);
+  sheets.append(g);
   const odd = a.views.filter(v => v.odd);
   if (odd.length) {
     const n = document.createElement("p"); n.className = "hint odd-views";
     n.textContent = odd.map(v => `${viewName(v)}: ${v.odd}`).join(" ");
-    el.append(n);
+    sheets.append(n);
   }
+  el.append(sheets);
 
   const jobs3d = activeJobs("3d.trellis", {plan: a.plan, asset: x.id});
   const make = $(".make3d", el);
@@ -240,19 +246,6 @@ function assetReview(a) {
     field.onkeydown = ev => { if (ev.key === "Enter") { ev.preventDefault(); go(); } else if (ev.key === "Escape") open(false); };
   }
 
-  const cleanJobs = activeJobs("cleanup", {plan: a.plan, asset: x.id});
-  const clean = $(".cleanup", el);
-  clean.disabled = !a.results.length || !!cleanJobs.length;
-  if (!a.results.length) clean.title = a.procedural ? "Build a version first (Brief & build)." : "Make 3D first.";
-  if (cleanJobs.length) {
-    clean.textContent = cleanJobs[0].status === "queued" ? "Queued…" : "Cleaning…";
-    clean.after(stopButton(cleanJobs));
-  }
-  clean.onclick = async () => {
-    try { await api(`/api/projects/${slug}/cleanup`, {plan: a.plan, asset: x.id}); await load(); }
-    catch (err) { alert(errorText(err)); }
-  };
-
   // fixed layout: the version strip in its own column (reserved even before it loads), the model
   // cards beside it; nothing wraps differently from one poll to the next
   const body = document.createElement("div"); body.className = "ar-body" + (a.plan === "library" ? " with-strip" : "");
@@ -272,9 +265,22 @@ function assetReview(a) {
       c.innerHTML = `<model-viewer src="${fileUrl(res.glb)}" camera-controls auto-rotate ${MV_LOOK}
           alt="3D model of ${esc(a.plan === "library" ? assetName(x.id, x.name) : x.name)}" loading="lazy"></model-viewer>
         <span>${res.n != null ? `<b>v${res.n}</b> ${esc(res.kind === "trellis" ? "TRELLIS" : res.kind)}` : esc(res.name)}${res.seed != null ? ` · seed ${res.seed}` : ""}
-          ${res.current ? `<span class="mark ver-used" title="${ACTIVE_TIP}">Active</span>` : ""}</span>
+          ${res.current && !(res.n != null && lib) ? `<span class="mark ver-used" title="${ACTIVE_TIP}">Active</span>` : ""}</span>
         <span class="hint">${esc(modelStats(res))}</span>
-        <span><a href="${fileUrl(res.glb)}" download title="Download this version's 3D model (GLB).">GLB</a>${res.input ? ` · <a href="${fileUrl(res.input)}" target="_blank" title="The image TRELLIS built this model from.">Image sourced</a>` : ""}</span>`;
+        ${res.n != null && lib ? `<span class="card-btns">${res.current ? `<span class="mark ver-used" title="${ACTIVE_TIP}">Active</span>`
+          : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
+          <button type="button" class="small ver-delete"${res.current ? ` disabled title="The Active version can't be deleted: use another version first."`
+            : res.approved ? ` disabled title="The Approved version can't be deleted."` : ` title="Delete this version and its files (asks first)."`}>Delete</button></span>` : ""}
+        <span><a href="${fileUrl(res.glb)}" download title="Download this version's 3D model (GLB).">GLB</a>${res.input ? ` · <a href="${fileUrl(res.input)}" target="_blank" title="The image TRELLIS built this model from.">Image sourced</a>` : ""}</span>
+        ${lib ? "" : `<span><button type="button" class="small card-cleanup">Clean up</button></span>`}`;
+      // the version actions live on the cards (the strip holds the cleanup steps); versions.js does the work
+      const ver = () => ((VER_CACHE[`${slug}/${x.id}`] || {}).versions || []).find(v => v.n === res.n) || res;
+      const use = $(".ver-restore", c);
+      if (use) use.onclick = () => versionRestore(x.id, ver(), () => load());
+      const del = $(".ver-delete", c);
+      if (del) del.onclick = () => versionDelete(x.id, ver(), () => versionsChanged(x.id, () => load()));
+      const cl = $(".card-cleanup", c);
+      if (cl) cleanupButton(cl, a.plan, x.id, res.glb, x.usage);
       r.append(c);
     }
     models.append(r);
@@ -307,6 +313,20 @@ function assetReview(a) {
   }
   if (!a.results.length && !a.cleanups.length) models.innerHTML = `<span class="hint">No 3D model yet.</span>`;
   return el;
+}
+
+// Clean up of a scene-mode 3D card (library versions have it on their Versions row): scale to the plan size,
+// pivot at the base, and for game use decimate and bake. glb: the model, project-relative.
+function cleanupButton(b, plan, asset, glb, usage) {
+  const jobs = activeJobs("cleanup", {plan, asset, glb});
+  b.disabled = !!jobs.length;
+  b.title = `Scale this model to the plan size and set its pivot at the base${usage === "game" ? ", then decimate and bake it for game use" : ""}.`;
+  if (jobs.length) { b.textContent = jobs[0].status === "queued" ? "Queued…" : "Cleaning…"; b.after(stopButton(jobs)); }
+  b.onclick = async () => {
+    b.disabled = true;
+    try { await api(`/api/projects/${slug}/cleanup`, {plan, asset, glb}); await load(); }
+    catch (err) { alert(errorText(err)); b.disabled = false; }
+  };
 }
 
 // Re-cut views…: one of the asset's starred sheets (the newest by default) cut again, its old views to

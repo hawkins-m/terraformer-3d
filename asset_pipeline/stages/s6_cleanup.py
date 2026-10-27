@@ -83,6 +83,9 @@ def run(store: ProjectStore, plan: str, asset_id: str, glb: str | None = None,
     rep = json.loads(report.read_text()) | {"usage": a.usage, "glb": dst.relative_to(store.root).as_posix(),
                                             "source": src.relative_to(store.root).as_posix()}
     report.write_text(json.dumps(rep, indent=2))
+    if plan == "library":                 # the version it came from records the step (Views and 3D's ticks)
+        from .. import versions
+        versions.note_cleaned(store, asset_id, src, a.usage, dst)
     store.log_run({"stage": "cleanup", "plan": plan, "asset": asset_id, "usage": a.usage,
                    "faces": rep["output_faces"], "warnings": rep["warnings"],
                    "seconds": round(time.time() - t, 1)})

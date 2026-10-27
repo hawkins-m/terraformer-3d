@@ -1,4 +1,4 @@
-"""Asset version bank: recording, retention, pin, approve, restore, compare, storage, migration and
+"""Asset version bank: recording, retention, approve, restore, compare, storage, migration, cleanup steps and
 the API. Blender and TRELLIS are monkeypatched; projects are temporary and neutral."""
 import json
 import os
@@ -46,6 +46,21 @@ def _build(store, asset="gate", **brief):
     return kit_proc.build_any(store, asset, log=lambda s: None)
 
 
+def _pinned_earlier(store, asset, n):
+    """A version marked Keep in the earlier UI (Keep / pin is gone; such versions stay protected): pinned,
+    and a procedural one pinned while current kept a copy of its GLB."""
+    rows = versions.load(store, asset)
+    r = next(x for x in rows if x["n"] == n)
+    r["pinned"] = True
+    glb = kit_proc.out_dir(store, asset) / "procedural.glb"
+    if r["kind"] == "procedural" and versions.current(store, asset) == n and glb.is_file():
+        d = versions.vdir(store, asset, n)
+        filestore.copy(store, glb, d / "procedural.glb")
+        r["files"] = sorted(set(r["files"]) | {"procedural.glb"})
+        r["bytes"] = versions._dir_size(d)
+    versions._save(store, asset, rows)
+
+
 def test_every_build_is_a_version_with_its_brief_and_guidance(store):
     r = _build(store)
     assert r["version"] == 1
@@ -79,10 +94,10 @@ def test_thumbnails_come_from_the_rebuild_renders(store, monkeypatch):
     assert row["thumb"] and (store.root / row["thumb"]).is_file() and row["bytes"] > 0
 
 
-def test_retention_keeps_last_k_and_never_pinned_approved_or_current(store):
+def test_retention_keeps_last_k_and_never_earlier_pinned_approved_or_current(store):
     for i in range(6):
         _build(store, params={"w": 10.0 + i})
-    versions.pin(store, "gate", 1)
+    _pinned_earlier(store, "gate", 1)
     lr.set_status(store, "gate", "approved", "")                  # v6 is current
     assert versions.get(store, "gate", 6)["approved"]
     dry = versions.prune(store, "gate", dry_run=True)
@@ -112,26 +127,35 @@ def test_approval_follows_the_status(store):
     assert not any(x["approved"] for x in versions.load(store, "gate"))
 
 
-def test_pin_keeps_the_glb_unpin_removes_it_and_delete_asks_for_pinned(store):
+def test_earlier_pinned_versions_stay_protected_and_delete_asks(store):
     _build(store)
     _build(store, params={"w": 11.0})
-    versions.pin(store, "gate", 2)
+    _pinned_earlier(store, "gate", 2)
     d2 = versions.vdir(store, "gate", 2)
-    assert (d2 / "procedural.glb").is_file() and versions.get(store, "gate", 2)["bytes"] > 3000
-    versions.pin(store, "gate", 1)                                  # an older build: protected, but no GLB to keep
-    assert not (versions.vdir(store, "gate", 1) / "procedural.glb").exists()
-    versions.set_current(store, "gate", 1)                          # the Active version can't be deleted
+    assert (d2 / "procedural.glb").is_file()
+    versions.set_current(store, "gate", 1)
+    assert versions.prune(store, "gate", keep=0)["remove"] == []       # v1 Active, v2 marked Keep earlier
+    assert versions.removable(store, "gate")["remove"] == []
     with pytest.raises(PermissionError):
         versions.delete(store, "gate", 2)
-    versions.unpin(store, "gate", 2)
-    assert not (d2 / "procedural.glb").exists()
-    versions.delete(store, "gate", 2)
+    versions.delete(store, "gate", 2, confirm_pinned=True)
     assert [x["n"] for x in versions.load(store, "gate")] == [1] and not d2.exists()
+    assert not hasattr(versions, "pin") and not hasattr(versions, "unpin")
+
+
+def test_retention_always_keeps_the_active_and_approved_versions(store):
+    for i in range(5):
+        _build(store, params={"w": 10.0 + i})
+    versions.set_current(store, "gate", 2)
+    lr.set_status(store, "gate", "approved", "")                   # v2 Approved and Active
+    versions.set_current(store, "gate", 4)                         # then v4 made Active
+    assert versions.prune(store, "gate", keep=1)["remove"] == [1, 3]
+    assert versions.removable(store, "gate")["remove"] == [1, 3, 5]
 
 
 def test_restore_without_a_glb_rebuilds_and_with_one_copies_it_back(store):
     _build(store)                                                    # v1: w 10, guidance "taller arch"
-    versions.pin(store, "gate", 1)                                   # current: GLB kept
+    _pinned_earlier(store, "gate", 1)                                   # current: GLB kept
     v1_bytes = (versions.vdir(store, "gate", 1) / "procedural.glb").read_bytes()
     _build(store, params={"w": 14.0}, guidance="other")             # v2
     assert read_json(kit_proc.spec_path(store, "gate"))["params"]["w"] == 14.0
@@ -144,7 +168,6 @@ def test_restore_without_a_glb_rebuilds_and_with_one_copies_it_back(store):
     assert read_json(kit_proc.spec_path(store, "gate"))["guidance"] == "taller arch"
     assert kit_proc.out_dir(store, "gate").joinpath("procedural.glb").read_bytes() == v1_bytes
     assert versions.current(store, "gate") == 1
-    versions.unpin(store, "gate", 1)
     called = []
     monkey = lambda s, a, log=print: (called.append(a), _build(s, a))[1]    # noqa: E731
     lr_rebuild = lr.rebuild
@@ -237,7 +260,7 @@ def test_migrate_is_idempotent_and_makes_v1_of_every_build(store):
 def test_storage_totals_and_delete_unpinned(store):
     for i in range(3):
         _build(store, params={"w": 10.0 + i})
-    versions.pin(store, "gate", 1)
+    _pinned_earlier(store, "gate", 1)
     s = versions.storage(store)
     a = s["assets"][0]
     assert a["asset"] == "gate" and a["versions"] == 3 and a["pinned"] == 1
@@ -256,7 +279,8 @@ def test_api_routes(store, monkeypatch):
     assert [v["n"] for v in d["versions"]] == [5, 4, 3, 2, 1] and d["keep"] == 3 and d["prunable"] == [1, 2]
     assert d["versions"][0]["current"]
     assert c.get(U + "/compare", params={"a": 1, "b": 5}).json()["brief_diff"]
-    assert c.post(U + "/2/pin").json()["pinned"]
+    assert c.post(U + "/2/pin").status_code in (404, 405)            # no Keep any more
+    _pinned_earlier(store, "gate", 2)                                 # one marked Keep before stays protected
     r = c.delete(U + "/2")
     assert r.status_code == 409 and "pinned" in r.json()["detail"]
     assert c.delete(U + "/2", params={"confirm_pinned": True}).status_code == 200
@@ -348,7 +372,7 @@ def test_using_a_trellis_version_beats_the_brief_and_switches_the_route(store, m
     from asset_pipeline.stages import s6_cleanup, sw_library
     _library_entry(store)                                  # route procedural (auto)
     _build(store)                                          # v1 procedural, in use
-    versions.pin(store, "gate", 1)                         # keeps its GLB
+    _pinned_earlier(store, "gate", 1)                         # keeps its GLB
     t = _trellis_run(store)                                # v2 TRELLIS: not the route, so not in use
     assert versions.current(store, "gate") == 1
     r = versions.restore(store, "gate", t["n"])
@@ -653,3 +677,47 @@ def test_a_failed_reroll_adds_nothing_and_changes_nothing(store, monkeypatch):
         lr.reroll(store, "gate", "wider")
     assert [r["n"] for r in versions.load(store, "gate")] == [1] and versions.current(store, "gate") == 1
     assert read_json(kit_proc.spec_path(store, "gate")) == brief_before
+
+
+def test_each_version_lists_its_cleanup_steps_done_or_to_do(store, monkeypatch):
+    """Views and 3D's version rows: Clean up for any version with a model; Smooth shading and Remove
+    ground only for TRELLIS ones; done steps come back as done (ticks) and a new version from a step
+    carries the steps done so far. Clean up records itself on the version it cleaned."""
+    import types
+    from asset_pipeline.stages import s6_cleanup
+    _library_entry(store, route="trellis")
+    _build(store)                                                      # v1 procedural (the build on disk)
+    t = _trellis_run(store)                                            # v2 TRELLIS, in use
+    write_json(store.root / t["files"][1], {"seed": 42, "glb_faces": 934000, "ground": {"removed_faces": 0}})
+    tier = types.SimpleNamespace(dimensions=types.SimpleNamespace(width=10, depth=4, height=8), usage="game", category="structure")
+    monkeypatch.setattr(s6_cleanup, "_asset", lambda *a: tier)
+    rows = {v["n"]: v for v in versions.listing(store, "gate")["versions"]}
+    assert versions.listing(store, "gate")["usage"] == "game"
+    p, tr = rows[1], rows[2]
+    assert p["glb"] and not p["cleaned"] and not (p["smoothable"] or p["smoothed"] or p["groundable"] or p["ground_checked"])
+    assert tr["smoothable"] and not tr["smoothed"] and tr["ground_checked"] and not tr["groundable"]
+    assert tr["ground"] == "No ground found" and tr["glb"] == t["files"][0] and not tr["cleaned"]
+
+    def fake_blender(script, args, log, what, exe=None, blend=None):
+        write_json(args[args.index("--report") + 1], {"output_faces": 1, "warnings": []})
+        Path(args[args.index("--out") + 1]).write_bytes(b"cleaned")
+    monkeypatch.setattr(s6_cleanup.blender, "run", fake_blender)
+    s6_cleanup.run(store, "library", "gate", glb=t["files"][0])       # Clean up of v2 (its row's button)
+    assert versions.get(store, "gate", 2)["cleaned"] == {"game": "cleanup/library/gate/sheet_006_v2_1024_cascade_s42_game.glb"}
+    rows = {v["n"]: v for v in versions.listing(store, "gate")["versions"]}
+    assert rows[2]["cleaned"] and not rows[1]["cleaned"]
+    tier.usage = "hero"                                                # another tier: Clean up again
+    assert not {v["n"]: v for v in versions.listing(store, "gate")["versions"]}[2]["cleaned"]
+    tier.usage = "game"
+    r = versions.load(store, "gate")                                   # an older cleanup, before the record: inferred
+    for x in r:
+        x.pop("cleaned", None)
+    versions._save(store, "gate", r)
+    assert {v["n"]: v for v in versions.listing(store, "gate")["versions"]}[2]["cleaned"]
+    # a step that makes a new version: the new one carries what is done (ground looked for, now smoothed)
+    from asset_pipeline import smooth
+    monkeypatch.setattr(smooth, "fix_glb", lambda src, dst, angle, ground, log=None: (Path(dst).write_bytes(b"smooth"),
+                        {"seconds": 0.1, "angle": angle, "welded": 1, "sharp_edges": 2, "ground": None})[1])
+    new = smooth.smooth_version(store, "gate", 2)["n"]
+    v = {x["n"]: x for x in versions.listing(store, "gate")["versions"]}[new]
+    assert v["smoothed"] and not v["smoothable"] and v["ground_checked"] and not v["groundable"] and not v["cleaned"]

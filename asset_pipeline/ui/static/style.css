@@ -237,7 +237,11 @@ button.remove { min-width: 0; width: 22px; height: 20px; padding: 0; }
 .asset-review { border-top: 1px solid var(--border); padding: 8px 0; display: grid; gap: 6px; }
 .asset-review .head { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .asset-review .head .title { font-weight: 700; }
-.asset-review .head .actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
+.asset-review .head .actions { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+/* row 2: the review status and its buttons, right-aligned on their own line */
+.asset-review .review-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: flex-end; }
+/* row 3: the cut views in a group box like Versions */
+.asset-review .cut-sheets { margin: 0; min-width: 0; }
 .usage { display: inline-flex; }
 .usage button { border-radius: 0; min-width: 0; margin-left: -1px; }
 .usage button[aria-pressed="true"] { background: var(--select); color: var(--select-text); }
@@ -512,7 +516,12 @@ details summary { cursor: default; }
 .asset-copy { font-size: 0.9em; }
 .variant-of { font-weight: normal; }
 .version-strip .ver img, .version-strip .ver-nothumb { width: 72px; height: 54px; object-fit: contain; background: #fff; display: grid; place-items: center; color: var(--muted); font-size: 11px; }
-.version-strip .ver-btns { grid-column: 2 / -1; display: flex; gap: 3px; overflow: hidden; }
+.version-strip .ver-btns { grid-column: 2 / -1; display: flex; flex-wrap: wrap; gap: 3px 6px; align-items: center; min-width: 0; }
+/* a cleanup step already done: a small grey tick instead of its button */
+.version-strip .ver-done { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.version-strip .ver-cmp-row { margin: 10px 0 0; padding-top: 6px; border-top: 1px solid var(--border); }
+/* the Use this version / Delete line of a Views and 3D model card */
+.result .card-btns { display: flex; gap: 6px; align-items: center; }
 .asset-review .no-views { grid-column: 1 / -1; white-space: nowrap; }
 .asset-review .reroll-form { margin: 4px 0; gap: 6px; flex-wrap: wrap; }
 .asset-review .reroll-form .reroll-guidance { flex: 1; min-width: 12em; max-width: 40em; }
@@ -571,6 +580,9 @@ details summary { cursor: default; }
 .ar-body { display: grid; gap: 8px; align-items: start; }
 .ar-body.with-strip { grid-template-columns: minmax(360px, 440px) minmax(0, 1fr); }
 .ar-body > .version-strip { margin: 0; min-height: 96px; }
+/* the group box's top line runs through the middle of its legend: the cards start on that line */
+.ar-body > .version-strip > legend { line-height: 16px; }
+.ar-body.with-strip > .ar-models { margin-top: 8px; }
 .ar-models { display: grid; gap: 6px; min-width: 0; align-content: start; }
 .result model-viewer, .result img { display: block; }
 @media (max-width: 1100px) { .ar-body.with-strip { grid-template-columns: minmax(0, 1fr); } }

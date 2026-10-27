@@ -975,8 +975,11 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
      back); Flux often draws three-quarter views instead.
    - Kit sheets are split into their pieces, left to right in the order asked.
    - Ground textures aren't cut.
-2. For each asset, click the view to build it from (✓ marks it; click again to clear) and
-   tag it **game**, **cine** or **hero**. The tag is stored on the plan asset.
+2. For each asset, click the view to build it from in its **Cut Sheets** box (✓ marks it; click
+   again to clear; **x** deletes a view) and tag it **game**, **cine** or **hero** with the toggle
+   beside **New seed** and **Make 3D** on the right of the asset's header. The tag is stored on the
+   plan asset. The review status, **Approve**, **Re-cut views…** and **Needs changes** sit on the
+   line below.
 3. **Make 3D** runs TRELLIS.2 on GPU 0 (mode picker at the top; ~2.5 min for
    `1024_cascade`, ~1.5 min for `512`). The result shows with a 3D preview, its stats, the
    GLB and the image TRELLIS actually saw (**Image sourced**). Hero assets use TRELLIS too until the
@@ -984,7 +987,8 @@ side and back. Stage 3 cuts them apart, and you pick the best one for TRELLIS.
 4. Procedural assets get **Reroll** instead: optional guidance, then **Go** builds a new version
    from the asset's current sheet (with guidance the vision model's brief edits are all
    accepted; without, the sheet is measured again and your edits kept). The new version is
-   added to Versions but does not become Active: pick it with **Use this version**. A failed
+   added to Versions but does not become Active: pick it with **Use this version** on its 3D model
+   card. A failed
    reroll adds nothing and leaves the brief and the Active build as they were.
 
 Explanations live in hover tooltips: the **Views and 3D** heading, every button, the Active
@@ -1007,8 +1011,8 @@ with the stats JSON, the TRELLIS input image and `trellis.log`. The chosen views
 
 # Stage 6: cleanup (Blender)
 
-**Clean up** in the Views and 3D tab (or `ap cleanup`) turns an asset's newest 3D result into a
-cleaned GLB, in headless Blender on the CPU (so it never waits for or slows the GPUs):
+**Clean up** on a version row in the Views and 3D tab's Versions box (or `ap cleanup`, which takes
+the Active version) turns that version's 3D model into a cleaned GLB for the asset's tier, in headless Blender on the CPU (so it never waits for or slows the GPUs):
 
 - **Every asset:** scaled uniformly to the plan's real-world size and given a pivot at the
   bottom centre of its base, at the origin. By default the height is fitted exactly
@@ -1093,19 +1097,29 @@ reliable yet. Hunyuan3D-2mv's license excludes the EU, UK and South Korea.
 Every build of a library asset is kept as a numbered version under
 `3d/library/<asset>/versions/` (`versions.json` is the index, `v<N>/` holds a procedural
 version's brief, build settings and thumbnails). A TRELLIS version keeps no copy: its GLB, stats
-and input image stay where TRELLIS wrote them. A procedural version holds no GLB unless pinned.
+and input image stay where TRELLIS wrote them. A procedural version holds no GLB (unless it was marked Keep in an earlier version of the app
+while it was current).
 
-- Library › Asset review (detail view) and Views and 3D show a version strip: Restore, Keep or
-  Stop keeping (the CLI and API call it pin / unpin), Delete, and tick two versions for Compare. Restoring a procedural version puts its brief
-  back and rebuilds (or copies back the GLB of a version marked Keep); restoring a TRELLIS version makes
-  it the newest result.
-- The last N versions not marked Keep stay (Tools › Settings…, per project, default 3). Older ones are
-  never removed silently: no build, reroll or Make 3D prunes anything; afterwards the strip offers
-  "N old versions can be removed". The Approved, Keep and Active (current) versions are never
-  removed, and the Active one can't be deleted while other versions exist. Make 3D writes into a
+- Views and 3D shows each asset's **Versions** box ("Versions 3 · 133.2 MB") beside its 3D model
+  cards. Each version row has its Compare tick, thumbnail, number, method, date, source, size and
+  Active badge, plus the cleanup steps not done yet for that version: **Clean up** (any version with
+  a 3D model), **Smooth shading** and **Remove ground** (TRELLIS versions only). Done steps show as
+  small grey ticks (✓ cleaned (game), ✓ smoothed, ✓ ground removed / no ground found); a step that
+  makes a new version leaves the steps done so far ticked on it. Clean up counts for the asset's
+  current tier, and records itself on the version it cleaned. **Compare** (tick two) is at the
+  bottom of the box.
+- **Use this version** and **Delete** are on each 3D model card (the Active card says Active and
+  can't be deleted). Library › Asset review's detail view, which has no cards, keeps them on the
+  version rows. Restoring a procedural version puts its brief back and rebuilds (or copies back a
+  saved GLB); restoring a TRELLIS version makes it the newest result.
+- There is no Keep any more. The last N versions stay (Tools › Settings…, per project, default 3).
+  Older ones are never removed silently: no build, reroll or Make 3D prunes anything; afterwards
+  the box offers "N old versions can be removed". The Active and Approved versions are never
+  removed (nor any marked Keep in an earlier version of the app), and the Active one can't be
+  deleted while other versions exist. Make 3D writes into a
   staging folder first, so a failed rerun with the same view, mode and seed keeps the old files.
-- Tools › Storage… shows the size of builds and versions per asset and project, and deletes
-  versions not marked Keep after a confirmation.
+- Tools › Storage… shows the size of builds and versions per asset and project, and deletes old
+  versions (never the Active or Approved ones) after a confirmation.
 - Existing builds become version 1 of their asset the first time the strip is opened, or all at
   once with `ap library versions migrate PROJECT` (safe to repeat). `ap library versions show
   PROJECT` prints the sizes.

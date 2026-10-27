@@ -1130,7 +1130,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             raise HTTPException(400, "make 3D first")
         return jobs.submit("cleanup", slug, lambda: s6_cleanup.run(store, req.plan, req.asset,
                                                                    glb=req.glb, fit=req.fit),
-                           lane="cpu", tag={"plan": req.plan, "asset": req.asset}).public()
+                           lane="cpu", tag={"plan": req.plan, "asset": req.asset, "glb": req.glb}).public()
 
     # --- world mode: site greybox and shots ----------------------------------------------
 

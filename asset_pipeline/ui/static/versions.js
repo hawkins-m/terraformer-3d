@@ -1,12 +1,16 @@
 // Asset version bank (server side: asset_pipeline/versions.py, ui/versions_api.py).
-// - versionStrip(box, asset, onChange): the strip of an asset's builds (Library › Asset review
-//   detail view, and Views and 3D for library props). Per version: thumbnail, vN, date, source
-//   (sheet, view, guidance, seed), size, Use this version / Keep / Delete, two ticked = Compare.
-//   "Keep" is the UI's word for a pinned version (server: pin / unpin, pinned).
-//   The version in use (cleanup, export) is highlighted: "Active".
+// - versionStrip(box, asset, onChange, opts): the box of an asset's builds (Views and 3D, and
+//   Library › Asset review's detail view). Per version: Compare tick, thumbnail, vN, method, date,
+//   source (sheet, view, guidance, seed), size, Active badge, and the cleanup steps: the ones not
+//   done yet as buttons (Clean up, Smooth shading, Remove ground), done ones as grey ticks; a step
+//   that doesn't apply (a procedural version has no Smooth or Remove ground) shows neither.
+//   Views and 3D puts Use this version / Delete on its 3D model cards; opts.manage (Asset review,
+//   which has no cards) puts them on the rows. Two ticked = Compare, at the bottom of the box.
+//   There is no Keep any more: retention never removes the Active or an Approved version, and
+//   versions marked Keep in the earlier UI ("pinned") stay protected.
 // - Tools › Storage…: what the builds and versions take, per asset and per project, with
-//   "Delete unpinned versions" (never the Approved, pinned or current ones).
-// - Tools › Settings…: how many unpinned versions to keep per asset.
+//   "Delete old versions" (never the Active or Approved ones).
+// - Tools › Settings…: how many recent versions to keep per asset.
 // Loaded after tools.js (jobDone, confirmDialog).
 Object.assign(JOB_LABELS, {"library.restore": "switching the version in use", "library.assembly": "attached pieces preview"});
 Object.assign(LOADERS, {"library.restore": ["Switching the version in use…", "greybox", "steps"], "library.assembly": ["Placing the attached pieces…", "greybox", ""]});
@@ -50,9 +54,10 @@ async function versionJob(job) {        // a started job: wait (api() has opened
 // re-rendered meanwhile, leaving the first element detached and the strip empty)
 // the last strip data per asset: a rebuilt row draws it at once instead of an empty box
 const VER_CACHE = {};
-async function versionStrip(boxOrSel, asset, onChange) {
+async function versionStrip(boxOrSel, asset, onChange, opts = {}) {
   const find = () => typeof boxOrSel === "string" ? document.querySelector(boxOrSel) : boxOrSel;
   if (!find()) return;
+  find()._opts = opts;
   const ck = `${slug}/${asset}`, cached = VER_CACHE[ck];
   if (cached) versionStripDraw(find(), asset, cached, onChange);
   let d, err = null;
@@ -65,11 +70,11 @@ async function versionStrip(boxOrSel, asset, onChange) {
   versionStripDraw(box, asset, d, onChange);
 }
 
-// One refresh for every version action (Delete, Use this version, Keep / Stop keeping, Remove old
-// versions, and a finished Make 3D / Reroll / rebuild / restore): fetch the asset's versions, mark
+// One refresh for every version action (Delete, Use this version, Remove old versions, a cleanup
+// step, and a finished Make 3D / Reroll / rebuild / restore / Clean up): fetch the asset's versions, mark
 // its rows changed (ROW_REV, in the Views and 3D row's sig), reload the view, then redraw every
-// strip of the asset on the page. The bug: Views and 3D rows are keyed on /review data, which a Keep
-// or deleting a version without a 3D model doesn't change, so the row and its strip stayed stale.
+// strip of the asset on the page. The bug: Views and 3D rows are keyed on /review data, which
+// deleting a version without a 3D model doesn't change, so the row and its strip stayed stale.
 const ROW_REV = {};
 const verRev = asset => ROW_REV[`${slug}/${asset}`] || 0;
 async function versionsChanged(asset, onChange) {
@@ -85,7 +90,7 @@ async function versionsChanged(asset, onChange) {
 }
 
 // load(): a job that makes or switches versions has finished since the last load -> refresh its asset
-const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build", "library.smooth", "library.ground"]);
+const VERSION_JOBS = new Set(["3d.trellis", "library.reroll", "library.restore", "library.rebuild", "library.brief_build", "library.smooth", "library.ground", "cleanup"]);
 let verJobsSeen = null;
 async function versionsAfterLoad() {
   const done = data.jobs.filter(j => VERSION_JOBS.has(j.kind) && j.tag && j.tag.asset && (j.tag.plan || "library") === "library" && !isActive(j));
@@ -95,33 +100,49 @@ async function versionsAfterLoad() {
   await Promise.all(assets.map(a => versionsChanged(a)));     // load() renders the rows next
 }
 
+// a version's cleanup steps: [what, done, button class, button label, tick text, title]; a step that
+// doesn't apply to the version is left out (no button, no tick)
+const SMOOTH_TIP = "Weld the model and shade it smooth by angle (30°: curves smooth, sharp edges crisp), as a new version; a few seconds, no regeneration.";
+const GROUND_TIP = "Cut off a thin ground slab TRELLIS built under the model from the sheet's shadow or floor, and stand the model on its own base, as a new version; plinths, podiums and steps stay. A few seconds.";
+function verSteps(v, usage) {
+  const out = [];
+  if (v.glb) out.push(["cleanup", !!v.cleaned, "ver-clean", "Clean up", `✓ cleaned${usage ? ` (${usage})` : ""}`,
+    v.cleaned ? `Clean up has made this version's ${usage || ""} model (Unreal places it for the Active version).` : ""]);
+  if (v.kind === "trellis" && (v.smoothable || v.smoothed))
+    out.push(["smooth", !!v.smoothed, "ver-smooth", "Smooth shading", "✓ smoothed", v.smoothed ? "Welded and shaded smooth by angle." : SMOOTH_TIP]);
+  if (v.kind === "trellis" && (v.groundable || v.ground_checked))
+    out.push(["ground", !!v.ground_checked, "ver-ground-rm", "Remove ground", /^No ground/.test(v.ground || "") ? "✓ no ground found" : "✓ ground removed",
+      v.ground_checked ? v.ground || "The ground was looked for." : GROUND_TIP]);
+  return out;
+}
+
 function versionStripDraw(box, asset, d, onChange) {
   box.dataset.drawn = "1";
   box._onChange = onChange;
+  const manage = !!(box._opts && box._opts.manage);
   if (box.dataset.asset !== asset) box.dataset.sel = "[]";
   box.dataset.asset = asset;
   const sel = new Set(JSON.parse(box.dataset.sel || "[]").filter(n => d.versions.some(v => v.n === n)));
+  const cleaning = v => v.glb && typeof activeJobs === "function" ? activeJobs("cleanup", {plan: "library", asset, glb: v.glb}) : [];
   const draw = () => {
     box.dataset.sel = JSON.stringify([...sel]);
     box.className = "version-strip";
-    box.innerHTML = `<legend title="Keeps your last ${d.keep} versions plus any marked Keep. The Active version is never removed.">Versions <span class="hint" style="margin:0" data-role="total">${d.versions.length} version${d.versions.length === 1 ? "" : "s"} · ${fmtBytes(d.bytes)}</span></legend>
+    box.innerHTML = `<legend title="Keeps your last ${d.keep} versions; the Active and Approved versions are never removed.">Versions ${d.versions.length} <span class="hint" style="margin:0" data-role="total">· ${fmtBytes(d.bytes)}</span></legend>
       ${d.prunable.length ? `<div class="ver-prune row"><span>${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} can be removed (${fmtBytes(d.prunable_bytes)})</span>
-        <button type="button" class="small ver-prune-btn" title="Delete these old versions (asks first); Active, Approved and Keep versions stay.">Remove</button></div>` : ""}
+        <button type="button" class="small ver-prune-btn" title="Delete these old versions (asks first); the Active and Approved versions stay.">Remove</button></div>` : ""}
       <div class="ver-list">${d.versions.map(v => `<div class="ver${v.current ? " cur" : ""}" data-n="${v.n}">
         <label class="check ver-pick" title="Tick two versions to compare them"><input type="checkbox" class="ver-sel" ${sel.has(v.n) ? "checked" : ""} aria-label="Compare v${v.n}"> Compare</label>
         ${v.thumb ? `<img loading="lazy" alt="Thumbnail of v${v.n}" src="${fileUrl(v.thumb)}">` : `<div class="ver-nothumb">no render</div>`}
         <div class="ver-meta"><b>v${v.n}</b> <span class="hint" style="margin:0">${esc(v.kind)} · ${esc(verDate(v.created))}</span>
-          <div class="ver-marks">${v.current ? `<span class="mark ver-used" title="This version is the one later steps (Cleanup, Unreal look scenes) will use.">Active</span>` : ""}${v.approved ? `<span class="mark m-ok" title="The version that was Active when the asset was approved; never removed.">approved</span>` : ""}${v.pinned ? `<span class="mark m-new" title="Marked Keep: never removed">kept</span>` : ""}</div>
           <div class="hint ver-src" style="margin:0">${esc(verSource(v)) || "&nbsp;"}</div>
           <div class="hint ver-changes" style="margin:0" title="${esc(v.changes ? `What changed in the brief:\n${v.changes.replace(/^Changed: /, "").replace(/; | · /g, "\n")}` : "")}">${esc(v.changes_short || v.changes || "") || "&nbsp;"}</div>
-          <div class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</div>
-          ${v.ground ? `<div class="hint ver-ground" style="margin:0">${esc(v.ground)}</div>` : ""}</div>
-        <div class="ver-btns">${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
-          ${v.smoothable ? `<button type="button" class="small ver-smooth" title="Weld the model and shade it smooth by angle (30°: curves smooth, sharp edges crisp), as a new version; a few seconds, no regeneration.">Smooth shading</button>` : ""}
-          ${v.groundable ? `<button type="button" class="small ver-ground-rm" title="Cut off a thin ground slab TRELLIS built under the model from the sheet's shadow or floor, and stand the model on its own base, as a new version; plinths, podiums and steps stay. A few seconds.">Remove ground</button>` : ""}
-          <button type="button" class="small ver-pin" title="${v.pinned ? "Let retention remove this version again once it is old." : "Never remove this version, however many newer ones you make."}">${v.pinned ? "Stop keeping" : "Keep"}</button>
-          <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button></div></div>`).join("")}</div>
-      <div class="row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"} title="Show the two ticked versions side by side with what differs.">Compare</button>
+          <div class="ver-marks"><span class="hint" style="margin:0">${fmtBytes(v.bytes)}${v.has_glb && v.kind === "procedural" ? " · with 3D model" : ""}</span>${v.current ? `<span class="mark ver-used" title="This version is the one later steps (Cleanup, Unreal look scenes) will use.">Active</span>` : ""}${v.approved ? `<span class="mark m-ok" title="The version that was Active when the asset was approved; never removed.">approved</span>` : ""}${v.pinned ? `<span class="mark m-new" title="Marked Keep in an earlier version of the app: never removed.">kept</span>` : ""}</div></div>
+        <div class="ver-btns">${verSteps(v, d.usage).map(([k, done, cls, label, tick, tip]) => done
+            ? `<span class="ver-done" data-step="${k}" title="${esc(tip)}">${esc(tick)}</span>`
+            : `<button type="button" class="small ${cls}" data-step="${k}"${tip ? ` title="${esc(tip)}"` : ""}>${label}</button>`).join("")}
+          ${manage ? `${v.current ? "" : `<button type="button" class="small ver-restore" title="Make this the Active version that Cleanup and Unreal look scenes use.">Use this version</button>`}
+          <button type="button" class="small ver-delete"${v.approved ? " disabled title=\"The Approved version can't be deleted.\"" : v.current ? " disabled title=\"The Active version can't be deleted: use another version first.\"" : " title=\"Delete this version and its files (asks first).\""}>Delete</button>` : ""}</div></div>`).join("")}</div>
+      <div class="row ver-cmp-row"><button type="button" class="small ver-compare" ${sel.size === 2 ? "" : "disabled"} title="Show the two ticked versions side by side with what differs.">Compare</button>
         <span class="hint" style="margin:0">Tick two versions to compare them.</span></div>`;
     box.querySelectorAll(".ver").forEach(row => {
       const n = +row.dataset.n, v = d.versions.find(x => x.n === n);
@@ -131,6 +152,16 @@ function versionStripDraw(box, asset, d, onChange) {
       };
       const use = $(".ver-restore", row);
       if (use) use.onclick = () => versionRestore(asset, v, onChange);
+      const del = $(".ver-delete", row);
+      if (del) del.onclick = () => versionDelete(asset, v, () => versionsChanged(asset, onChange));
+      const cl = $(".ver-clean", row), cj = cleaning(v);
+      if (cl && cj.length) { cl.disabled = true; cl.textContent = cj[0].status === "queued" ? "Queued…" : "Cleaning…"; }
+      // Clean up of this version's model; the job's end refreshes the strip (VERSION_JOBS)
+      if (cl) cl.onclick = async () => {
+        cl.disabled = true;
+        try { await api(`/api/projects/${slug}/cleanup`, {plan: "library", asset, glb: v.glb}); if (typeof load === "function") await load(); }
+        catch (err) { alert(errorText(err)); cl.disabled = false; }
+      };
       const sm = $(".ver-smooth", row);
       if (sm) sm.onclick = async () => {
         sm.disabled = true;
@@ -145,13 +176,6 @@ function versionStripDraw(box, asset, d, onChange) {
         catch (err) { alert(errorText(err)); }
         await versionsChanged(asset, onChange);
       };
-      $(".ver-pin", row).onclick = async () => {
-        try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/${n}/${v.pinned ? "unpin" : "pin"}`, {}); }
-        catch (err) { alert(errorText(err)); }
-        await versionsChanged(asset, onChange);
-      };
-      // the page's model cards come from the versions: refresh the whole view, not just the strip
-      $(".ver-delete", row).onclick = () => versionDelete(asset, v, () => versionsChanged(asset, onChange));
     });
     const cmp = $(".ver-compare", box);
     if (cmp) cmp.onclick = () => versionCompare(asset, ...[...sel].sort((a, b) => a - b));
@@ -160,7 +184,7 @@ function versionStripDraw(box, asset, d, onChange) {
       const ok = await confirmDialog({title: "Remove old versions", button: "Remove", danger: true, id: "version-prune-dialog",
         body: `<p>Remove ${d.prunable.length} old version${d.prunable.length === 1 ? "" : "s"} of <b>${esc(assetName(asset))}</b>
           (${d.prunable.map(n => "v" + n).join(", ")}), freeing ${fmtBytes(d.prunable_bytes)}?</p>
-          <p class="hint">The last ${d.keep} not marked Keep, those marked Keep, the Approved and the current version stay.</p>`});
+          <p class="hint">The last ${d.keep}, the Active and the Approved versions stay.</p>`});
       if (!ok) return;
       try { await api(`/api/projects/${slug}/library/asset/${asset}/versions/prune`, {dry_run: false}); }
       catch (err) { alert(errorText(err)); }
@@ -196,7 +220,7 @@ async function versionDelete(asset, v, after) {
   const url = `/api/projects/${slug}/library/asset/${asset}/versions/${v.n}`;
   const ok = await confirmDialog({title: `Delete v${v.n}`, button: "Delete", danger: true, id: "version-delete-dialog",
     body: `<p>Delete v${v.n} of <b>${esc(assetName(asset))}</b> (${fmtBytes(v.bytes)})?${v.kind === "trellis" ? " Its 3D model file is removed too." : ""}</p>
-      ${v.pinned ? `<p class="error">It is marked Keep. Deleting it removes the mark and its saved files.</p>` : ""}`});
+      ${v.pinned ? `<p class="error">It was marked Keep in an earlier version of the app. Deleting it removes it and its saved files.</p>` : ""}`});
   if (!ok) return;
   try { await api(url + (v.pinned ? "?confirm_pinned=true" : ""), {}, "DELETE"); }
   catch (err) { alert(errorText(err)); }
@@ -233,7 +257,7 @@ async function storageDialog() {
     catch (err) { body.innerHTML = `<span class="error">${esc(errorText(err))}</span>`; return; }
     const f = s.files || {};
     body.innerHTML = `<p id="st-total"><b>${fmtBytes(s.total)}</b> in asset builds and versions: ${fmtBytes(s.current_bytes)} current build files,
-        ${fmtBytes(s.versions_bytes)} in versions. The last ${s.keep} versions not marked Keep of each asset stay (Tools › Settings…).</p>
+        ${fmtBytes(s.versions_bytes)} in versions. The last ${s.keep} versions of each asset stay (Tools › Settings…), and the Active and Approved ones always.</p>
       <fieldset id="st-shared"><legend>Shared file store</legend>
         <p style="margin:0 0 4px">Sheets, cut views and 3D models are stored once and referenced by every entry and version that uses them:
           <b>${fmtBytes(f.bytes || 0)}</b> on disk for ${(f.references || 0).toLocaleString("en")} references to ${(f.objects || 0).toLocaleString("en")} files,
@@ -245,16 +269,16 @@ async function storageDialog() {
           <button type="button" id="st-loose-rm">Remove these files (${s.loose.length}, ${fmtBytes(s.loose_bytes)})</button>`
           : `<p class="hint" style="margin:0">None: every 3D model on disk belongs to a version (older TRELLIS results are taken into versions).</p>`}</fieldset>
       ${s.assets.length ? `<table class="grid-table"><thead><tr><th>Asset</th><th>Versions</th><th>Versions size</th><th>Build files</th><th>Total</th><th></th></tr></thead><tbody>
-        ${s.assets.map(r => `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}</td><td>${r.versions}${r.pinned ? ` (${r.pinned} marked Keep)` : ""}</td>
+        ${s.assets.map(r => `<tr data-asset="${esc(r.asset)}"><td>${assetLabelHtml(r.asset)}</td><td>${r.versions}</td>
           <td>${fmtBytes(r.versions_bytes)}</td><td>${fmtBytes(r.current_bytes)}</td><td>${fmtBytes(r.total)}</td>
-          <td><button type="button" class="small st-prune-asset"${r.removable ? "" : " disabled"}>Delete versions not marked Keep (${r.removable}, ${fmtBytes(r.removable_bytes)})</button></td></tr>`).join("")}
+          <td><button type="button" class="small st-prune-asset"${r.removable ? "" : " disabled"}>Delete old versions (${r.removable}, ${fmtBytes(r.removable_bytes)})</button></td></tr>`).join("")}
         </tbody></table>` : `<p class="hint">No asset builds yet.</p>`}
-      <div class="row"><button type="button" id="st-prune-all"${s.removable ? "" : " disabled"}>Delete versions not marked Keep in the project (${s.removable}, ${fmtBytes(s.removable_bytes)})</button>
-        <span class="hint" style="margin:0">The Approved, Keep and current versions are never deleted.</span></div>`;
+      <div class="row"><button type="button" id="st-prune-all"${s.removable ? "" : " disabled"}>Delete old versions in the project (${s.removable}, ${fmtBytes(s.removable_bytes)})</button>
+        <span class="hint" style="margin:0">The Active and Approved versions are never deleted.</span></div>`;
     const prune = async (asset, n, bytes) => {
-      const ok = await confirmDialog({title: "Delete versions not marked Keep", button: "Delete", danger: true, id: "storage-confirm-dialog",
-        body: `<p>Delete ${n} version${n === 1 ? "" : "s"} not marked Keep ${asset ? `of <b>${esc(assetName(asset))}</b>` : "in the whole project"}, freeing ${fmtBytes(bytes)}?</p>
-          <p class="hint">The Approved, Keep and current versions stay. This cannot be undone.</p>`});
+      const ok = await confirmDialog({title: "Delete old versions", button: "Delete", danger: true, id: "storage-confirm-dialog",
+        body: `<p>Delete ${n} version${n === 1 ? "" : "s"} ${asset ? `of <b>${esc(assetName(asset))}</b>` : "in the whole project"} other than the Active and Approved ones, freeing ${fmtBytes(bytes)}?</p>
+          <p class="hint">The Active and Approved versions stay. This cannot be undone.</p>`});
       if (!ok) return;
       try { await api(`/api/projects/${slug}/storage/prune`, asset ? {asset} : {}); }
       catch (err) { alert(errorText(err)); }
@@ -294,8 +318,8 @@ async function settingsDialog() {
   const body = document.createElement("div"); body.id = "settings-body";
   body.innerHTML = `<div class="form"><label for="set-keep">Versions to keep:</label>
       <input id="set-keep" type="number" min="1" step="1" value="${s.versions_keep}" style="width:5em"></div>
-    <p class="hint">Every build of an asset is kept as a version. After a build, versions beyond the last N not marked Keep are offered for
-      removal in the asset's version strip (nothing is deleted without asking). Versions marked Keep, the Approved one and the current one are never removed.
+    <p class="hint">Every build of an asset is kept as a version. After a build, versions beyond the last N are offered for
+      removal in the asset's Versions box (nothing is deleted without asking). The Active and Approved versions are never removed.
       Set per project (default ${s.default}).</p><p class="error" id="set-err"></p>`;
   const dlg = dialog({title: "Settings", body, className: "tool-window", buttons: [
     {label: "Save", default: true, onClick: async () => {

@@ -869,7 +869,7 @@ def cmd_library_versions(a) -> None:
             print(f"  {asset}: {n}")
         return
     s = versions.storage(store)
-    print(f"keep {s['keep']} unpinned per asset; versions {s['versions_bytes'] / 1e6:.1f} MB, builds {s['current_bytes'] / 1e6:.1f} MB")
+    print(f"keep the last {s['keep']} per asset (plus the Active and Approved); versions {s['versions_bytes'] / 1e6:.1f} MB, builds {s['current_bytes'] / 1e6:.1f} MB")
     for r in s["assets"]:
         print(f"  {r['asset']:28s} {r['versions']:3d} version(s) {r['versions_bytes'] / 1e6:8.1f} MB   build {r['current_bytes'] / 1e6:8.1f} MB")
 

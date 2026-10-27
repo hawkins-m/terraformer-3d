@@ -30,7 +30,7 @@ ROW = '#review-list .asset-review[data-asset="harbour-prop-00"]'
 STATE = """sel => { const r = document.querySelector(sel); return {
   vers: [...r.querySelectorAll('.version-strip .ver')].map(e => +e.dataset.n),
   cards: [...r.querySelectorAll('.ar-models .result')].map(e => +e.dataset.n),
-  total: r.querySelector('.version-strip [data-role=total]').textContent.split(' · ')[0],
+  total: r.querySelector('.version-strip legend').textContent.trim().split(' · ')[0],
   head: (r.querySelector('.cur-version b') || {}).textContent || ''}; }"""
 with sync_playwright() as p:
     b = p.chromium.launch(channel="chrome")
@@ -41,25 +41,25 @@ with sync_playwright() as p:
     pg.click("button[data-tab=views]")
     pg.wait_for_selector(ROW + " .version-strip .ver", timeout=10000); pg.wait_for_timeout(500)
     out["before"] = pg.evaluate(STATE, ROW)
-    pg.click(ROW + ' .ver[data-n="1"] .ver-delete')
+    # Use this version / Delete live on the 3D model cards
+    pg.click(ROW + ' .ar-models .result[data-n="1"] .ver-delete')
     pg.click("#version-delete-dialog [data-role=confirm]"); pg.wait_for_timeout(1500)
     out["deleted"] = pg.evaluate(STATE, ROW)
-    KEPT = "([sel, n]) => !!document.querySelector(`${sel} .ver[data-n=\"${n}\"] .mark.m-new`)"
-    # Keep changes no model card: the row used to stay as it was
-    pg.click(ROW + ' .ver[data-n="2"] .ver-pin'); pg.wait_for_timeout(1500)
-    out["kept"] = pg.evaluate(KEPT, [ROW, 2])
     # Use this version: the Active badge in the header, the strip and the first card follow
-    pg.click(ROW + ' .ver[data-n="2"] .ver-restore')
+    pg.click(ROW + ' .ar-models .result[data-n="2"] .ver-restore')
     pg.click("#version-restore-dialog [data-role=confirm]")
     pg.wait_for_selector("#version-used-dialog", timeout=15000)
     pg.click("#version-used-dialog .wbuttons button"); pg.wait_for_timeout(800)
     out["used"] = pg.evaluate(STATE, ROW) | {"active": pg.evaluate(f"sel => +document.querySelector(sel + ' .ver.cur').dataset.n", ROW)}
-    # a version job finishing (Reroll, Make 3D) refreshes its asset's row on the next load
+    out["active_card"] = pg.evaluate("""sel => { const c = document.querySelector(sel + ' .ar-models .result.current');
+      return [!c.querySelector('.ver-restore'), c.querySelector('.ver-delete').disabled]; }""", ROW)
+    # a version job finishing (Reroll, Make 3D) refreshes its asset's strip on the next load, also
+    # when /review didn't change (v3 deleted behind the page's back)
     out["job"] = pg.evaluate("""async ([sel, a]) => {
-      await fetch(`/api/projects/${slug}/library/asset/${a}/versions/3/pin`, {method: "POST", headers: {"Content-Type": "application/json"}, body: "{}"});
+      await fetch(`/api/projects/${slug}/library/asset/${a}/versions/3`, {method: "DELETE"});
       data.jobs.push({id: "jx", kind: "library.reroll", status: "done", tag: {asset: a}, finished: Date.now() / 1000});
       await versionsAfterLoad(); renderReview();
-      return !!document.querySelector(`${sel} .ver[data-n="3"] .mark.m-new`);
+      return !document.querySelector(`${sel} .ver[data-n="3"]`);
     }""", [ROW, "harbour-prop-00"])
     out["errors"] = errs
     b.close()
@@ -74,10 +74,10 @@ def test_deleting_a_version_updates_the_row_without_a_reload(tmp_path, monkeypat
             _trellis(store, "harbour-prop-00", s)
     out = _browse(tmp_path, monkeypatch, DELETE_SCRIPT, seed)
     assert sorted(out["before"]["vers"]) == [1, 2, 3], out
-    assert 1 in out["before"]["cards"] and out["before"]["total"] == "3 versions"
+    assert 1 in out["before"]["cards"] and out["before"]["total"] == "Versions 3"
     assert 1 not in out["deleted"]["vers"] and 1 not in out["deleted"]["cards"], out
-    assert out["deleted"]["total"] == "2 versions", out
-    assert out["kept"], out
+    assert out["deleted"]["total"] == "Versions 2", out
     assert out["used"]["head"] == "v2" and out["used"]["active"] == 2 and out["used"]["cards"][0] == 2, out
+    assert out["active_card"] == [True, True], out
     assert out["job"], out
     assert out["errors"] == []
