@@ -689,6 +689,9 @@ details summary { cursor: default; }
 .ue-steps li.done .n::after { content: " ✓"; font-size: 11px; }
 .ue-why { color: var(--muted); font-style: italic; }
 #ue-build-box label.check { display: block; margin: 4px 0; }
+#ue-build-box label.check.ueb-sub { margin-left: 22px; }
+.ue-unplaced { margin: 6px 0 10px; }
+.ue-unplaced table { margin-top: 4px; }
 .ue-report { margin-top: 8px; padding: 6px 8px; border: 1px solid var(--border); background: var(--field); }
 .ue-report ul { margin: 4px 0 0; padding-left: 18px; }
 #ue-advanced > summary { margin: 8px 0; font-weight: 600; }

@@ -84,7 +84,7 @@ def terrain_due(store: ProjectStore) -> bool:
     return glb.is_file() and (not ring.is_file() or not done.is_file() or glb.stat().st_mtime > done.stat().st_mtime)
 
 
-def queued_work(store: ProjectStore, use_active: bool = False, render: bool = False) -> dict:
+def queued_work(store: ProjectStore, use_active: bool = False, render: bool = False, unplaced: dict | None = None) -> dict:
     """The work a build would do, counted before it starts (its time estimate): {backup, terrain,
     height_variants (missing ones Blender builds), imports (assets whose GLB changed since the
     last import: ue.record_imported; everything the first time), first_import, shots}, and
@@ -97,7 +97,8 @@ def queued_work(store: ProjectStore, use_active: bool = False, render: bool = Fa
         w["shots"] = len(gb.get("shots") or []) if render else 0
         index = read_json(s7_export.export_dir(store) / "mesh_index.json", default=None)
         fitter = vertical.Fitter(store, log=lambda *a: None, dry=True)
-        pl = city_library.plan(store, gb, use_active, index, fitter=fitter, log=lambda *a: None)
+        pl = city_library.plan(store, gb, use_active, index, fitter=fitter, log=lambda *a: None,
+                               **({"unplaced": unplaced} if unplaced is not None else {}))
         missing = set(fitter.missing)
         prev = read_json(ue.imported_path(store), default=None)
         held = (prev or {}).get("library") or {}
@@ -142,9 +143,11 @@ def _record_times(store: ProjectStore, steps: dict, lib: dict, rep: dict) -> Non
 
 
 def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = False, render: bool = False,
-          log=print, on_step=None, progress: dict | None = None, dressing=None) -> dict:
+          log=print, on_step=None, progress: dict | None = None, dressing=None, unplaced: dict | None = None) -> dict:
     """dressing: schema.DressingOptions for this build (remembered for the project); None = the
-    project's last-used ones. on_step(name): called as each step starts (the UI job's stage). Under a UI job, Stop
+    project's last-used ones. unplaced: {avoid_locked, seed} to also place built assets the plan
+    has no slot for (unplaced.py); None = the plan's own assets only. on_step(name): called as
+    each step starts (the UI job's stage). Under a UI job, Stop
     is checked between steps (the editor and Blender runs stop at once: blender.run_logged).
     progress: a dict (the UI job's tag) kept up to date with stage_t0 (the current stage's
     start), hv_started and hv_t0 (height variants started, the first one's start)."""
@@ -181,7 +184,8 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
 
     if ue.project_dir(store).is_dir():
         step("backup", lambda: ue.backup(store))
-    c = step("export", lambda: s7_export.export(store, assets=True, use_active=use_active, log=log))
+    c = step("export", lambda: s7_export.export(store, assets=True, use_active=use_active, log=log,
+                                                 **({"unplaced": unplaced} if unplaced is not None else {})))
     man = s7_export.load_manifest(store)
     if terrain_due(store):
         step("terrain assets", lambda: terrain_build.ue_assets(store))
@@ -242,10 +246,13 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
            "pruned": len(rep.get("pruned", [])), "terrain_outer": bool(rep.get("terrain_outer")),
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
            "placement": placement, "active_models": lib.get("active_models", []),
+           "unplaced": lib.get("unplaced"),
            "dressing": dress.summary(drec, rep),
            "steps": steps, "seconds": round(time.time() - t0, 1)}
     _record_times(store, steps, lib, rep)
-    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models", "dressing")},
+    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models",
+                                                                                    "dressing", "unplaced")},
+                   "unplaced_swapped": None if out["unplaced"] is None else out["unplaced"]["placed"],
                    "placement_ok": None if placement is None else placement["ok"]})
     return out
 
@@ -262,6 +269,11 @@ def report_lines(r: dict) -> list[str]:
              + (f"; {r['shots']} shots rendered" if r["shots"] is not None else ""),
              f"time: {r['seconds'] / 60:.1f} min (" + ", ".join(f"{k} {v:.0f} s" for k, v in r["steps"].items()) + ")"]
     lines += r.get("active_models") or []
+    u = r.get("unplaced")
+    if u:
+        lines.append(f"unplaced assets: {u['placed']} places taken ({u['swapped']} swapped, {u['open']} on open ground"
+                     + (f"; {u['held']} in slots held back" if u.get("held") else "") + ")")
+        lines += [f"  {x}" for x in u["lines"]]
     from .dressing import report_lines as dressing_lines
     lines += dressing_lines(r.get("dressing") or {})
     if r.get("placement") is not None:

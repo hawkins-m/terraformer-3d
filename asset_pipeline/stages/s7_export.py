@@ -174,10 +174,12 @@ def counts(m: dict) -> dict:
     return out
 
 
-def export(store: ProjectStore, assets: bool = False, use_active: bool = False, log=print) -> dict:
+def export(store: ProjectStore, assets: bool = False, use_active: bool = False, log=print,
+           unplaced: dict | None = None) -> dict:
     """greybox.blend -> export/ (GLBs + manifest.json). assets: library builds stand in the city
     instead of their greybox (city_library: Approved ones, or every Active build with
-    use_active). Returns the manifest's counts."""
+    use_active); unplaced: {avoid_locked, seed} also places assets with no slot (unplaced.py).
+    Returns the manifest's counts."""
     if sw_site.stale(store):
         sw_site.extract(store)
     gb = sw_site.load_greybox(store)
@@ -192,7 +194,7 @@ def export(store: ProjectStore, assets: bool = False, use_active: bool = False, 
     m = manifest(gb, index, layout, store.load().slug)
     if assets:
         from .. import city_library
-        city_library.add_to_manifest(store, m, gb, index, out, use_active=use_active, log=log)
+        city_library.add_to_manifest(store, m, gb, index, out, use_active=use_active, log=log, unplaced=unplaced)
     from .. import vegetation                      # street-tree slots and the builds' zones, for Unreal PCG
     veg = vegetation.export_points(store, out / "vegetation.json")
     m["vegetation"] = {"file": "vegetation.json", "counts": veg["counts"]}

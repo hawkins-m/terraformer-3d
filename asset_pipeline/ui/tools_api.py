@@ -131,6 +131,8 @@ class UeBuildReq(BaseModel):
     keep_hand_moves: bool = True         # False: reset layout (every actor back to the manifest)
     render: bool = False
     dressing: DressingOptions | None = None   # None: the project's last-used dressing
+    use_unplaced: bool = False           # built assets with no slot take a share of the places that fit (unplaced.py)
+    avoid_locked: bool = True            # ... never in a slot a locked shot's frame shows
 
 
 class DressScanReq(BaseModel):
@@ -594,7 +596,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         if up.is_file() and ue.editor_running(up):
             raise HTTPException(409, f"the Unreal editor has {up.name} open: close it, then build")
         stages = ue_build.STAGES + ["render"] * req.render
-        work = ue_build.queued_work(store, req.use_active, req.render)       # the estimate, per stage
+        unplaced = {"avoid_locked": req.avoid_locked, "seed": 0} if req.use_unplaced else None
+        work = ue_build.queued_work(store, req.use_active, req.render, unplaced)       # the estimate, per stage
 
         def run():
             job = current_job()
@@ -605,14 +608,14 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             log = (lambda s: setattr(job, "note", str(s)[:200])) if job else print
             r = ue_build.build(store, use_active=req.use_active, reset_layout=not req.keep_hand_moves,
                                render=req.render, log=log, on_step=on_step, progress=job.tag if job else None,
-                               dressing=req.dressing)
+                               dressing=req.dressing, **({"unplaced": unplaced} if unplaced is not None else {}))
             out = r | {"keep_hand_moves": req.keep_hand_moves, "finished": time.time(),
                        "placement_lines": None if r["placement"] is None else placement_check.lines(r["placement"]),
                        "lines": ue_build.report_lines(r)}
             write_json(ue_build.report_path(store), out)
             return out
         return jobs.submit("ue.build", slug, run, lane="cpu",
-                           tag={"stages": stages, "stage": 0, "use_active": req.use_active,
+                           tag={"stages": stages, "stage": 0, "use_active": req.use_active, "use_unplaced": req.use_unplaced,
                                 "reset": not req.keep_hand_moves, "render": req.render, "work": work}).public()
 
     @app.get("/api/projects/{slug}/ue/dressing")

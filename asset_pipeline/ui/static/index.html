@@ -343,6 +343,7 @@
         <fieldset id="ue-ready"><legend>Ready for Unreal</legend>
           <p class="hint tab-help">What Build city in Unreal will place for each asset. <button type="button" class="help-q" title="Per library asset: the version the next build places and why, whether it is approved, its Clean up for the asset's tier (game, cinematic, hero), or why the greybox stands in. It follows Use Active versions below. Placement issues come from the last build's check. Click a name to open it in Generate 3D Model &amp; Review." aria-label="More about Ready for Unreal">?</button></p>
           <p id="ue-ready-counts"></p>
+          <div id="ue-unplaced" class="ue-unplaced" aria-live="polite" hidden></div>
           <div id="ue-ready-table" class="ue-ready-table"></div>
         </fieldset>
         <fieldset id="ue-build-box"><legend>Build city in Unreal</legend>
@@ -353,6 +354,8 @@
             <span id="ue-build-state" class="hint" style="margin:0"></span></div>
           <label class="check" title="Place each asset's Active version, approved or not."><input type="checkbox" id="ueb-active"> Use Active versions (preview, not only approved)</label>
           <label class="check" title="Off: every actor goes back to the plan's spot (reset layout)."><input type="checkbox" id="ueb-keep" checked> Keep my hand moves in Unreal</label>
+          <label class="check" title="Built assets with no slot in the city plan take a share of the places that fit them (same family, footprint within about 25%). The plan, greybox, shots and frames stay; untick and build again to put the plan's own assets back."><input type="checkbox" id="ueb-unplaced"> Use unplaced assets</label>
+          <label class="check ueb-sub" title="Never take a place that a locked shot's frame shows."><input type="checkbox" id="ueb-avoid-locked" checked> Avoid locked shots</label>
           <label class="check" title="Render each shot camera when the build is done."><input type="checkbox" id="ueb-render"> Render shots after</label>
           <fieldset id="ue-dress"><legend>World dressing</legend>
             <p class="hint tab-help">Optional; pick what your machine can take. Remembered per project. <button type="button" class="help-q" title="Each option is cheap by default. Unticking one removes what it placed on the next build; placement only reruns when the options, the plan or the seed change. Free CC0 assets are downloaded on first use; Megascans replace them where you map them." aria-label="More about world dressing">?</button></p>

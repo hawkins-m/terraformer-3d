@@ -2096,6 +2096,17 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         out["counts"]["placement_issues"] = sum(1 for r in out["assets"] if r["placement"])
         return out
 
+    @app.get("/api/projects/{slug}/next-build/unplaced")
+    def next_build_unplaced(slug: str, use_active: bool = False, avoid_locked: bool = True):
+        """The places assets with no slot would take in the next build with Use unplaced assets
+        (unplaced.preview: the Ready for Unreal box's "Will also place"). Seconds: asked for only
+        when the tick boxes change, never on the poll."""
+        from .. import unplaced
+        store = _store(slug)
+        if not (sw_site.site_dir(store) / "greybox.json").is_file():
+            return {"greybox": False}
+        return {"greybox": True} | unplaced.preview(store, use_active, avoid_locked)
+
     @app.post("/api/projects/{slug}/export")
     def export(slug: str):
         store = _store(slug)

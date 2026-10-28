@@ -475,3 +475,19 @@ Not in the city layout, with reasons (`next_build.outside_reason`, `areas.librar
 Unreal list, `ap library status`): kit module of X, attached to X and variant of X still appear in the city, so
 they stay in the counts; a building type (or prop) with no share or slots never appears and is left out of Build and
 Approve (`outside`).
+
+## Use unplaced assets (2026-10-28)
+- `asset_pipeline/unplaced.py`, `ap ue build --use-unplaced`, Unreal tab tick box. Runs inside
+  `city_library.plan` on the plan's own placements (`base_placements`) before Active models and
+  height fitting; swapped placements keep their key and slot (`unplaced` flag) and are skipped by
+  `use_active_models` / `fit_heights`. Open-ground picks (parks, plazas) are added after the
+  mixed-slot rule like props: the slot's trees under them go through `drop_pieces`.
+- A TRELLIS model has no set size, so a TRELLIS material variant of a typology (insula-copper)
+  takes that typology's places at their size (as `use_active_models` would); procedural builds
+  keep their metres and must fit within 25% after uniform scaling (0.5-2x).
+- Open-ground spots: only non-surface slots' piece boxes block (sea, avenue and street boxes span
+  the whole city); a park spot needs a park tree within 25 m of each corner and the centre.
+- Locked shots: only shots locked on a frame count (their id pass); greybox-locked wides see
+  ~450 of ~490 slots and have no frame to keep.
+- Preview cost on the real city: ~6 s (`GET /api/projects/{slug}/next-build/unplaced`), so the UI
+  asks only when the tick boxes change, never on the poll.

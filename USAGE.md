@@ -149,7 +149,9 @@ desktop app:
   Below it, *Build city in Unreal* runs `ap ue build` as a CPU job (stages and Stop
   in the Jobs panel; it asks first when the estimate is long). Options: *Use Active versions*
   (`--use-active`), *Keep my hand moves in Unreal* (on by default; off is `--reset-layout` and
-  asks first), *Render shots after* (`--render`). Under it, *World dressing*: Ground textures,
+  asks first), *Use unplaced assets* (`--use-unplaced`, off by default) with *Avoid locked shots*
+  (on by default), *Render shots after* (`--render`). Ticking *Use unplaced assets* adds a *Will
+  also place* list to Ready for Unreal: each asset, its count and the slots it takes over. Under it, *World dressing*: Ground textures,
   Rocks and Vegetation (with density sliders), Water (Off, Simple sea, Ocean), Use Megascans
   assets and *Find my assets…* (scan and edit the role → asset mapping); each option shows a
   Light / Medium / Heavy tag and a one-line tooltip, and the choice is saved per project. It won't start while the editor has the
@@ -507,6 +509,7 @@ out of them as anchor images, like scenes. The UI has the same steps in the Styl
 ```
 ap ue build my-project                 # the whole city in the level, headless (below)
 ap ue build my-project --use-active    # every built asset's Active version, approved or not
+ap ue build my-project --use-unplaced  # built assets with no slot also stand in the city (below)
 ap ue build my-project --reset-layout  # also move back slots you moved by hand in Unreal
 ap ue build my-project --render        # then render the shots (GPU 1, only while ComfyUI is down)
 ```
@@ -521,6 +524,18 @@ renders, and prints a short report (builds placed, slots still greybox, time, wa
   moves its buildings. Builds are rebuilt from the manifest on every run.
 - Hand moves are kept: only slots an earlier greybox put somewhere else move back
   (`--only-stale`, the default).
+- **Use unplaced assets** (`--use-unplaced`, off by default): built assets the city plan gives no
+  slot (Ready for Unreal's "building type with no share or slots") take a share of the places that
+  fit them, for this build only; the plan, greybox, shots and frames don't change. Same family
+  (housing and mixed to housing, civic to civic, public realm to parks and plazas, infrastructure
+  to the waterfront or the city's edge), footprint within about 25% after uniform scaling; the
+  build with the most placements gives first and none gives more than a quarter. Repeated types
+  take up to about 10% of the places that fit them, one-off landmarks (temple, rotunda,
+  campanile, lighthouse, theatre…) one or two, in parks, plazas or civic places, spread across
+  districts. Kit modules, attached pieces and slots a locked shot's frame shows are never taken
+  (`--unplaced-in-locked-shots` allows the last). Approval and `--use-active` apply as usual.
+  The same `--unplaced-seed N` (default 0) takes the same places; a build without the flag puts
+  the plan's own assets back, and only those places change. The report counts the places taken.
 - Re-runs are fast: a library build whose GLB is unchanged isn't imported again (the first import
   of several hundred builds takes about 15-20 minutes).
 - The light comes from `site/look_tests/defaults.json` (its `"city"` key overrides for the city

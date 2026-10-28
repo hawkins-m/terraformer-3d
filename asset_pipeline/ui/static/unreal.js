@@ -18,7 +18,7 @@ function ueBuildReport(r) {
   if (!r) return "";
   const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
   const head = `<b>${r.ok ? "Built" : "Built with problems"}</b> ${esc(new Date(r.finished * 1000).toLocaleString())}` +
-    (r.use_active ? " · Active versions (preview)" : "") + (r.keep_hand_moves === false ? " · layout reset" : "");
+    (r.use_active ? " · Active versions (preview)" : "") + (r.unplaced ? " · unplaced assets used" : "") + (r.keep_hand_moves === false ? " · layout reset" : "");
   const facts = [n(r.placed, "asset placed", "assets placed"), n(r.greybox_slots, "stand-in left", "stand-ins left"),
     `${fmtDur(r.seconds)}`].concat(r.held ? [`${r.held} held back (not approved or not fully built)`] : [])
     .concat(r.shots != null ? [n(r.shots, "shot rendered", "shots rendered")] : []);
@@ -28,6 +28,7 @@ function ueBuildReport(r) {
     `<div class="${placeOk ? "" : "error"}">${esc(place[0])}</div>` +
     (place.length > 1 ? `<ul>${place.slice(1).map(l => `<li>${esc(l.trim())}</li>`).join("")}</ul>` : "") +
     ((r.active_models || []).length ? `<ul>${r.active_models.map(l => `<li>${esc(l)}</li>`).join("")}</ul>` : "") +
+    (r.unplaced ? `<div>Unplaced assets: ${r.unplaced.placed} places taken (${r.unplaced.swapped} swapped, ${r.unplaced.open} on open ground)</div>` : "") +
     dressReport(r.dressing) +
     (r.warnings.length ? `<div>${n(r.warnings.length, "warning", "warnings")}:</div><ul>${r.warnings.map(w => `<li>${esc(w)}</li>`).join("")}</ul>` : "");
 }
@@ -58,6 +59,7 @@ function renderUnreal() {
   $("#ue-open").textContent = u.editor_open ? "Unreal is open" : "Open in Unreal";
   $("#ue-open").title = u.editor_open ? "The Unreal editor has this project open." : openWhy || "Open the Unreal editor on this project.";
   if (dressFor !== slug) loadDressing();
+  if (unplacedFor !== slug && $("#ueb-unplaced").checked) loadUnplaced();     // another project: its own list
   $("#ue-build-report").hidden = !u.build;
   $("#ue-build-report").innerHTML = ueBuildReport(u.build);
   const steps = ueSteps(u), running = k => activeJobs(k).length > 0;
@@ -110,6 +112,7 @@ async function ueBackup(force = false) {
 // `ap ue build` as a job (api() asks first when the estimate is long); the report shows on the tab.
 async function ueBuild() {
   const body = {use_active: $("#ueb-active").checked, keep_hand_moves: $("#ueb-keep").checked, render: $("#ueb-render").checked,
+    use_unplaced: $("#ueb-unplaced").checked, avoid_locked: $("#ueb-avoid-locked").checked,
     dressing: dressData ? dressOpts() : null};
   if (!body.keep_hand_moves && !(await confirmDialog({title: "Reset layout", button: "Build and reset", danger: true, id: "ue-build-reset",
     body: "<p>Every actor goes back to the plan's spot: moves you made in Unreal are lost (the build backs up the UE project first).</p>"}))) return;
@@ -123,7 +126,47 @@ async function ueBuild() {
 $("#ue-build").onclick = () => ueBuild();
 $("#ue-open").onclick = () => ueOpen();
 // Use Active versions: what the next build places changes with it (Ready for Unreal, Generate 3D Model & Review's line per asset)
-$("#ueb-active").onchange = async () => { await loadNextBuild(); renderReadiness(); if (typeof renderReview === "function") renderReview(); };
+$("#ueb-active").onchange = async () => { await loadNextBuild(); renderReadiness(); if (typeof renderReview === "function") renderReview(); loadUnplaced(); };
+
+// Use unplaced assets: the "Will also place" list in Ready for Unreal (unplaced.preview; seconds to
+// compute, so asked for only when these tick boxes change, never on the poll)
+let unplacedData = null, unplacedSeq = 0, unplacedFor = null;
+async function loadUnplaced() {
+  const on = $("#ueb-unplaced").checked, seq = ++unplacedSeq;
+  unplacedFor = slug;
+  $("#ueb-avoid-locked").disabled = !on;
+  if (!on || !slug) { unplacedData = null; renderUnplaced(); return; }
+  unplacedData = {loading: true};
+  renderUnplaced();
+  let d;
+  try { d = await api(`/api/projects/${slug}/next-build/unplaced?use_active=${$("#ueb-active").checked}&avoid_locked=${$("#ueb-avoid-locked").checked}`, undefined, "GET"); }
+  catch (err) { d = {error: errorText(err)}; }
+  if (seq !== unplacedSeq) return;            // a newer toggle asked again
+  unplacedData = d;
+  renderUnplaced();
+}
+
+function renderUnplaced() {
+  const box = $("#ue-unplaced"), u = unplacedData;
+  box.hidden = !u;
+  if (!u) { box.innerHTML = ""; return; }
+  if (u.loading) { box.innerHTML = `<p class="hint">Will also place: working out which places fit…</p>`; return; }
+  if (u.error) { box.innerHTML = `<p class="error">Will also place: couldn't work it out (${esc(u.error)})</p>`; return; }
+  if (!u.greybox) { box.innerHTML = `<p class="hint">Will also place: no greybox yet.</p>`; return; }
+  const skipped = Object.entries(u.skipped || {});
+  const skippedHtml = skipped.length ? `<details><summary>${skipped.length} unplaced asset${skipped.length === 1 ? "" : "s"} still left out</summary><ul>${skipped.map(([e, why]) =>
+    `<li>${esc(assetName(e, e))}: ${esc(why)}</li>`).join("")}</ul></details>` : "";
+  if (!(u.assets || []).length) { box.innerHTML = `<p class="hint">Will also place: nothing (no place fits an unplaced asset).</p>${skippedHtml}`; return; }
+  const takes = a => [a.from.length ? `takes over ${a.from.join(", ")}` : "", a.open ? `${a.open} on open ground` : ""].filter(Boolean).join("; ");
+  box.innerHTML = `<p><b>Will also place</b> ${u.swapped + u.open} (${u.swapped} swapped, ${u.open} on open ground):</p>
+    <table class="grid-table"><thead><tr><th>Asset</th><th>Count</th><th>Which slots it takes over</th></tr></thead><tbody>
+    ${u.assets.map(a => `<tr><td><a href="#" class="jump-link" data-jump="views" data-asset="${esc(a.entry)}">${esc(assetName(a.entry, a.entry))}</a></td>
+      <td>${a.count}</td><td title="${esc(a.slots.join(", "))}">${esc(takes(a))} · ${esc(a.slots.length > 6 ? a.slots.slice(0, 6).join(", ") + ` +${a.slots.length - 6} more` : a.slots.join(", "))}</td></tr>`).join("")}
+    </tbody></table>${skippedHtml}`;
+}
+$("#ueb-unplaced").onchange = () => loadUnplaced();
+$("#ueb-avoid-locked").onchange = () => loadUnplaced();
+$("#ueb-avoid-locked").disabled = true;
 
 // Ready for Unreal: counts and one row per asset the city uses (next_build.explain via nextBuildData);
 // a name opens the asset in Generate 3D Model & Review (jump.js .jump-link). Redrawn only when its data changes.

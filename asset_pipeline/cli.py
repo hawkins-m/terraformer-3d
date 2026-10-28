@@ -1417,7 +1417,9 @@ def cmd_ue(a) -> None:
         from . import dressing
         off = {k: False for k in ("ground", "rocks", "vegetation", "megascans")} | {"water": "off"} if a.no_dressing else {}
         opts = dressing.merged(store, **(off | {k: getattr(a, v) for k, v in DRESS_FLAGS.items() if getattr(a, v) is not None}))
-        r = ue_build.build(store, use_active=a.use_active, reset_layout=a.reset_layout, render=a.render, dressing=opts)
+        unplaced = {"avoid_locked": not a.unplaced_in_locked_shots, "seed": a.unplaced_seed} if a.use_unplaced else None
+        r = ue_build.build(store, use_active=a.use_active, reset_layout=a.reset_layout, render=a.render, dressing=opts,
+                           unplaced=unplaced)
         print("\n".join(ue_build.report_lines(r)))
     elif a.action == "scan-assets":
         from . import dressing
@@ -2143,6 +2145,13 @@ def main(argv: list[str] | None = None) -> None:
                    help="build: place every built asset's Active version, approved or not (previews)")
     p.add_argument("--render", action="store_true",
                    help="build: render the shots afterwards (GPU 1, only while ComfyUI is down)")
+    p.add_argument("--use-unplaced", action="store_true",
+                   help="build: built assets with no slot in the city plan also stand in the city, in a share of "
+                        "the places that fit them (the plan, greybox, shots and frames stay; off restores the plan's assets)")
+    p.add_argument("--unplaced-in-locked-shots", action="store_true",
+                   help="build --use-unplaced: may also take places a locked shot's frame shows (default: avoided)")
+    p.add_argument("--unplaced-seed", type=int, default=0, metavar="N",
+                   help="build --use-unplaced: which places it takes (the same seed picks the same places)")
     dg = p.add_argument_group("world dressing (build; unset = the project's last-used choice, which these update)")
     bo = argparse.BooleanOptionalAction
     dg.add_argument("--ground", action=bo, default=None, help="ground textures by slope and height (Light)")
