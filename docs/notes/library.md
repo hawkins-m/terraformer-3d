@@ -501,6 +501,16 @@ Approve (`outside`).
   Active version is a model (TRELLIS), gets a `planned` placement at the plan's footprint and
   height (`Building.h`); `use_active_models` stands the model there. Before, these entries only
   stood where procedural instance builds existed, and showed up as "unplaced" instead.
+- Slot claims (`sw_library.claims`): an entry owns its slots (`slot_ids`) whether a locked frame
+  shows it (library.json `entries`) or not (`unseen`); look, city_library and next_build read both
+  (they read only `entries` before, so a temple, quay or rotunda no shot frames never stood in its
+  slot). `city_library.model_slot_placements`: an entry with an Active model and no procedural
+  build stands at each slot it owns that holds no planned building (typed slots with none too: the
+  forum rotunda and colonnade, the market fountain), at the slot's pose and `size_m`, fitted to the
+  slot's masses when it has them. Open-ground "unplaced" copies of such an entry drop out.
+- `kit_assembly.outline` drops pieces under 4 m2 and blocks under 1.5 m thick, so a stoa (a row of
+  0.9 m wall segments and columns) gives its kit no block: the 11 stoa slots stay greybox though
+  `stoa-bay` is built.
 - `library_instances.entry_of` names materials as the library does (polished_concrete ->
   polished-concrete); `insula-polished-concrete` etc. had matched no planned building.
 - Locked shots: only shots locked on a frame count (their id pass); greybox-locked wides see

@@ -278,7 +278,8 @@ def _candidates(store: ProjectStore, shot: dict | None, radius: float, only=None
     gb = sw_site.load_greybox(store)
     slots = {s["id"]: s for s in gb["slots"]}
     drop_slots = []
-    for ent in (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", []):
+    from .stages import sw_library
+    for ent in sw_library.claims(store):
         e = ent["id"]
         if only is not None and e not in only:
             continue
@@ -658,7 +659,8 @@ def pending_slots(store: ProjectStore, shot_id: str, draft: bool = True, log=pri
     shot = shot_of(store, shot_id)
     ids = read_json(sw_shots.shot_dir(store, shot_id) / "ids.json")
     slots = {s["id"]: s for s in sw_site.load_greybox(store)["slots"]}
-    lib = (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", [])
+    from .stages import sw_library
+    lib = sw_library.claims(store)
     entry_of = {}
     for e in lib:
         for sid in e.get("slot_ids") or []:

@@ -372,7 +372,8 @@ def representative_placements(store: ProjectStore, gb: dict, cands: list[dict], 
     covered = {p["slot"] for p in cands if p.get("slot")}
     slots = {s["id"]: s for s in gb["slots"]}
     out = []
-    for ent in (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", []):
+    from .stages import sw_library
+    for ent in sw_library.claims(store):
         e = ent["id"]
         glb, job = lib / e / "procedural.glb", lib / e / "procedural" / "job.json"
         brief = read_json(store.root / "library" / "kits" / f"{e}.json", default=None)
@@ -423,6 +424,42 @@ def model_placements(store: ProjectStore, P, cands: list[dict]) -> list[dict]:
         seen.add(key)
         out.append({"key": key, "entry": e, "typology": b.typology, "glb": models[e]["glb"], "x": float(x), "y": float(y),
                     "z": float(z), "yaw": float(b.rot), "w": float(w), "d": float(d), "h": float(b.h), "planned": True})
+    return out
+
+
+def model_slot_placements(store: ProjectStore, gb: dict, cands: list[dict], buildings: dict) -> list[dict]:
+    """Slots an entry owns (library.json slot_ids, seen in a frame or not) whose Active version is a
+    model (TRELLIS) and that has no procedural build: the model at the slot's pose and the entry's size
+    ("planned", as model_placements; use_active_models fits it to the slot's masses when it has them).
+    Typed slots holding planned buildings (buildings {slot: [...]}) and slots a placement already
+    covers are left to their own paths; a typed slot with none (a forum rotunda) is a slot of its own."""
+    from . import library_entries
+    from .stages import sw_library
+    lib = store.root / "3d" / "library"
+    slots = {s["id"]: s for s in gb["slots"]}
+    covered = {p["slot"] for p in cands if p.get("slot")}
+    ents = library_entries._all_entries(store)
+    out = []
+    for ent in sw_library.claims(store):
+        e = ent["id"]
+        if (lib / e / "procedural.glb").exists() and (lib / e / "procedural" / "job.json").exists():
+            continue
+        mdl = None
+        for sid in ent.get("slot_ids") or []:
+            s = slots.get(sid)
+            if s is None or buildings.get(sid) or sid in covered or s.get("category") == "terrain":
+                continue
+            mdl = mdl or active_model(store, e)
+            if mdl is None:
+                break
+            brief = read_json(store.root / "library" / "kits" / f"{e}.json", default=None) or {}
+            w, d, h = (brief.get("dims") or (ents.get(e) or {}).get("size_m") or [10.0, 10.0, 10.0])[:3]
+            m = np.asarray(s["matrix"], float)
+            out.append({"key": f"{e}_{sid}".replace("-", "m"), "entry": e, "glb": mdl["glb"], "slot": sid, "typed": False,
+                        "x": float(m[0, 3]), "y": float(m[1, 3]), "z": float(m[2, 3]),
+                        "yaw": math.degrees(math.atan2(m[1, 0], m[0, 0])), "w": float(w), "d": float(d), "h": float(h),
+                        "planned": True})
+            covered.add(sid)
     return out
 
 
@@ -643,6 +680,7 @@ def base_placements(store: ProjectStore, gb: dict) -> tuple[list[dict], dict, di
             p["typed"] = True
             p["slot"] = slot_of_point(typed, p.get("typology"), p["x"], p["y"])
     buildings = planned_buildings(store, gb, P)
+    cands += model_slot_placements(store, gb, cands, buildings)
     reps = representative_placements(store, gb, cands, buildings)
     for p in reps:
         entries[p["entry"]] = (Path("3d/library") / p["entry"] / "procedural" / "job.json").as_posix()

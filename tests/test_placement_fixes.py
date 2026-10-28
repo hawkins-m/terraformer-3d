@@ -6,6 +6,8 @@ import pytest
 
 from asset_pipeline import building_gen, city_library as cl, kit_assembly as ka
 from asset_pipeline.building_gen import features, row_houses
+from asset_pipeline.project import write_json
+from tests.test_assembly import glb_box
 
 from test_vertical import Fake, Flat, _check, _kit_plan, _slot, proj  # noqa: F401  (proj: fixture)
 
@@ -128,6 +130,34 @@ def test_a_trellis_entry_stands_at_its_planned_buildings_without_instance_builds
     f = cl.footprint_of(cl.world_matrix(p), *bounds[model])
     assert (f["x"], f["y"], f["w"], f["d"], f["base"]) == pytest.approx((100.0, 0.0, 12.0, 30.0, 0.0), abs=1e-6)
     assert np.linalg.norm(np.asarray(p["matrix"])[:3, 2]) * 1.0 == pytest.approx(24.0)
+
+
+def test_slots_an_unseen_entry_owns_get_its_model_and_typed_slots_with_no_building_count_too(proj, monkeypatch):
+    """library.json's unseen entries (no locked frame shows them) still own their slots: a TRELLIS-only
+    entry stands there at the slot's pose; slots with planned buildings, slots a placement already
+    covers, terrain, and entries with a procedural build or no Active model are left alone."""
+    from asset_pipeline import library_entries
+    from asset_pipeline.stages import sw_library
+    slot = lambda sid, x, **kw: {"id": sid, "matrix": cl.world_matrix({"x": x, "y": 5.0, "z": 2.0, "yaw": 90.0}).tolist(),  # noqa: E731
+                                 "type": "temple", "category": "building"} | kw
+    gb = {"slots": [slot("temple-a", 10.0), slot("rot", 20.0, typology="rotunda"), slot("rot-b", 30.0, typology="rotunda"),
+                    slot("taken", 40.0), slot("ground", 50.0, category="terrain"), slot("proc", 60.0), slot("bare", 70.0)]}
+    claims = [{"id": "temple", "slot_ids": ["temple-a", "taken", "ground"]}, {"id": "rotunda", "slot_ids": ["rot", "rot-b"]},
+              {"id": "hall", "slot_ids": ["proc"]}, {"id": "bare", "slot_ids": ["bare"]}]
+    monkeypatch.setattr(sw_library, "claims", lambda st: claims)
+    monkeypatch.setattr(library_entries, "_all_entries", lambda st: {"temple": {"size_m": [30, 20, 15]}, "rotunda": {}})
+    monkeypatch.setattr(cl, "active_model", lambda st, e: {"n": 1, "kind": "trellis", "glb": f"3d/library/{e}/model.glb"}
+                        if e != "bare" else None)
+    glb_box(proj.root / "3d/library/hall/procedural.glb", [-1, -1, 0], [1, 1, 1])
+    write_json(proj.root / "3d/library/hall/procedural/job.json", {})
+    out = cl.model_slot_placements(proj, gb, [{"slot": "taken"}], {"rot-b": [("rotunda", 0, 0, 0, 0)]})
+    assert {p["key"]: p["slot"] for p in out} == {"temple_temple-a".replace("-", "m"): "temple-a", "rotunda_rot": "rot"}
+    p = out[0]
+    assert (p["x"], p["y"], p["z"], p["yaw"]) == pytest.approx((10.0, 5.0, 2.0, 90.0)) and (p["w"], p["d"], p["h"]) == (30, 20, 15)
+    assert p["planned"] and not p["typed"] and p["glb"] == "3d/library/temple/model.glb"
+    monkeypatch.undo()
+    write_json(sw_library.library_path(proj), {"entries": [{"id": "seen", "slot_ids": ["a"]}], "unseen": [{"id": "temple", "slot_ids": ["b"]}]})
+    assert [c["id"] for c in sw_library.claims(proj)] == ["seen", "temple"]          # not only the frames' entries
 
 
 def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, monkeypatch):

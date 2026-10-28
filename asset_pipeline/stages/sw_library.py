@@ -971,6 +971,13 @@ Crops: the best source frame, the entry's slots bright (object-id pass), everyth
 """
 
 
+def claims(store: ProjectStore) -> list[dict]:
+    """The entries that own greybox slots (slot_ids), as library.json holds them: the ones a locked
+    frame shows and the unseen ones (a temple or a quay no shot frames still stands in its slot)."""
+    data = read_json(library_path(store), default={}) or {}
+    return list(data.get("entries", [])) + list(data.get("unseen", []))
+
+
 def custom_path(store: ProjectStore) -> Path:
     return sw_site.site_dir(store) / "library_custom.json"
 

@@ -131,7 +131,8 @@ def _building_entries(store: ProjectStore, modelled: set[str] | None = None) -> 
     or planned buildings their Active model (TRELLIS) stands at (_modelled_entries)."""
     lib = store.root / LIB
     out = {p.parent.parent.name for p in lib.glob("*/instances/index.json")}
-    for ent in (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", []):
+    from .stages import sw_library
+    for ent in sw_library.claims(store):
         if ent.get("slot_ids"):
             out.add(ent["id"])
     return out | (_modelled_entries(store) if modelled is None else modelled)
@@ -146,7 +147,9 @@ def _modelled_entries(store: ProjectStore) -> set[str]:
     except FileNotFoundError:
         return set()
     ents = set(library_entries._all_entries(store))
+    from .stages import sw_library
     planned = {library_instances.entry_of(b, ents) for b in P.typed} - {None}
+    planned |= {c["id"] for c in sw_library.claims(store) if c.get("slot_ids")}      # (a slot's own: model_slot_placements)
     return {e for e in planned if building_model(store, e) is not None}
 
 
