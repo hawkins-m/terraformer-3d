@@ -76,7 +76,7 @@ const EST_BUTTONS = [
   ["#site-build", "site.build"], ["#site-extract", "site.extract"], ["#site-preview", "site.preview"],
   ["#shots-render", "shots.render", () => siteData && siteData.shots ? siteData.shots.length : 1],
   ["#frames-missing", "frames.generate", () => estMissingFrames() * framesPerShot()],
-  ["#refs-missing", "refs.generate", () => refs.filter(u => !u.sheets.length).length * 2],
+  ["#refs-missing", "refs.generate", () => refs.filter(u => u.needs_sheet).length * 2],
   ["#lib-check", "library.check"], [".next-brief", "library.brief_build"],
   ["#ue-build", "ue.build"], ["#ue-export", "ue.export"], ["#ue-import", "ue.import"], ["#ue-look", "ue.look"], ["#ue-backup", "ue.backup"],
   ["#ue-render", "ue.render", () => siteData && siteData.shots ? siteData.shots.length : 1],

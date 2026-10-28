@@ -112,7 +112,7 @@ def test_sheets_batch_runs_in_the_comfy_lane(client, store, monkeypatch):  # noq
     from asset_pipeline import library_entries
     monkeypatch.setattr(sw_library, "asset_plan", lambda *a, **k: pytest.fail("would drop the other included assets"))
     monkeypatch.setattr(library_entries, "sync_plan", lambda st, extra=(): seen.update(extra=list(extra)))
-    monkeypatch.setattr(s2_refs, "units", lambda st, plan=None: [Unit()])
+    monkeypatch.setattr(s2_refs, "units", lambda st, plan=None, pending=False: [Unit()])
     monkeypatch.setattr(s2_refs, "sheets", lambda st, u: [])
     made = []
     monkeypatch.setattr(s2_refs, "generate", lambda st, u, n=2, **k: made.append(u.key))

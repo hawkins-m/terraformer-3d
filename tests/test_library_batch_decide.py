@@ -48,11 +48,12 @@ def test_batch_decision_updates_the_plan_and_skips_vegetation_and_kits(client):
     assert r["done"] == ["bare-a", "bare-b"]
     assert {s["entry"] for s in r["skipped"]} == {"bare-c", "tree-a"}
     assert r["decisions"]["bare-c"]["decision"] == "kit" and "tree-a" not in r["decisions"]
-    assert _missing(c) == ["bare-a", "bare-b", "planned"]                 # the new ones are sheet units now
+    # the new ones are sheet units now; so is the kit decided directly: its module needs a sheet like any asset
+    assert _missing(c) == ["bare-a", "bare-b", "bare-c-bay", "planned"]
     r = c.post("/api/projects/p/library/decisions", json={"entries": ["bare-a", "planned"], "decision": "exclude"}).json()
-    assert r["done"] == ["bare-a", "planned"] and _missing(c) == ["bare-b"]
+    assert r["done"] == ["bare-a", "planned"] and _missing(c) == ["bare-b", "bare-c-bay"]
     r = c.post("/api/projects/p/library/decisions", json={"entries": ["bare-b"], "decision": None}).json()
-    assert "bare-b" not in r["decisions"] and _missing(c) == []           # the last one out: the plan keeps none
+    assert "bare-b" not in r["decisions"] and _missing(c) == ["bare-c-bay"]   # the plan keeps none, the kit module still waits
 
 
 def test_batch_frame_crop_needs_a_crop_and_unknown_entries_404(client):

@@ -27,6 +27,7 @@ def store(tmp_path, monkeypatch):
         {"id": "row-house-brick", "tier": "C", "kind": "building", "slot_ids": ["tile-a"], "districts": {"south": 3},
          "route_auto": "procedural"},
         {"id": "stall", "tier": "D", "kind": "prop", "slot_ids": [], "sources": [{"shot": "med-a", "share": 0.3}],
+         "best": "shots/med-a/frame_000.png",
          "districts": {"north": 9}, "route_auto": "trellis"},
         {"id": "pine", "tier": "D", "kind": "vegetation", "slot_ids": ["hall-1"]}], "unseen": []})
     write_json(sw_library.decisions_path(s), {"hall": {"decision": "reference"}, "stall": {"decision": "source"}})

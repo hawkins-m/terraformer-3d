@@ -701,7 +701,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
     chosen frame, description -> none. Undecided entries stay greybox massing; excluded and
     vegetation (Unreal foliage) aren't in it. `only`: just these entries are included (a
     pilot); the others are listed but not generated."""
-    from ..schema import AssetPlan, Dimensions, PlanAsset
+    from ..schema import AssetPlan
     from . import s1_plan
     data = load(store)
     if data is None:
@@ -714,6 +714,22 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
     undecided = [i for i in only or [] if dec.get(i, {}).get("decision") in (None, "exclude")]
     if undecided:
         raise ValueError(f"not decided (or excluded): {undecided}")
+    plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
+                     assets=library_assets(store, only), llm="")
+    return s1_plan.save(store, PLAN_NAME, plan)
+
+
+def library_assets(store: ProjectStore, only: list[str] | None = None, skip_unplannable: bool = False) -> list:
+    """The PlanAssets of every decided entry (a kit decision: one per module), `include` set for
+    the entries in `only` (None: all). Pure: asset_plan saves them. A source decision with no
+    current frame can't be planned: it raises if it is to be included, else (or with
+    skip_unplannable) it is left out, as library_entries.sync_plan leaves it."""
+    from ..schema import Dimensions, PlanAsset
+    data = load(store)
+    if data is None:
+        raise FileNotFoundError("no library plan yet: ap library plan")
+    dec = decisions(store)
+    entries = {e["id"]: e for e in data["entries"]} | {u["id"]: u for u in data["unseen"]}
     assets = []
     for eid, d in dec.items():
         e = entries.get(eid)
@@ -738,6 +754,8 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
         if d["decision"] == "source" and not e.get("best") and e.get("duplicate_of"):
             refs = [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"]          # a duplicate made before 2026-10-25: its copied crop
         elif d["decision"] == "source" and not e.get("best"):
+            if skip_unplannable or not inc:           # one that isn't being included can't hold up the rest
+                continue
             raise ValueError(f"{eid}: marked good source but no current frame shows it")
         w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
         assets.append(PlanAsset(
@@ -748,9 +766,7 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
             placement=f"{e['tier']} · {e.get('district') or '-'}", include=inc,
             refs=[r for r in refs if r], ref_strength=ref_strength(d["decision"], e["tier"]),
             route=route(e, d) or "trellis"))
-    plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
-                     assets=assets, llm="")
-    return s1_plan.save(store, PLAN_NAME, plan)
+    return assets
 
 
 def entry_name(e: dict, d: dict | None) -> str:

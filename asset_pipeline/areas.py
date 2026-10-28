@@ -150,7 +150,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
     in_set = {m: base for base, vs in variants.sets(store).items() for m in (vs.get("members") or {}) if m != base}
     in_set |= variants.duplicates_as_variants(store)
     revs = library_review.reviews(store)
-    units = {u.key: u for u in s2_refs.units(store, sw_library.PLAN_NAME)}
+    copies = variants.duplicates_as_variants(store)
     rows = []
     for eid, share in sorted(members(store, area, district, everywhere).items(), key=lambda kv: -kv[1]):
         e, d = ents[eid], dec.get(eid) or {}
@@ -158,8 +158,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
             continue                                   # trees: Unreal PCG (vegetation zones, street-tree slots)
         route = sw_library.route(e, d) or "trellis"
         for a in assets_of(store, eid, d):
-            u = units.get(a)
-            nsheets = len(s2_refs.sheets(store, u)) if u else 0
+            nsheets = len(s2_refs.sheets_of(store, sw_library.PLAN_NAME, a))       # on disk: included in the plan or not
             brief = kit_proc.spec_path(store, a).is_file()
             rep = read_json(kit_proc.out_dir(store, a) / "procedural.json", default=None)
             built = (kit_proc.out_dir(store, a) / "procedural.glb").is_file()
@@ -175,10 +174,67 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
             row = {"asset": a, "entry": eid, "tier": e.get("tier"), "kind": e.get("kind"), "share": round(share, 4), "missing": missing,
                    "decision": d.get("decision"), "route": route, "sheets": nsheets, "brief": brief,
                    "built": built, "fresh": fresh, "instances": len(inst), "trellis": len(trellis),
-                   "status": st, "note": (revs.get(a) or {}).get("note", ""), "variant_of": in_set.get(eid)}
+                   "status": st, "note": (revs.get(a) or {}).get("note", ""), "variant_of": in_set.get(eid),
+                   # a copy made as a variant of a decided original rides on the original's sheet
+                   "copy_of": copies.get(eid) if (dec.get(copies.get(eid)) or {}).get("decision") not in (None, "exclude") else None,
+                   # a good-source decision no shot frame shows can't be planned (sync_plan leaves it out)
+                   "no_frame": d.get("decision") == "source" and not e.get("best")}
             row["next"] = next_step(store, row, area, district)
             rows.append(row)
     return rows
+
+
+SHEET_SKIP = {
+    "undecided": "not decided yet (Library › Entries)",
+    "excluded": "excluded",
+    "approved": "already approved",
+    "sheets": "already has sheets",
+    "built": "already has a 3D model",
+    "brief": "a procedural brief stands in for a sheet",
+    "copy": "a copy shares its original's sheet",
+    "no frame": "marked good source, but no shot frame shows it (decide Description or Reference)",
+}
+
+
+def sheet_skip(r: dict) -> str | None:
+    """The one definition of "needs a reference sheet", for a `status` row: None when the asset
+    does (it will be built, from a decision that isn't Exclude, and has no sheet), else why not (a
+    key of SHEET_SKIP). A Description only asset with no shot frame needs one like any other: its
+    sheet is drawn from the description. Used by the Library step strip (2 Sheets), the sheets
+    batch (Make sheets for all), the Reference sheets tab (No sheets yet, Generate missing) and
+    `ap library sheets`, so they always agree."""
+    if not r["decision"]:
+        return "undecided"
+    if r["decision"] == "exclude":
+        return "excluded"
+    if r["status"] == "approved":
+        return "approved"
+    if r["sheets"]:
+        return "sheets"
+    if r["built"] or r["trellis"]:
+        return "built"
+    if r["route"] == "procedural" and r["brief"]:
+        return "brief"
+    if r.get("copy_of"):
+        return "copy"
+    if r.get("no_frame"):
+        return "no frame"
+    return None
+
+
+def sheet_rows(store: ProjectStore, rows: list[dict] | None = None) -> list[dict]:
+    """The `status` rows (default: the whole library) of the assets that need a reference sheet."""
+    rows = status(store, everywhere=True) if rows is None else rows
+    return [r for r in rows if sheet_skip(r) is None]
+
+
+def sheet_states(store: ProjectStore) -> dict[str, str | None]:
+    """{asset: None if it needs a sheet, else why not} for every library asset (vegetation is
+    Unreal foliage and has none). {} before the library plan exists."""
+    try:
+        return {r["asset"]: sheet_skip(r) for r in status(store, everywhere=True)}
+    except FileNotFoundError:
+        return {}
 
 
 def next_step(store: ProjectStore, r: dict, area: str | None, district: str | None) -> str:
@@ -188,8 +244,12 @@ def next_step(store: ProjectStore, r: dict, area: str | None, district: str | No
         return "done (approved)"
     if not r["decision"] and not r["brief"]:
         return f"decide its source in Library › Entries (or ap library decide {p} {r['entry']} ...)"
-    if not r["sheets"] and not (r["route"] == "procedural" and r["brief"]):
+    skip = sheet_skip(r)
+    if skip is None:
         return f"make sheets: References tab, or ap library sheets {p} {sel}"
+    if skip == "no frame":
+        return (f"its Frame crop is gone (no shot frame shows it): decide Description or Reference in Library › Entries "
+                f"(or ap library decide {p} {r['entry']} ...)")
     if r["route"] == "procedural":
         if r.get("missing"):
             return (f"set its {' and '.join(r['missing'])}: Manage entry… › Form / Size in Library › Asset review "

@@ -103,11 +103,12 @@ def test_workflow_states_come_from_project_state_not_single_files():
 
     # library: a lock the plan never considered is out of date; one it considered and dropped is not
     plan = {"entries": [{"id": "e1"}], "unseen": [], "candidates": [], "sources": {}}
-    lib = {"plan": plan, "decisions": {"e1": {"decision": "description"}}}
+    lib = {"plan": plan, "decisions": {"e1": {"decision": "description"}}, "sheets": {"needed": ["e1"], "skip": {}}}
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "stale"
     plan["candidates"] = [{"frame": "frames/a/b/f.png", "ok": False}]
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "ready"     # e1 has no sheets
     # a sheet but none starred: no chosen reference yet, so not complete (the old bug)
+    lib["sheets"] = {"needed": [], "skip": {"e1": "sheets"}}              # the server: e1 has a sheet now
     assert _wf(siteData=built, framesData=frames, libraryData=lib,
                refs=[{"plan": "library", "key": "e1", "sheets": ["s"]}])["library"] == ("input", False)
     lib["decisions"] = {}
@@ -135,7 +136,10 @@ def _row(eid, built=False, review=None):
 def _lib(rows=(), stars=None, sheets=SHEETS, **kw):
     data = {"project": {"anchor": None}, "explore": [], "moodboard": {}, "jobs": [], "stars": STARS if stars is None else stars}
     review = {"assets": list(rows), "pending_sheets": [], "starred_sheets": len(STARS if stars is None else stars)}
-    return _wf(data=data, siteData=BUILT, framesData=FRAMES, libraryData={"plan": PLAN, "decisions": DEC}, refs=sheets,
+    have = {u["key"] for u in sheets}
+    need = [e for e in ("e1", "e2") if e not in have]                     # what the server's verdict would list
+    return _wf(data=data, siteData=BUILT, framesData=FRAMES, libraryData={"plan": PLAN, "decisions": DEC,
+                                                                          "sheets": {"needed": need, "skip": {}}}, refs=sheets,
                reviewData=review, expr="workflow().map(s => [s.id, s.status, s.next.ok, s.label])", **kw)
 
 

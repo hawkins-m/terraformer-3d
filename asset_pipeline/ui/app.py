@@ -524,7 +524,7 @@ def _progress(store: ProjectStore, job, t0: float, now: float) -> dict:
     elif job.kind == "refs.generate" and tag.get("units") is not None:
         n = tag.get("n", 2)
         if tag.get("unit"):
-            dirs = [u.dir(store) for u in s2_refs.units(store, tag.get("plan")) if u.key == tag["unit"]]
+            dirs = [u.dir(store) for u in s2_refs.units(store, tag.get("plan"), pending=True) if u.key == tag["unit"]]
         else:
             dirs = [root / d for d in tag["units"]]
         per = [_newer(d.glob("*.png"), since) if d.is_dir() else 0 for d in dirs]
@@ -977,7 +977,13 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     @app.get("/api/projects/{slug}/refs")
     def refs(slug: str):
         store = _store(slug)
+        from .. import areas
+        try:
+            need = {r["asset"] for r in areas.sheet_rows(store)}      # the one definition of "needs a sheet"
+        except FileNotFoundError:
+            need = set()
         return [{"plan": u.plan, "key": u.key, "kind": u.kind, "title": u.title,
+                 "needs_sheet": s2_refs.needs_sheet(store, u, need), "pending": u.pending,
                  "assets": [a.model_dump(mode="json", include={"id", "name", "category", "count",
                                                                 "dimensions", "description"})
                             for a in u.assets],
@@ -985,7 +991,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                  "next": library_entries.next_step(store, u.plan, u.key),
                  # the newest batch's guidance ("" when it had none): the reroll field starts from it
                  "guidance": next(reversed(sm.values()), {}).get("guidance") or ""}
-                for u in s2_refs.units(store)]
+                for u in s2_refs.units(store, pending=True)]
 
     @app.post("/api/projects/{slug}/refs/sheets/uses")
     def refs_sheet_uses(slug: str, req: SheetsReq):
@@ -1006,14 +1012,16 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def refs_generate(slug: str, req: RefsReq):
         store = _store(slug)
         if req.unit:
-            match = [u for u in s2_refs.units(store, req.plan) if u.key == req.unit]
+            match = [u for u in s2_refs.units(store, req.plan, pending=True) if u.key == req.unit]
             if not match:
                 raise HTTPException(404, f"no unit {req.unit}")
             try:
                 guidance = s2_refs.clean_guidance(req.guidance)
             except ValueError as e:
                 raise HTTPException(400, str(e))
-            fn = lambda: len(s2_refs.generate(store, match[0], n=req.n, guidance=guidance))  # noqa: E731
+            def fn():
+                s2_refs.include_pending(store, match)         # a pending asset joins the library plan
+                return len(s2_refs.generate(store, match[0], n=req.n, guidance=guidance))
         else:
             if (req.guidance or "").strip():
                 raise HTTPException(400, "guidance applies to one asset's reroll: give its unit")
@@ -1022,7 +1030,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             else {"missing": True}
         tag["n"] = req.n
         tag["units"] = [req.unit] if req.unit else \
-            [u.dir(store).relative_to(store.root).as_posix() for u in s2_refs.units(store, req.plan) if not s2_refs.sheets(store, u)]
+            [u.dir(store).relative_to(store.root).as_posix() for u in s2_refs.missing_units(store, req.plan)]
         return jobs.submit("refs.generate", slug, fn, lane="comfy", tag=tag, gated=_on_comfy(store, "references")).public()
 
     # --- stages 3-4: views, review, 3D -------------------------------------------------
@@ -1484,8 +1492,13 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def library_get(slug: str):
         store = _store(slug)
         data = sw_library.load(store)
-        from .. import variants
+        from .. import areas, variants
+        sheet_state = areas.sheet_states(store) if data else {}
         return {"plan": data, "decisions": sw_library.decisions(store), "names": sw_library.asset_names(store),
+                # which assets need a reference sheet, and why the others don't (areas.sheet_skip): what the
+                # Library step strip's 2 Sheets, the sheets batch and the Reference sheets tab all count
+                "sheets": {"needed": sorted(a for a, why in sheet_state.items() if why is None),
+                           "skip": {a: why for a, why in sheet_state.items() if why}},
                 "areas": _area_members(store) if data else {},
                 # duplicates used as variants: {variant: original}, and each original's placement split
                 "variant_of": variants.duplicates_as_variants(store) if data else {},

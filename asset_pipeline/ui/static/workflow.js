@@ -249,15 +249,20 @@ function renderGuide() {
 // sheet, no 3D model, not approved. A model built without sheets (a brief) has passed 2 and 3.
 const LIB_STEPS = [
   {id: "decide", name: "Decide", go: ["library", "assets"], tip: "Assets without a decision (Library › Asset review)."},
-  {id: "sheets", name: "Sheets", go: ["library", "refs"], tip: "Included assets with no reference sheet yet (Library › Reference sheets)."},
+  {id: "sheets", name: "Sheets", go: ["library", "refs"], tip: "Decided assets that will be built and have no reference sheet yet, Description only ones included (Library › Reference sheets)."},
   {id: "star", name: "Choose Reference", go: ["library", "refs"], tip: "Assets with sheets but no chosen reference: star the sheet to build from (Library › Reference sheets)."},
   {id: "build", name: "Build", go: ["views", null], tip: "Assets with a starred sheet and no 3D model yet (Generate 3D Model & Review: Make 3D or Reroll)."},
   {id: "approve", name: "Approve", go: ["views", null], tip: "Built assets not approved yet (Generate 3D Model & Review › Approve)."},
 ];
 // {asset id: the step it waits at, or null (excluded, vegetation, approved)}
+// Whether an asset needs a sheet is the server's call (libraryData.sheets, areas.sheet_skip): the same
+// list the sheets batch and the Reference sheets tab use, so 2 Sheets, Make sheets for all and No sheets
+// yet always agree. Assets with no sheet that don't need one (a procedural brief stands in, a copy rides
+// on its original, a good-source decision no frame shows) wait at Build, or nowhere.
 function libStepOf() {
   const out = {};
   const decs = (libraryData && libraryData.decisions) || {}, stars = (data && data.stars) || {};
+  const sh = (libraryData && libraryData.sheets) || {}, need = new Set(sh.needed || []), skip = sh.skip || {};
   const sheets = {};
   for (const u of refs || []) if (u.plan === "library") sheets[u.key] = u.sheets || [];
   const rows = {};
@@ -269,8 +274,11 @@ function libStepOf() {
     if (d === "exclude") { out[e.id] = null; continue; }
     const ids = d === "kit" ? Object.keys((decs[e.id] || {}).pieces || {}).map(p => `${e.id}-${p}`) : [e.id];
     for (const id of ids) {
-      const r = rows[id], built = !!(r && (r.results.length || r.current)), sh = sheets[id] || [];
-      out[id] = built ? (r.review !== "approved" ? "approve" : null) : !sh.length ? "sheets" : !sh.some(k => stars[k]) ? "star" : "build";
+      const r = rows[id], built = !!(r && (r.results.length || r.current)), mine = sheets[id] || [];
+      out[id] = need.has(id) ? "sheets"
+        : built ? (r.review !== "approved" ? "approve" : null)
+        : !mine.length ? (skip[id] === "brief" || skip[id] === "built" ? "build" : null)
+        : !mine.some(k => stars[k]) ? "star" : "build";
     }
   }
   return out;

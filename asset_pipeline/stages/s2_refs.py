@@ -60,6 +60,7 @@ class Unit:
     key: str                      # asset id, or kit-<slug>
     kind: str                     # object | kit | material
     assets: list[PlanAsset] = field(default_factory=list)
+    pending: bool = False         # a library asset that needs a sheet but isn't in the plan's included set yet
 
     @property
     def title(self) -> str:
@@ -73,7 +74,11 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")[:40] or "kit"
 
 
-def units(store: ProjectStore, plan: str | None = None) -> list[Unit]:
+def units(store: ProjectStore, plan: str | None = None, pending: bool = False) -> list[Unit]:
+    """The plan's units: its included assets (kit groups as one). pending: the library plan's
+    assets that need a sheet (areas.sheet_skip) but aren't included yet are listed too, each a
+    `pending` unit, so the Reference sheets tab and Generate missing reach them (sync_plan
+    includes them when their sheets are made)."""
     out = []
     names = [plan] if plan else s1_plan.plan_names(store)
     for name in names:
@@ -97,7 +102,41 @@ def units(store: ProjectStore, plan: str | None = None) -> list[Unit]:
                 out.append(Unit(name, a.id, "material", [a]))
             else:
                 out.append(Unit(name, a.id, "object", [a]))
+    from . import sw_library
+    if pending and (plan is None or plan == sw_library.PLAN_NAME):
+        out += pending_units(store, {u.key for u in out if u.plan == sw_library.PLAN_NAME})
     return out
+
+
+def pending_units(store: ProjectStore, have: set[str]) -> list[Unit]:
+    """Units for the decided library assets that aren't in `have` (the plan's included ones) and
+    either need a sheet or already have sheets on disk (decided before the plan included them),
+    so the Reference sheets tab lists everything that waits for or holds sheets."""
+    from .. import areas
+    from . import sw_library
+    try:
+        want = {r["asset"] for r in areas.status(store, everywhere=True)
+                if r["decision"] not in (None, "exclude") and (areas.sheet_skip(r) is None or r["sheets"])} - have
+        if not want:
+            return []
+        assets = {a.id: a for a in sw_library.library_assets(store, skip_unplannable=True)}
+    except FileNotFoundError:
+        return []
+    return [Unit(sw_library.PLAN_NAME, a.id, "material" if a.category == "terrain" else "object", [a], pending=True)
+            for a in (assets[i] for i in sorted(want) if i in assets)]
+
+
+def needs_sheet(store: ProjectStore, unit: Unit, need: set[str] | None = None) -> bool:
+    """Does this unit still need a sheet? A library asset by the one shared definition
+    (areas.sheet_skip; `need` = the assets that do, from areas.sheet_rows), any other plan's
+    unit when it has none."""
+    from . import sw_library
+    if unit.plan != sw_library.PLAN_NAME:
+        return not sheets(store, unit)
+    if need is None:
+        from .. import areas
+        need = {r["asset"] for r in areas.sheet_rows(store)}
+    return unit.key in need
 
 
 def _size(cells: int, aspect: float, pixels: int = PIXELS) -> tuple[int, int]:
@@ -165,9 +204,13 @@ def _next_index(d: Path) -> int:
     return max(nums, default=-1) + 1
 
 
+def sheets_of(store: ProjectStore, plan: str, key: str) -> list[str]:
+    """The sheets on disk for a plan's unit key, whether or not the plan includes it."""
+    return sorted(p.relative_to(store.root).as_posix() for p in (store.root / REFS / plan / key).glob("sheet_*.png"))
+
+
 def sheets(store: ProjectStore, unit: Unit) -> list[str]:
-    d = unit.dir(store)
-    return sorted(p.relative_to(store.root).as_posix() for p in d.glob("sheet_*.png"))
+    return sheets_of(store, unit.plan, unit.key)
 
 
 def current(store: ProjectStore, unit: Unit) -> Unit:
@@ -264,14 +307,36 @@ def sheet_meta(store: ProjectStore, unit: Unit) -> dict[str, dict]:
     return out
 
 
+def missing_units(store: ProjectStore, plan: str | None = None) -> list[Unit]:
+    """The units that need sheets: a library asset by the one shared definition (areas.sheet_skip,
+    pending ones included), any other plan's unit with none."""
+    from .. import areas
+    try:
+        need = {r["asset"] for r in areas.sheet_rows(store)}
+    except FileNotFoundError:
+        need = set()
+    return [u for u in units(store, plan, pending=True) if needs_sheet(store, u, need)]
+
+
+def include_pending(store: ProjectStore, todo: list[Unit]) -> None:
+    """Include the pending units' entries in the library plan (library_entries.sync_plan: the
+    assets already included stay included), so views and 3D see them once they have sheets."""
+    from .. import areas, library_entries
+    keys = {u.key for u in todo if u.pending}
+    if keys:
+        library_entries.sync_plan(store, extra=sorted({r["entry"] for r in areas.sheet_rows(store) if r["asset"] in keys}))
+
+
 def generate_missing(store: ProjectStore, n: int = 2, plan: str | None = None,
                      log=print) -> list[Path]:
-    """Sheets for every unit that has none yet."""
+    """Sheets for every unit that needs them (missing_units). The library assets among them are
+    included in the plan first (library_entries.sync_plan), so views and 3D see them."""
+    todo = missing_units(store, plan)
+    include_pending(store, todo)
     out = []
-    for u in units(store, plan):
-        if not sheets(store, u):
-            log(f"{u.plan}/{u.key} ({u.kind})")
-            out += generate(store, u, n=n)
+    for u in todo:
+        log(f"{u.plan}/{u.key} ({u.kind})")
+        out += generate(store, u, n=n)
     return out
 
 

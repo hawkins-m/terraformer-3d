@@ -413,3 +413,27 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   `versions.forget_cleaned` drops the version's record. Cleaned cards carry `used`; Use this version is disabled
   when the card's source version isn't Active.
 - `next_build` rows carry `cleanup_available`; the count `need_cleanup` is gone (uncleaned is "not cleaned (optional)").
+
+## One definition of "needs a sheet" (2026-10-27)
+- `areas.sheet_skip(row)` (on a `areas.status` row) is the only place that decides whether a library
+  asset needs a reference sheet: decided and not Exclude, not approved, no sheet on disk, not already
+  built, not a procedural asset whose brief stands in, not a copy of a decided original (it rides on
+  its sheet), and not a good-source decision no frame shows (`sync_plan` drops it). Description only
+  assets with no shot frame need one like any other (drawn from the description). It returns None
+  (needs one) or a key of `areas.SHEET_SKIP` (why not). Kit modules count one by one; variant-set members
+  each have their own.
+- Everything counts through it: the Library step strip's 2 Sheets (`libraryData.sheets`, from
+  `GET /library`), the sheets batch (`areas/batch`, items are asset ids), the Reference sheets tab
+  (`GET /refs`: `needs_sheet` per unit; No sheets yet, Generate missing, the estimate) and
+  `ap library sheets --area`. Don't add a fourth rule in JS or the CLI.
+- Before this the three disagreed (the strip counted per asset from the tab's own units, the batch per
+  entry and skipped assets with a brief, the tab only knew assets the plan had `include`d). The cause
+  of most of the gap: decided assets never included in `plans/library.json` have no unit, so the tab and
+  Generate missing couldn't see them, while their sheets might already be on disk.
+- `s2_refs.units(..., pending=True)` adds a `pending` unit for every decided asset the plan doesn't include
+  that needs a sheet or already has sheets (`library_assets` builds it without saving). Generate
+  missing, a single unit's "+ N more" and the batch call `include_pending` (`sync_plan`) first, so views
+  and 3D see them. `sw_library.library_assets` is the pure half of `asset_plan`; a good-source decision
+  with no frame no longer stops a plan that isn't including it.
+- Tests: `tests/test_sheets_needed.py` (one synthetic asset per case, the batch, the tab, the library
+  payload and the strip's own `libStepOf` run in node all counted against one list).

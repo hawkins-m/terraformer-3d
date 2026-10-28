@@ -119,7 +119,8 @@ def test_library_step_strip_counts_what_waits_at_each_step():
     lib = {"plan": {"entries": ents, "unseen": []}, "decisions": {
         "b": {"decision": "description"}, "c": {"decision": "description"}, "d": {"decision": "reference"},
         "e": {"decision": "description"}, "f": {"decision": "exclude"},
-        "g": {"decision": "kit", "pieces": {"bay": {}, "corner": {}}}}}
+        "g": {"decision": "kit", "pieces": {"bay": {}, "corner": {}}}},
+        "sheets": {"needed": ["b"], "skip": {"c": "sheets", "d": "sheets", "g-bay": "sheets", "e": "built", "g-corner": "approved"}}}
     refs = [{"plan": "library", "key": k, "sheets": [f"refs/library/{k}/sheet_000.png"]} for k in ("c", "d", "g-bay")]
     review = {"pending_sheets": [], "starred_sheets": 1, "assets": [
         {"plan": "library", "asset": {"id": "e"}, "results": [{}], "current": {"n": 1}, "review": None},

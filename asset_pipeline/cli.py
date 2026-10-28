@@ -414,12 +414,13 @@ def cmd_refs_generate(a) -> None:
     if not a.unit:
         paths = s2_refs.generate_missing(store, n=a.n, plan=a.plan)
     else:
-        by_key = {(u.plan, u.key): u for u in s2_refs.units(store, a.plan)}
+        by_key = {(u.plan, u.key): u for u in s2_refs.units(store, a.plan, pending=True)}
         paths = []
         for key in a.unit:
             matches = [u for (plan, k), u in by_key.items() if k == key]
             if not matches:
                 raise ValueError(f"no unit {key!r} (see `ap refs show`)")
+            s2_refs.include_pending(store, matches)
             for u in matches:
                 paths += s2_refs.generate(store, u, n=a.n, seed=a.seed)
     for p in paths:
@@ -1155,13 +1156,15 @@ def cmd_library_pending(a) -> None:
 
 
 def cmd_library_sheets(a) -> None:
+    from . import areas
     from .stages import s2_refs, sw_library
     store = ProjectStore.open(a.project)
     rows = _selection(a, store)
-    if rows is not None:                             # the area's decided, unapproved entries
-        dec = sw_library.decisions(store)
-        a.only = sorted({r["entry"] for r in rows if r["status"] != "approved"
-                         and (dec.get(r["entry"]) or {}).get("decision") not in (None, "exclude")})
+    need_assets = None
+    if rows is not None:                             # the area's assets that need a sheet (areas.sheet_skip)
+        need = areas.sheet_rows(store, rows)
+        need_assets = {r["asset"] for r in need}
+        a.only = sorted({r["entry"] for r in need})
         undecided = sorted({r["entry"] for r in rows if not r["decision"]})
         if undecided:
             print(f"not decided yet (Library › Entries), skipped: {', '.join(undecided)}")
@@ -1180,7 +1183,8 @@ def cmd_library_sheets(a) -> None:
     if a.guidance and not a.unit:
         raise SystemExit("--guidance steers one asset's reroll: give it with --unit ASSET")
     todo = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if (not a.unit or u.key in a.unit)
-            and u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u))]
+            and u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u))
+            and (need_assets is None or a.more or a.unit or u.key in need_assets)]
     for u in todo:
         try:
             out = s2_refs.generate(store, u, n=a.n, view=a.view, guidance=a.guidance)

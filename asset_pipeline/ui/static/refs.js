@@ -21,7 +21,9 @@ const refsSel = {};
 // Library assets go by the strip's own step (libStepOf), so the counts match it; other plans by their sheets.
 const refsStep = (u, step, plain) => u.plan === "library" && typeof libStepOf === "function" ? (refsStepMap || (refsStepMap = libStepOf()))[u.key] === step : plain(u);
 let refsStepMap = null;               // per render: libStepOf() once, not once per unit
-const REFS_FILTERS = {all: ["All assets", () => true], missing: ["No sheets yet", u => refsStep(u, "sheets", x => !x.sheets.length)],
+// "No sheets yet" is the server's verdict (u.needs_sheet: areas.sheet_skip), the same one the strip's 2 Sheets and
+// the sheets batch use; an asset that needs none (a brief stands in, a copy) isn't in it.
+const REFS_FILTERS = {all: ["All assets", () => true], missing: ["No sheets yet", u => !!u.needs_sheet],
   star: ["Sheets, none starred", u => refsStep(u, "star", x => x.sheets.length && !x.sheets.some(k => data.stars[k]))]};
 let refsFilter = "all";
 function refsFilterSet(k) { refsFilter = REFS_FILTERS[k] ? k : "all"; renderRefs(); }
@@ -31,13 +33,13 @@ function renderRefs() {
   const focused = document.activeElement && document.activeElement.classList.contains("guidance")
     ? {key: document.activeElement.dataset.unit, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd} : null;
   const missingJobs = activeJobs("refs.generate", {missing: true});
-  const missing = refs.filter(u => !u.sheets.length).length;
+  const missing = refs.filter(u => u.needs_sheet).length;
   $("#refs-missing").disabled = !!missingJobs.length || !missing;
   $("#refs-missing").textContent = missingJobs.length ? "Generating…" : `Generate missing (${missing})`;
   setStop("#refs-missing-stop", missingJobs);
   const starred = refs.reduce((k, u) => k + u.sheets.filter(s => data.stars[s]).length, 0);
   const pre = !refs.length && libraryPrereq();
-  const sumText = refs.length ? `${refs.length} assets, ${refs.length - missing} with sheets, ${starred} sheet(s) starred.`
+  const sumText = refs.length ? `${refs.length} assets, ${refs.filter(u => u.sheets.length).length} with sheets, ${missing} need sheets, ${starred} sheet(s) starred.`
     : pre ? prereqHtml(pre) : "No included assets yet.";
   if ($("#refs-summary").dataset.sig !== sumText) {          // set only on a change: polling must not rebuild the button
     $("#refs-summary").dataset.sig = sumText;
@@ -73,7 +75,7 @@ function refsUnit(u) {
   const what = u.kind === "kit" ? u.assets.map(x => esc(x.name)).join(", ") :
     `×${a.count} · ${fmtDims(a.dimensions)}`;
   el.innerHTML = `<div class="unit-head">
-      <span class="title">${u.plan === "library" ? `<a href="#" class="jump-link" data-jump="assets" data-asset="${esc(u.key)}" title="Show it in Asset review">${esc(u.title)}</a>` : esc(u.title)}</span><span class="chip">${u.kind}</span>
+      <span class="title">${u.plan === "library" ? `<a href="#" class="jump-link" data-jump="assets" data-asset="${esc(u.key)}" title="Show it in Asset review">${esc(u.title)}</a>` : esc(u.title)}</span><span class="chip">${u.kind}</span>${u.pending && u.needs_sheet ? `<span class="chip" title="Decided, but not in the library plan yet: it joins it when its sheets are made, drawn from its description and chosen image">not in the plan yet</span>` : ""}
       <span class="hint">${what}</span>
       <input type="text" class="guidance" maxlength="500" aria-label="Guidance for ${esc(u.title)}'s next sheets"
         placeholder="guidance for the next sheets (optional)" title="Added to this asset's prompt for the next batch only, and saved with those sheets">

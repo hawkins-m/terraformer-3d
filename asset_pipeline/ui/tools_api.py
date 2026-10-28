@@ -244,12 +244,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         return {"path": str(out), "rel": out.relative_to(store.root).as_posix(), "text": out.read_text()}
 
     def _sheet_rows(store, rows):
-        """The area's assets that still need reference sheets: decided (not excluded), not approved,
-        no sheet yet, and not a procedural asset that already has its brief."""
-        dec = sw_library.decisions(store)
-        return [r for r in rows if r["status"] != "approved" and not r["sheets"]
-                and (dec.get(r["entry"]) or {}).get("decision") not in (None, "exclude")
-                and not (r["route"] == "procedural" and r["brief"])]
+        """The rows of the assets that still need reference sheets: the one definition (areas.sheet_skip)."""
+        return areas.sheet_rows(store, rows)
 
     BATCH_JOBS = {"sheets": ("library.sheets", "comfy"), "build": ("library.build", "cpu"),
                   "trellis": ("library.trellis", "gpu0"), "instances": ("library.instances", "cpu")}
@@ -268,14 +264,15 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
             rows = [r for r in rows if r["asset"] in req.assets]
         notes = []
         if req.action == "sheets":
-            only = sorted({r["entry"] for r in _sheet_rows(store, rows)})
+            need = _sheet_rows(store, rows)
             undecided = sorted({r["entry"] for r in rows if not r["decision"] and not r["brief"]})
             if undecided:
                 notes.append("not decided yet (Library › Entries), skipped: " + ", ".join(undecided))
-            have = sorted({r["entry"] for r in rows if r["sheets"]} - set(only))
-            if have:
-                notes.append(f"already have sheets, skipped: {len(have)}")
-            return only, notes
+            for why in ("sheets", "copy", "no frame"):         # the other reasons an asset needs none
+                gone = sorted(r["asset"] for r in rows if areas.sheet_skip(r) == why)
+                if gone:
+                    notes.append(f"{areas.SHEET_SKIP[why]}, skipped: " + (", ".join(gone) if why != "sheets" else str(len(gone))))
+            return sorted(r["asset"] for r in need), notes
         if req.action == "build":
             todo = [r["asset"] for r in rows if r["route"] == "procedural" and r["brief"] and r["status"] != "approved"
                     and (req.force or not r["fresh"])]
@@ -338,10 +335,10 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         if req.action == "sheets":
             def run():
                 from .. import library_entries
-                need = {r["asset"] for r in _sheet_rows(store, sel(store, req.area, req.district, req.everywhere)) if r["entry"] in todo
-                        and (req.assets is None or r["asset"] in req.assets)}
-                library_entries.sync_plan(store, extra=todo)       # the assets already included stay included
-                units = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if u.key in need and not s2_refs.sheets(store, u)]
+                rows = _sheet_rows(store, sel(store, req.area, req.district, req.everywhere))
+                need = {r["asset"] for r in rows if r["asset"] in todo}
+                library_entries.sync_plan(store, extra=sorted({r["entry"] for r in rows if r["asset"] in need}))  # the assets already included stay included
+                units = [u for u in s2_refs.units(store, sw_library.PLAN_NAME, pending=True) if u.key in need and not s2_refs.sheets(store, u)]
                 return failures(each(units, lambda u: s2_refs.generate(store, u, n=2)), "sheets")
             return jobs.submit("library.sheets", slug, run, lane="comfy", tag=tag,
                                gated=on_comfy(store, "references")).public()
