@@ -339,10 +339,20 @@ new city: random city rules within believable ranges plus a new seed, then the u
 - The last 10 rolls (rules and seed, in `site/rolls.json`) are kept: *Previous roll* / *Next roll*
   (`ap site roll PROJECT --step previous|next`) restore one and re-plan.
 - A new project with the *Procedural city* starting point shows a hint pointing at the dice.
+- *Layout* picks a layout preset, the city's overall shape: street pattern (radial, grid, ring,
+  organic, linear), outline (coastal, circle, strip, blob), ring roads, walls and a moat, parks
+  between blocks, the density falloff, height zoning and highways with interchanges. *utopia*
+  (the default, and every existing project's) is the generator as it was before presets. The
+  *Layout seed* re-rolls only the preset's own shape (a blob outline, organic avenues). A roll
+  uses them; *Apply layout* re-plans with them and keeps the rules, seed and shots. Every field
+  is in `site/layout.json` (`city.preset`) for hand edits.
 
 ```
 ap site roll my-project                              # a random city; prints its seed
 ap site roll my-project --seed 2024 --keep size,waterfront
+ap site roll my-project --preset grid --layout-seed 3
+ap site preset --list                                # the presets and what each changes
+ap site preset my-project ring-city                  # change the shape alone and re-plan
 ```
 
 **In the UI** (Layout tab): building types, districts, materials, zones and rules (checks and

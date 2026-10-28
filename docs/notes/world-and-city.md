@@ -263,3 +263,14 @@ World and city mode: greybox and passes, concept frames and their control settin
   confirm is a plain `dialog()` with Cancel as the default button (focused: Enter cancels, Esc too).
   Its new-project hint is `.roll-hint`, not `.start-hint` (renderStartHint removes every
   `.start-hint` on each redraw).
+
+## Layout presets (2026-10-27)
+- `CitySpec.preset` (`schema.LayoutPreset`, named ones in `layout_presets.py`) drives the city's
+  overall shape; `city.py` honours every field. Default `utopia` = the generator as before presets,
+  pinned by plan digests in `tests/test_layout_presets.py` (keep them passing: any change to the
+  utopia path must leave those digests alone). Preset-only draws use `city.layout_rng`
+  (`CitySpec.layout_seed`), never the city seed's stream; parks between blocks use a hash per block.
+- Preset walls become an `Enclosure` via `city.with_preset` (plan, shots, terrain plan/build, areas);
+  never saved, so switching back to `walls: none` leaves no wall behind.
+- New slot types: `highway`, `interchange` (flat paving), `moat` (water piece `moat-water`).
+- Status and next steps: [docs/layout-presets-progress.md](../layout-presets-progress.md).

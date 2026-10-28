@@ -125,6 +125,8 @@ class CityPlan:
     typed: list = field(default_factory=list)  # city_types.Building, when the layout has a typology catalog
     walls: list[WallPart] = field(default_factory=list)   # the enclosure's wall and gates
     gates: list[float] = field(default_factory=list)      # gate angles (deg)
+    interchanges: list[Polygon] = field(default_factory=list)  # paved, where highways cross (the preset's)
+    moat: list[Polygon] = field(default_factory=list)     # the enclosure's moat (water), open at the bridges
     stats: dict = field(default_factory=dict)
 
 
@@ -147,6 +149,7 @@ class Fields:
         self._shore = lambda lat: shore_at(self.t, lat)
         rng = np.random.default_rng(self.city.seed + 7)
         self.noise = _value_noise(129, 6, rng)       # organic asymmetry of the density
+        self.outline = Outline(self.city, self) if self.city.preset.outline != "coastal" else None
 
     def z(self, x, y):
         return self.hs.many(x, y)
@@ -171,10 +174,20 @@ class Fields:
     def density(self, x, y):
         x, y = np.asarray(x, float), np.asarray(y, float)
         c = self.city
+        pr = c.preset
         keep = np.ones_like(x)
         for nd in c.nodes:
             d = np.hypot(x - nd.center[0], y - nd.center[1])
-            keep = keep * (1 - np.exp(-(d / (c.density_falloff_m * nd.weight)) ** 2))
+            s = c.density_falloff_m * nd.weight
+            if pr.falloff_scale != 1:
+                s = s * pr.falloff_scale
+            if pr.falloff == "linear":
+                pull = np.clip(1 - d / (1.8 * s), 0, 1)
+            elif pr.falloff == "flat":       # even, then a quick edge
+                pull = 1 - _smooth(1.2 * s, 1.8 * s, d)
+            else:
+                pull = np.exp(-(d / s) ** 2)
+            keep = keep * (1 - pull)
         dens = 1 - keep
         dens = dens + 0.12 * np.exp(-np.maximum(self.inland(x, y), 0) / 350)   # the waterfront
         e = self.t.extent_m
@@ -182,6 +195,8 @@ class Fields:
         j = np.clip(((x / e + 0.5) * (nn - 1)).astype(int), 0, nn - 1)
         i = np.clip(((0.5 - y / e) * (nn - 1)).astype(int), 0, nn - 1)
         dens = dens + 0.1 * self.noise[i, j]
+        if self.outline is not None:   # the preset's outline: the city fades out at its edge (towns are their own)
+            dens = dens * _smooth(0, OUTLINE_EDGE_M, self.outline.sd(x, y))
         if c.enclosure:        # dense right up to the wall, nothing outside it
             e = c.enclosure
             d = np.hypot(x - e.center[0], y - e.center[1])
@@ -191,6 +206,115 @@ class Fields:
             dens = np.maximum(dens, tw.density * (1 - _smooth(0.55 * tw.radius, tw.radius, d)))
         dens = dens * (1 - _smooth(0.5 * c.max_slope, c.max_slope, self.slope(x, y)))
         return np.clip(dens, 0, 1)
+
+    def height_zone(self, x, y):
+        """Where the preset clusters the tallest buildings (1) and how fast heights fall off
+        (towards 0); None when heights follow the density (as before presets)."""
+        pr = self.city.preset
+        if pr.tall_at == "density":
+            return None
+        x, y = np.asarray(x, float), np.asarray(y, float)
+        hf = pr.height_falloff_m
+        if pr.tall_at == "centre":
+            cx, cy = main_centre(self.city)
+            return np.exp(-(np.hypot(x - cx, y - cy) / hf) ** 2)
+        if pr.tall_at == "waterfront":
+            return np.exp(-np.maximum(self.inland(x, y), 0) / hf)
+        out = np.zeros_like(x)
+        for nd in self.city.nodes:
+            out = np.maximum(out, np.exp(-(np.hypot(x - nd.center[0], y - nd.center[1]) / (hf * nd.weight)) ** 2))
+        return out
+
+
+# --- the layout preset: outline, centre, its own random stream, walls ---------------------------
+
+OUTLINE_EDGE_M = 120.0       # the density fades to nothing over this distance inside the outline
+LAYOUT_STREAM = 0x5A7E       # the preset's random stream: (this, layout_seed, key...), never the city seed's
+ZONE_STOREYS = 3             # height zoning (catalog buildings): +- this many storeys from the zone's peak to its edge
+
+
+def _key(s: str) -> int:
+    return int(hashlib.sha256(s.encode()).hexdigest()[:8], 16)
+
+
+def layout_rng(c: CitySpec, *key) -> np.random.Generator:
+    """The preset's own draws (outline, organic avenues): CitySpec.layout_seed, apart from the
+    city seed's stream, so the shape re-rolls without moving anything else."""
+    return np.random.default_rng([LAYOUT_STREAM, c.layout_seed, *[_key(k) if isinstance(k, str) else int(k) for k in key]])
+
+
+def main_centre(c: CitySpec) -> tuple[float, float]:
+    """The city's main centre: the enclosure's, else the forum node's, else the first node's,
+    else the middle of the bounds."""
+    if c.enclosure:
+        return tuple(c.enclosure.center)
+    nd = next((n for n in c.nodes if n.role == "forum"), c.nodes[0] if c.nodes else None)
+    if nd:
+        return tuple(nd.center)
+    x0, y0, x1, y1 = c.bounds
+    return ((x0 + x1) / 2, (y0 + y1) / 2)
+
+
+def outline_r(c: CitySpec) -> float:
+    """The outline's radius (circle, blob) or half-width (strip); for the coastal outline, the
+    radius rings and highways are spaced to."""
+    pr = c.preset
+    if pr.outline_m:
+        return pr.outline_m
+    x0, y0, x1, y1 = c.bounds
+    return 0.5 * min(x1 - x0, y1 - y0) * (0.45 if pr.outline == "strip" else 0.9)
+
+
+class Outline:
+    """The preset's outline as a signed distance (m, positive inside) and a polygon."""
+
+    def __init__(self, c: CitySpec, f: "Fields"):
+        self.kind, self.r = c.preset.outline, outline_r(c)
+        self.c = np.array(main_centre(c), float)
+        self.u = f.u
+        rng = layout_rng(c, "outline")
+        # a blob: the circle's radius wobbles with three low harmonics
+        self.harm = [(k, rng.uniform(0.04, 0.11), rng.uniform(0, 2 * math.pi)) for k in (2, 3, 5)]
+
+    def radius_at(self, a):
+        r = np.ones_like(np.asarray(a, float))
+        if self.kind == "blob":
+            for k, amp, ph in self.harm:
+                r = r + amp * np.cos(k * a + ph)
+        return self.r * r
+
+    def sd(self, x, y):
+        dx, dy = np.asarray(x, float) - self.c[0], np.asarray(y, float) - self.c[1]
+        if self.kind == "strip":       # a band along the coast, `r` either side of the centre
+            return self.r - np.abs(dx * self.u[0] + dy * self.u[1])
+        return self.radius_at(np.arctan2(dy, dx)) - np.hypot(dx, dy)
+
+    def polygon(self, extent: float) -> Polygon:
+        if self.kind == "strip":
+            v = np.array([-self.u[1], self.u[0]])
+            pts = [self.c + a * self.r * self.u + b * extent * v for a, b in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+            return Polygon(pts)
+        a = np.linspace(0, 2 * math.pi, 181)[:-1]
+        r = self.radius_at(a)
+        return Polygon(np.c_[self.c[0] + r * np.cos(a), self.c[1] + r * np.sin(a)])
+
+
+def with_preset(layout: SiteLayout) -> SiteLayout:
+    """The layout with its preset's walls made explicit: a wall (and moat) round the outline
+    when the city has no enclosure of its own. Unchanged (the same object) when the preset adds
+    no walls, as "utopia" doesn't."""
+    c = layout.city
+    if c is None or c.preset.walls == "none":
+        return layout
+    L = layout.model_copy(deep=True)
+    c, pr = L.city, L.city.preset
+    if c.enclosure is None:
+        x0, y0, x1, y1 = c.bounds
+        r = outline_r(c) if pr.outline in ("circle", "blob") else 0.8 * 0.5 * min(x1 - x0, y1 - y0)
+        c.enclosure = Enclosure(center=main_centre(c), radius=round(r))
+    if pr.walls == "wall_moat" and not c.enclosure.moat_w:
+        c.enclosure.moat_w = pr.moat_w
+    return L
 
 
 # --- terrain pads ---------------------------------------------------------------------------
@@ -689,12 +813,35 @@ def greenbelt(c: CitySpec, region: Polygon, cut) -> list[Polygon]:
     return out
 
 
+def moat(c: CitySpec, land: Polygon, cut) -> list[Polygon]:
+    """The water ring just outside the wall, on land, bridged wherever a way crosses it (the
+    gates' roads among them), in wedges (a surface is drawn from its outline: no holes)."""
+    e = c.enclosure
+    r0 = e.radius + e.wall_d / 2 + 3
+    ring = Point(e.center).buffer(r0 + e.moat_w, quad_segs=48).difference(Point(e.center).buffer(r0, quad_segs=48))
+    g = ring.intersection(land)
+    if not cut.is_empty:
+        g = g.difference(cut)
+    far = r0 + e.moat_w + 50
+    out = []
+    for k in range(24):
+        a0, a1 = 15 * k, 15 * (k + 1)
+        wedge = Polygon([e.center] + [tuple(np.array(e.center) + far * _dir(a)) for a in np.linspace(a0, a1, 5)])
+        out += [q for q in _polys(g.intersection(wedge)) if q.area > 100]
+    return out
+
+
 def ways(L: SiteLayout, f: Fields) -> list[Way]:
     c = L.city
     x0, y0, x1, y1 = c.bounds
     e = c.enclosure
     rr = ring_road_r(c) if e else 0.0
-    in_bounds = lambda p: x0 <= p[0] <= x1 and y0 <= p[1] <= y1  # noqa: E731
+    pat = c.preset.streets
+    in_box = lambda p: x0 <= p[0] <= x1 and y0 <= p[1] <= y1  # noqa: E731
+    if f.outline is None:
+        in_bounds = in_box
+    else:                  # the preset's outline: avenues end at its edge
+        in_bounds = lambda p: in_box(p) and float(f.outline.sd(*p)) > 0  # noqa: E731
     # inside a walled city, avenues end at the ring road
     inside = (lambda p: in_bounds(p) and math.dist(p, e.center) < rr - 10) if e else in_bounds
     out: list[Way] = []
@@ -711,16 +858,23 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
             continue
         out.append(Way(f"{nd.id}-outer", "ring", Point(nd.center).buffer(nd.radius, quad_segs=24).exterior,
                        c.avenue_w * 0.8, nd.id))
+        if pat in ("grid", "linear"):
+            continue       # the pattern's own avenues (pattern_ways) instead of radials
         for k in range(nd.radials):
             a = nd.rot + 360 * k / nd.radials
+            length, curve = nd.avenue_m, nd.spiral_deg_per_100m
+            if pat == "organic":   # jittered, winding, of unequal length (the preset's own stream)
+                lr = layout_rng(c, nd.id, k)
+                a += lr.uniform(-0.3, 0.3) * 360 / nd.radials
+                length, curve = length * lr.uniform(0.6, 1.0), lr.uniform(-7, 7)
             start = np.array(nd.center) + r["core"] * _dir(a)
-            ln = _trace(f, start, a, nd.avenue_m, nd.spiral_deg_per_100m, free_m=nd.radius - r["core"],
+            ln = _trace(f, start, a, length, curve, free_m=nd.radius - r["core"],
                         stop=lambda p, me=nd.id: not inside(p) or in_other(p, me))
             if ln is not None and ln.length > 40:
                 out.append(Way(f"{nd.id}-av{k}", "avenue", ln, c.avenue_w, nd.id))
-    # arterials: each node to its two nearest
+    # arterials: each node to its two nearest (a grid or a linear city has its own network)
     pairs = set()
-    for nd in nodes:
+    for nd in (nodes if pat not in ("grid", "linear") else []):
         near = sorted((o for o in nodes if o.id != nd.id),
                       key=lambda o: math.dist(o.center, nd.center))[:2]
         for o in near:
@@ -734,10 +888,12 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
         ln = _trace(f, start, hd, 3 * math.dist(start, end), 0.0, target=end)
         if ln is not None and ln.length > 40:
             out.append(Way(f"art-{a_id}-{b_id}", "arterial", ln, c.arterial_w, a_id))
+    ok = lambda p: inside(p) and bool(f.land(*p)) and not in_other(p, None)  # noqa: E731
+    out += pattern_ways(c, f, ok)
     if e:
         out += enclosure_ways(L, f, rr)
     for tw in c.towns:
-        out += town_lanes(tw, f, c, lambda p, tw=tw: not in_bounds(p) or math.dist(p, tw.center) > tw.radius)
+        out += town_lanes(tw, f, c, lambda p, tw=tw: not in_box(p) or math.dist(p, tw.center) > tw.radius)
     # promenade: the shoreline, 30 m inland (a walled city: inside the wall, and each town's)
     lat = np.arange(-f.t.extent_m / 2, f.t.extent_m / 2, STEP_M)
     s = f._shore(lat) - 30 - c.promenade_w / 2
@@ -746,6 +902,15 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
         ok = lambda p: inside(p) or any(math.dist(p, tw.center) < tw.radius for tw in c.towns)  # noqa: E731
     else:
         ok = inside
+    runs = _runs(pts, ok)
+    for i, r in enumerate(runs):
+        out.append(Way("promenade" if len(runs) == 1 else f"promenade{i}", "promenade", LineString(r),
+                       c.promenade_w, None))
+    return out
+
+
+def _runs(pts, ok) -> list[list]:
+    """The stretches of a polyline's points where ok(p) holds (two points or more)."""
     runs, run = [], []
     for p in pts:
         if ok(p):
@@ -754,11 +919,116 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
             runs.append(run)
             run = []
     runs.append(run)
-    runs = [r for r in runs if len(r) > 1]
-    for i, r in enumerate(runs):
-        out.append(Way("promenade" if len(runs) == 1 else f"promenade{i}", "promenade", LineString(r),
-                       c.promenade_w, None))
+    return [r for r in runs if len(r) > 1]
+
+
+def _clipped(wid: str, kind: str, pts, ok, width: float, district=None, min_len=40.0) -> list[Way]:
+    runs = [LineString(r) for r in _runs(pts, ok)]
+    runs = [ln for ln in runs if ln.length > min_len]
+    return [Way(wid if len(runs) == 1 else f"{wid}-{j}", kind, ln, width, district) for j, ln in enumerate(runs)]
+
+
+def ring_radii(c: CitySpec) -> list[float]:
+    """The preset's ring roads round the main centre: `rings` of them (a ring city: 3 when
+    0), evenly between the main node's core and the outline."""
+    pr = c.preset
+    n = pr.rings or (3 if pr.streets == "ring" else 0)
+    if not n:
+        return []
+    C = main_centre(c)
+    nd = min(c.nodes, key=lambda o: math.dist(o.center, C), default=None)
+    r0 = nd.radius if nd is not None and math.dist(nd.center, C) < nd.radius else 150.0
+    R = c.enclosure.radius if c.enclosure else outline_r(c)
+    return [r0 + (R - r0) * (k + 1) / (n + 1) for k in range(n)] if R > r0 + 100 else []
+
+
+def pattern_ways(c: CitySpec, f: Fields, ok) -> list[Way]:
+    """The preset's street pattern beyond the nodes' radials: a grid of straight avenues, or a
+    linear city's spine and cross avenues; and its ring roads. Each is kept only where ok(p)
+    (inside the city, on land, clear of the civic cores)."""
+    pr = c.preset
+    out: list[Way] = []
+    C = np.array(main_centre(c), float)
+    x0, y0, x1, y1 = c.bounds
+    reach = math.hypot(x1 - x0, y1 - y0)
+    spacing = pr.grid_m or 2 * c.block_m[1]
+    t = np.arange(-reach, reach + STEP_M, STEP_M)
+    if pr.streets == "grid":
+        for fam, a in (("a", pr.grid_deg), ("b", pr.grid_deg + 90)):
+            d, n = _dir(a), _dir(a + 90)
+            for k, o in enumerate(np.arange(-reach + spacing / 2, reach, spacing)):
+                pts = C + o * n + np.outer(t, d)
+                out += _clipped(f"grid-{fam}{k}", "avenue", pts, ok, c.arterial_w)
+    elif pr.streets == "linear":    # the spine along the coast (turned by grid_deg), avenues across it
+        a = math.degrees(math.atan2(f.v[1], f.v[0])) + pr.grid_deg
+        d, n = _dir(a), _dir(a + 90)
+        out += _clipped("spine", "avenue", C + np.outer(t, d), ok, c.avenue_w)
+        half = outline_r(c) if pr.outline == "strip" else 600.0
+        tc = np.arange(-half, half + STEP_M, STEP_M)
+        for k, o in enumerate(np.arange(-reach + spacing / 2, reach, spacing)):
+            out += _clipped(f"cross{k}", "avenue", C + o * d + np.outer(tc, n), ok, c.arterial_w)
+    for k, r in enumerate(ring_radii(c)):
+        a = np.linspace(0, 2 * math.pi, max(24, int(2 * math.pi * r / STEP_M)) + 1)
+        out += _clipped(f"ring{k}", "ring", np.c_[C[0] + r * np.cos(a), C[1] + r * np.sin(a)], ok, c.arterial_w)
     return out
+
+
+def highways(c: CitySpec, f: Fields) -> list[Way]:
+    """The preset's highways: a ring just outside the city and/or spokes out of the main
+    centre, straight, on land, clear of the civic cores; wide road slots."""
+    pr = c.preset
+    if pr.highways == "none":
+        return []
+    C = np.array(main_centre(c), float)
+    x0, y0, x1, y1 = c.bounds
+    e = c.enclosure
+    if pr.highway_ring_m:
+        R = pr.highway_ring_m
+    elif e:
+        R = e.radius + e.moat_w + e.greenbelt_w + pr.highway_w + 40
+    elif pr.outline in ("circle", "blob"):
+        R = 1.1 * outline_r(c)
+    else:
+        R = 0.5 * min(x1 - x0, y1 - y0)
+    half = f.t.extent_m / 2 - 50
+    mx, my = 0.25 * (x1 - x0), 0.25 * (y1 - y0)
+
+    def ok(p):
+        return (max(x0 - mx, -half) <= p[0] <= min(x1 + mx, half) and max(y0 - my, -half) <= p[1] <= min(y1 + my, half)
+                and bool(f.land(*p)) and all(math.dist(p, n.center) > n.radius + 20 for n in c.nodes)
+                and all(math.dist(p, tw.center) > tw.radius for tw in c.towns))
+    out: list[Way] = []
+    if pr.highways in ("ring", "both"):
+        a = np.linspace(0, 2 * math.pi, max(24, int(2 * math.pi * R / STEP_M)) + 1)
+        out += _clipped("hw-ring", "highway", np.c_[C[0] + R * np.cos(a), C[1] + R * np.sin(a)], ok, pr.highway_w)
+    if pr.highways in ("radial", "both"):
+        nd = min(c.nodes, key=lambda o: math.dist(o.center, C), default=None)
+        rot = nd.rot if nd is not None else 0.0
+        r0 = (e.radius + e.wall_d + e.moat_w + 20) if e else 0.0      # a walled city: from outside the wall
+        far = math.hypot(x1 - x0, y1 - y0)
+        tt = np.arange(r0, far, STEP_M)
+        for k in range(pr.highway_spokes):
+            d = _dir(rot + 180 / max(pr.highway_spokes, 1) + 360 * k / pr.highway_spokes)   # between the radials
+            out += _clipped(f"hw-spoke{k}", "highway", C + np.outer(tt, d), ok, pr.highway_w, min_len=120.0)
+    return out
+
+
+def interchanges(c: CitySpec, ways_: list[Way]) -> list[Polygon]:
+    """Paved interchanges where highways cross each other (large) or an avenue or arterial
+    (smaller), at least 150 m apart."""
+    pr = c.preset
+    if not pr.interchanges:
+        return []
+    hw = [w for w in ways_ if w.kind == "highway"]
+    other = [w for w in ways_ if w.kind in ("avenue", "arterial")]
+    spots: list[tuple[float, float, float]] = []
+    for i, a in enumerate(hw):
+        for b, big in [(b, True) for b in hw[i + 1:]] + [(b, False) for b in other]:
+            g = a.line.intersection(b.line)
+            for pt in getattr(g, "geoms", [g]):
+                if isinstance(pt, Point) and all(math.dist((pt.x, pt.y), s[:2]) > 150 for s in spots):
+                    spots.append((pt.x, pt.y, (2.2 if big else 1.2) * pr.highway_w))
+    return [Point(x, y).buffer(r, quad_segs=16) for x, y, r in spots]
 
 
 def enclosure_ways(L: SiteLayout, f: Fields, rr: float) -> list[Way]:
@@ -905,6 +1175,17 @@ def _hill_cut(P: Polygon, f: Fields, c: CitySpec, rng) -> float | str | None:
     return "stop"
 
 
+def _axis_cut(P: Polygon, f: Fields, c: CitySpec) -> float:
+    """A grid (or linear) city's local street across a block: the pattern's axis nearest to
+    square across the block's long side."""
+    g = c.preset.grid_deg if c.preset.streets == "grid" else math.degrees(math.atan2(f.v[1], f.v[0])) + c.preset.grid_deg
+    q = np.array(P.minimum_rotated_rectangle.exterior.coords)[:4]
+    e1, e2 = q[1] - q[0], q[2] - q[1]
+    lv = e1 if np.linalg.norm(e1) >= np.linalg.norm(e2) else e2
+    across = math.degrees(math.atan2(lv[1], lv[0])) + 90
+    return min((g, g + 90), key=lambda a: abs(_angdiff(across % 180, a % 180)) % 180)
+
+
 def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -> list[Polygon]:
     """Split with local streets until each piece is block-sized for its density."""
     if P.area < MIN_BLOCK_M2:
@@ -917,7 +1198,13 @@ def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -
     hill = _hill_cut(P, f, c, rng)
     if hill == "stop" or depth > 12 or (hill is None and (P.area <= size * size * 1.3 or depth > 9)):
         return [P]
-    parts, line = _cut(P, rng, angle=hill)
+    pat = c.preset.streets
+    if hill is None and pat in ("grid", "linear"):      # local streets on the pattern's axes, unjittered
+        parts, line = _cut(P, rng, jitter_deg=0.0, angle=_axis_cut(P, f, c))
+    elif hill is None and pat == "organic":
+        parts, line = _cut(P, rng, jitter_deg=22.0, pos=0.25)
+    else:
+        parts, line = _cut(P, rng, angle=hill)
     if len(parts) < 2 or line.is_empty:
         return [P]
     gap = line.buffer(c.street_w / 2, cap_style="flat")
@@ -966,8 +1253,10 @@ def mass_block(P: Polygon, f: Fields, c: CitySpec, rng, district) -> list[Box]:
         for poly in _polys(inner):
             depth = min(14.0 if d >= CORE_D else 12.0, short / 2)
             seg = c.parcel_m[0] + (c.parcel_m[1] - c.parcel_m[0]) * (1 - t)
-            lo_s = round(3 + (c.storeys[0] - 3) * t)
-            hi_s = round(4 + (c.storeys[1] - 4) * t)
+            hz = f.height_zone(cx, cy)        # the preset's height zoning (None: by density)
+            th = t if hz is None else float(hz)
+            lo_s = round(3 + (c.storeys[0] - 3) * th)
+            hi_s = round(4 + (c.storeys[1] - 4) * th)
             for a, b, n in _edges(poly, MIN_STRIP_M):
                 L_e = float(np.linalg.norm(b - a))
                 k = max(1, round(L_e / seg))
@@ -1092,12 +1381,15 @@ def nearest_node(c: CitySpec, x, y) -> str | None:
 def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     if layout.city is None:
         raise ValueError("layout has no city spec")
+    layout = with_preset(layout)
     c = layout.city
     f = Fields(layout, heights)
     rng = np.random.default_rng(c.seed)
     L = civic_layout(layout, f)
     P = CityPlan(layout=L)
     P.ways = ways(L, f)
+    P.ways += highways(c, f)
+    P.interchanges = interchanges(c, P.ways)
 
     # superblocks: faces between the ways, on land, minus the ways and the civic cores
     region = _land_region(L, f, 30 + c.promenade_w)
@@ -1106,12 +1398,16 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         region = region.intersection(unary_union(
             [Point(e.center).buffer(ring_road_r(c) - c.arterial_w / 2, quad_segs=64)]
             + [Point(tw.center).buffer(tw.radius, quad_segs=32) for tw in c.towns]))
+    if f.outline is not None:      # the preset's outline (towns are their own)
+        region = region.intersection(unary_union([f.outline.polygon(f.t.extent_m)]
+                                                 + [Point(tw.center).buffer(tw.radius, quad_segs=32) for tw in c.towns]))
     lines = [w.line for w in P.ways] + [region.boundary]
     faces = [g for g in polygonize(unary_union(lines)) if region.contains(g.representative_point())]
     cut = unary_union([w.line.buffer(w.width / 2, cap_style="flat") for w in P.ways]
                       + [Point(summit(n, f.z)).buffer(organic_plaza_r(n) + 6, quad_segs=24) if n.layout == "organic"
                          else Point(n.center).buffer(_rings(n)["core"], quad_segs=24) for n in c.nodes]
-                      + [Point(tw.center).buffer(TOWN_PLAZA_M, quad_segs=24) for tw in c.towns])
+                      + [Point(tw.center).buffer(TOWN_PLAZA_M, quad_segs=24) for tw in c.towns]
+                      + P.interchanges)
     green_lines = corridors(L, f, rng)
     green = unary_union([g.buffer(c.corridor_w / 2) for g in green_lines]).intersection(region) \
         if green_lines else Polygon()
@@ -1120,8 +1416,11 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     if c.enclosure:
         P.gates = gate_angles(c, f)
         P.walls = wall_parts(c, f, P.gates)
+        if c.enclosure.moat_w:
+            P.moat = moat(c, _land_region(L, f, 20), cut)
         P.parks += greenbelt(c, _land_region(L, f, 30).difference(
-            unary_union([Point(tw.center).buffer(tw.radius) for tw in c.towns]) if c.towns else Polygon()), cut)
+            unary_union([Point(tw.center).buffer(tw.radius) for tw in c.towns]) if c.towns else Polygon()),
+            cut.union(unary_union(P.moat)) if P.moat else cut)
 
     streets: list = []
     for sb in supers:
@@ -1180,6 +1479,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
             return False
         if rng.random() < c.park_share * (1.6 - d):
             P.parks.append(b)
+            return False
+        if c.preset.block_parks and _key(f"{c.layout_seed}:park:{i}") / 2**32 < c.preset.block_parks:
+            P.parks.append(b)       # the preset's parks between blocks (off the city's stream)
             return False
         return nearest_node(c, cx, cy)
 
@@ -1331,6 +1633,9 @@ def stats(P: CityPlan) -> dict:
             "streets": sum(1 for w in P.ways if w.kind == "street"),
             "avenues": sum(1 for w in P.ways if w.kind in ("avenue", "arterial", "promenade", "ring")),
             "parks": len(P.parks), "park_area_ha": round(sum(p.area for p in P.parks) / 1e4, 1),
+            **({"preset": P.layout.city.preset.name} if P.layout.city.preset.name != "utopia" else {}),
+            **({"highways": sum(1 for w in P.ways if w.kind == "highway"), "interchanges": len(P.interchanges)}
+               if P.layout.city.preset.highways != "none" else {}),
             "markets": len(P.markets), "trees": len(P.trees),
             "monuments": sum(1 for n in P.layout.city.nodes if n.monument),
             "footprint_m2": {k: round(v) for k, v in foot.items()}, "footprint_share": share,
@@ -1372,10 +1677,10 @@ def add_slots(P: CityPlan, new, hs) -> None:
             group("street", m.x, m.y, w, w.district)
             continue
         x, y = w.line.coords[0]
-        kind = w.kind if w.kind in ("lane", "stair") else "avenue"
+        kind = w.kind if w.kind in ("lane", "stair", "highway") else "avenue"
         sb = new(f"way-{w.id}", kind, (x, y, float(hs(x, y))), district=w.district,
                  category="terrain")
-        ribbon_piece(sb, w.kind, list(w.line.coords), w.width, 0.12)
+        ribbon_piece(sb, w.kind, list(w.line.coords), w.width, 0.15 if w.kind == "highway" else 0.12)
         if w.kind == "stair":
             stair_treads(sb, w, hs)
     for b in P.buildings:
@@ -1437,6 +1742,15 @@ def add_slots(P: CityPlan, new, hs) -> None:
         sb.add("paving", poly([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], 0.1), tuple(o))
         for b in stalls:
             stall_pieces(sb, b)
+    for name, polys, lift in (("interchange", P.interchanges, 0.18), ("moat", P.moat, 0.05)):
+        for i, q in enumerate(polys):    # flat paving / water, draped on the ground
+            m = q.representative_point()
+            sb = new(f"{name}-{i}", name, (m.x, m.y, float(hs(m.x, m.y))), district=nearest_node(c, m.x, m.y),
+                     category="terrain")
+            pts = _drape(hs.many, list(q.exterior.coords)[:-1], lift, 15.0)
+            o = pts[0]
+            sb.add("paving" if name == "interchange" else "moat-water",
+                   poly([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], 0.1), tuple(o))
     if P.piers:
         b0 = P.piers[0]
         sb = new("quay", "quay", (b0.x, b0.y, b0.z), district=b0.district)
@@ -1512,7 +1826,8 @@ def _xy(it) -> tuple[float, float]:
 
 PLAN_COLORS = {"sea": (46, 84, 110), "land": (196, 188, 168), "park": (110, 150, 90), "way": (236, 232, 222),
                "housing": (150, 110, 90), "houses": (190, 150, 120), "civic": (240, 240, 235),
-               "market": (215, 170, 60), "node": (250, 250, 250), "tree": (70, 110, 60), "wall": (60, 55, 50)}
+               "market": (215, 170, 60), "node": (250, 250, 250), "tree": (70, 110, 60), "wall": (60, 55, 50),
+               "highway": (120, 120, 124)}
 
 
 def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float = 400.0):
@@ -1547,8 +1862,13 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
 
     for pk in P.parks:
         fill(pk, PLAN_COLORS["park"])
+    for q in P.moat:
+        fill(q, PLAN_COLORS["sea"])
     for w in P.ways:
-        d.line([to(*p) for p in w.line.coords], fill=PLAN_COLORS["way"], width=max(1, int(w.width * s)))
+        d.line([to(*p) for p in w.line.coords], fill=PLAN_COLORS["highway" if w.kind == "highway" else "way"],
+               width=max(1, int(w.width * s)))
+    for q in P.interchanges:
+        fill(q, PLAN_COLORS["highway"])
     for b in P.buildings:
         u, v = _dir(b.rot) * b.w / 2, _dir(b.rot + 90) * b.d / 2
         pts = [np.array([b.x, b.y]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
@@ -1616,6 +1936,7 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
     tight on the monument. Wides and tights are mood only (s0_frames.MOOD_TIERS)."""
     from .greybox import Heights
     from .schema import ShotSpec
+    layout = with_preset(layout)
     c, t = layout.city, layout.terrain
     hs = Heights(heights, t.extent_m)
     f = Fields(layout, heights)

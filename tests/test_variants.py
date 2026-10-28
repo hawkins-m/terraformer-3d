@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from asset_pipeline import areas, library_entries as le, variants
 from asset_pipeline.jobs import JobQueue
 from asset_pipeline.project import write_json
-from asset_pipeline.schema import Enclosure
+from asset_pipeline.schema import Enclosure, LayoutPreset
 from asset_pipeline.stages import sw_library, sw_shots, sw_site
 from asset_pipeline.ui import app as ui_app
 
@@ -109,7 +109,8 @@ def test_variant_api(market):
 
 def test_form_gaps_suggest_a_fix_each(market, monkeypatch):
     monkeypatch.setattr(sw_site, "load_layout", lambda store: type("L", (), {
-        "city": type("C", (), {"enclosure": Enclosure(wall_h=14.0, wall_d=6.0), "typologies": []})()})())
+        "city": type("C", (), {"enclosure": Enclosure(wall_h=14.0, wall_d=6.0), "typologies": [],
+                               "preset": LayoutPreset()})()})())
     rows = [{"asset": a, "entry": a, "route": "procedural", "brief": False, "status": None, "missing": ["form"]}
             for a in ("wall", "depot-concrete", "court-house-slate")]
     gaps = {g["asset"]: g for g in areas.form_gaps(market, rows)}

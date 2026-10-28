@@ -376,6 +376,13 @@ function paintRoll() {
   $("#city-roll-hint").hidden = !(p && p.start === "city" && !(siteData && siteData.layout));
   $("#city-roll-btn").disabled = busy;
   $("#city-roll-current").textContent = d && d.seed != null ? `City seed: ${d.seed}` : "";
+  const sel = $("#city-layout-preset"), ls = $("#city-layout-seed");
+  if (d && d.presets && !sel.options.length) {
+    sel.innerHTML = d.presets.map(p => `<option value="${esc(p.name)}" title="${esc(Object.entries(p.changes).map(([k, v]) => `${k}: ${v}`).join(", ") || "the generator as before layouts")}">${esc(p.name)}</option>`).join("");
+  }
+  if (d && document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.preset;
+  if (d && document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.layout_seed;
+  $("#city-layout-apply").disabled = busy;
   const keepBox = $("#city-roll-keep");
   if (d && !keepBox.children.length) {
     const keep = new Set(rollKeep());
@@ -403,8 +410,20 @@ async function rollCity() {
   if (!(await rollConfirm())) return;
   const v = $("#city-roll-seed").value.trim();
   const keep = [...$("#city-roll-keep").querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep);
-  await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep});
+  await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep, ...layoutChoice()});
 }
+// The layout preset and layout seed as picked (unchanged ones go as null: the layout's own)
+function layoutChoice() {
+  const sel = $("#city-layout-preset"), ls = $("#city-layout-seed").value.trim();
+  const d = rollData || {};
+  const out = {preset: sel.value && sel.value !== d.preset ? sel.value : null,
+               layout_seed: ls === "" || Number(ls) === d.layout_seed ? null : Number(ls)};
+  delete sel.dataset.dirty; delete $("#city-layout-seed").dataset.dirty;
+  return out;
+}
+$("#city-layout-preset").onchange = e => { e.target.dataset.dirty = "1"; };
+$("#city-layout-seed").oninput = e => { e.target.dataset.dirty = "1"; };
+$("#city-layout-apply").onclick = () => siteAction("site/preset", layoutChoice());
 async function rollStep(delta) {
   if (!(await rollConfirm())) return;
   await siteAction("site/roll/step", {delta});

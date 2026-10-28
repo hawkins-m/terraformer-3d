@@ -344,7 +344,8 @@ def build(store: ProjectStore, extent: float = 24000.0, cell: float = 40.0, oute
     prop = read_json(store.root / "site" / "terrain_plan" / "proposal.json")
     hs = Heights(sw_site.plan_terrain(store, layout), layout.terrain.extent_m)   # the tile without a far build
     sea = layout.sea_level
-    enc = layout.city.enclosure
+    from . import city
+    enc = city.with_preset(layout).city.enclosure
     cx, cy, R = enc.center[0], enc.center[1], enc.radius
     n = int(round(extent / cell)) + 1
     x0 = y0 = -extent / 2

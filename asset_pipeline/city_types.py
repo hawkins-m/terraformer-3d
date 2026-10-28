@@ -289,6 +289,8 @@ class Typer:
             s += v.avenue_bonus
         if v.height_noise and x is not None and hi >= 2:
             s += int(round(v.height_noise * self.height_field(district, x, y)))
+        if x is not None and hi >= 2 and (hz := self.f.height_zone(x, y)) is not None:
+            s += int(round(C.ZONE_STOREYS * (2 * float(hz) - 1)))   # the preset's height zoning
         floor = 1 if hi >= 1 else 0
         top = hi + max(2, j) + int(math.ceil(v.height_noise))
         return int(np.clip(s, max(floor, lo - 1 if lo > 1 else floor), top))

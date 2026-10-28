@@ -17,6 +17,10 @@ plan's own seed. After a roll the plan is made with the existing re-plan code
 again with the next seed, a typed seed is kept as it is. The auto shots are placed again for the
 new city (locked shots and the user's shot edits stay, as sw_site.set_city_shots does).
 
+The layout preset (the city's overall shape, layout_presets.py) and its layout seed are not rule
+groups: a roll keeps the layout's own unless it is given one, and records both, so Previous / Next
+restore them too. `set_preset` changes them alone and re-plans (the rules and the seed stay).
+
 History: site/rolls.json keeps the rules and seed of the last ROLLS_KEPT rolls ({rolls, pos});
 Previous / Next roll restore one and re-plan (no plan files are stored).
 """
@@ -25,8 +29,9 @@ from datetime import datetime, timezone
 
 import numpy as np
 
+from . import layout_presets
 from .project import ProjectStore, read_json, write_json
-from .schema import CivicNode, SiteLayout
+from .schema import CivicNode, LayoutPreset, SiteLayout
 
 GROUPS = {"size": "City size", "civic": "Civic nodes", "density": "Density", "streets": "Street pattern",
           "green": "Green space", "waterfront": "Waterfront"}
@@ -176,13 +181,15 @@ def summary(store: ProjectStore) -> dict:
     """For the UI: the groups, the current seed, the history (seeds only) and where it stands."""
     from .stages import sw_site
     h = history(store)
-    seed = None
+    seed, preset, layout_seed = None, layout_presets.DEFAULT, 0
     try:
         lay = sw_site.load_layout(store)
-        seed = lay.city.seed if lay.city else None
+        if lay.city:
+            seed, preset, layout_seed = lay.city.seed, lay.city.preset.name, lay.city.layout_seed
     except FileNotFoundError:
         pass
-    return {"groups": GROUPS, "seed": seed, "pos": h["pos"], "count": len(h["rolls"]),
+    return {"groups": GROUPS, "seed": seed, "preset": preset, "layout_seed": layout_seed,
+            "presets": layout_presets.summary(), "pos": h["pos"], "count": len(h["rolls"]),
             "seeds": [r["seed"] for r in h["rolls"]], "kept": ROLLS_KEPT,
             "last": ({k: h["rolls"][h["pos"]].get(k) for k in ("seed", "keep", "warnings", "at")} if h["rolls"] else None)}
 
@@ -213,12 +220,35 @@ def _plan(store: ProjectStore, layout: SiteLayout, log) -> dict:
     return sw_site.plan_city(store)
 
 
-def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True) -> dict:
+def _with_shape(layout: SiteLayout, preset: str | None, layout_seed: int | None) -> SiteLayout:
+    """The layout with this named preset and/or layout seed (None: its own)."""
+    if preset is not None:
+        return layout_presets.apply(layout, preset, layout_seed)
+    if layout_seed is not None:
+        L = layout.model_copy(deep=True)
+        L.city.layout_seed = int(layout_seed)
+        return SiteLayout.model_validate(L.model_dump(mode="json"))
+    return layout
+
+
+def set_preset(store: ProjectStore, preset: str | None = None, layout_seed: int | None = None, log=print) -> dict:
+    """Change the layout preset and/or layout seed alone and re-plan (rules, seed and shots stay).
+    Returns the stats."""
+    layout = _with_shape(_layout_or_starter(store), preset, layout_seed)
+    stats = _plan(store, layout, log)
+    store.log_run({"stage": "site.preset", "preset": layout.city.preset.name, "layout_seed": layout.city.layout_seed,
+                   "buildings": stats.get("buildings")})
+    return stats
+
+
+def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True,
+         preset: str | None = None, layout_seed: int | None = None) -> dict:
     """Roll the city rules (the groups in `keep` stay) with `seed` (None: a random one, rolled
-    again while the plan fails the housing-share check), save, re-plan and remember it.
-    Returns {seed, keep, stats, tries, history}."""
+    again while the plan fails the housing-share check), save, re-plan and remember it. `preset`
+    / `layout_seed`: the city's shape (None: the layout's own). Returns {seed, keep, stats, tries,
+    history}."""
     from .stages import sw_site
-    base = _layout_or_starter(store)
+    base = _with_shape(_layout_or_starter(store), preset, layout_seed)
     typed = seed is not None
     seeds = [int(seed)] if typed else [int(s) for s in np.random.default_rng().integers(1, SEED_MAX, TRIES)]
     for i, s in enumerate(seeds):
@@ -232,6 +262,7 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
     if shots:
         sw_site.set_city_shots(store)
     h = _remember(store, {"seed": s, "rules": rules, "keep": sorted(keep), "warnings": stats.get("warnings", []),
+                          "preset": layout.city.preset.model_dump(), "layout_seed": layout.city.layout_seed,
                           "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
     store.log_run({"stage": "site.roll", "seed": s, "keep": sorted(keep), "tries": i + 1, "buildings": stats.get("buildings")})
     return {"seed": s, "keep": sorted(keep), "stats": stats, "tries": i + 1, "history": {"pos": h["pos"], "count": len(h["rolls"])}}
@@ -246,6 +277,9 @@ def step(store: ProjectStore, delta: int, log=print, shots: bool = True) -> dict
         raise ValueError("no previous roll" if delta < 0 else "no next roll")
     r = h["rolls"][pos]
     layout = apply_rules(_layout_or_starter(store), r["rules"], r["seed"])
+    if "preset" in r:       # rolls from before presets keep the layout's own shape
+        layout.city.preset = LayoutPreset.model_validate(r["preset"])
+        layout.city.layout_seed = int(r.get("layout_seed", 0))
     stats = _plan(store, layout, log)
     if shots:
         sw_site.set_city_shots(store)

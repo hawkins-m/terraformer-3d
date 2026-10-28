@@ -40,7 +40,7 @@ MIN_COVERAGE = 0.01          # slot types under this share of the frame aren't n
 MAX_MATERIALS = 2            # materials named in a prompt, largest coverage first
 MATERIAL_COVERAGE = 0.03     # a material must cover this share of the frame to be named
 MAX_TYPES = 3                # building types named in a prompt, largest coverage first
-GROUND_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring", "lane"}  # implied by materials
+GROUND_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring", "lane", "highway", "interchange"}  # implied by materials
 MOOD_TIERS = ("wide", "tight")   # frames of these shots set mood/material (art direction), never assets
 TIER = {"wide": "wide establishing view", "medium": "eye-level view", "tight": "close-up detail view"}
 # What each greybox slot type is, for the prompt (plural forms: types usually repeat).
@@ -54,6 +54,7 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "housing": "dense mid-rise courtyard housing blocks", "houses": "low-rise houses with gardens",
               "street": "narrow streets", "park": "parks and green corridors of Italian stone pines with broad flat canopies, cypresses and olive trees",
               "market": "a market square with stalls", "quay": "harbour piers",
+              "highway": "wide highways", "interchange": "highway interchanges", "moat": "a moat",
               "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers",
               "wall": "a monumental ring wall around the city", "gate": "monumental city gates"}
 SUFFIX = "cinematic architectural concept art"

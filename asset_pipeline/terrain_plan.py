@@ -106,7 +106,8 @@ def analyse(store: ProjectStore, wall_margin: float = 50.0) -> dict:
     gb = {s["id"]: s for s in sw_site.load_greybox(store)["shots"]}
     hs = Heights(sw_site.terrain(store, layout), layout.terrain.extent_m)
     half = layout.terrain.extent_m / 2
-    enc = layout.city.enclosure if layout.city else None
+    from . import city
+    enc = city.with_preset(layout).city.enclosure if layout.city else None
     centre, radius = (np.array(enc.center), enc.radius) if enc else (np.zeros(2), 0.0)
     out = []
     for s in layout.shots:

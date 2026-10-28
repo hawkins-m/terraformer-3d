@@ -583,13 +583,28 @@ def cmd_site_roll(a) -> None:
         r = city_roll.step(store, -1 if a.step == "previous" else 1)
         print(f"roll {r['pos'] + 1} of {r['count']}: seed {r['seed']}, {r['stats']['buildings']} buildings")
         return
-    r = city_roll.roll(store, a.seed, keep)
+    r = city_roll.roll(store, a.seed, keep, preset=a.preset, layout_seed=a.layout_seed)
     print(f"rolled a city: seed {r['seed']}{f' (keeping {', '.join(r['keep'])})' if r['keep'] else ''}, "
           f"{r['stats']['buildings']} buildings{f', {r['tries']} tries' if r['tries'] > 1 else ''}; "
           f"plan {city_roll.rolls_path(store).parent / 'city_plan.png'}")
     for w in r["stats"]["warnings"]:
         print("warning:", w)
     print(f"reproduce it: ap site roll {a.project} --seed {r['seed']}" + (f" --keep {','.join(r['keep'])}" if r["keep"] else ""))
+
+
+def cmd_site_preset(a) -> None:
+    from . import city_roll, layout_presets
+    if a.list or not (a.name or a.layout_seed is not None):
+        for p in layout_presets.summary():
+            print(f"{p['name']:12s} " + (", ".join(f"{k}={v}" for k, v in p["changes"].items()) or "(the generator as before presets)"))
+        return
+    store = ProjectStore.open(a.project)
+    st = city_roll.set_preset(store, a.name, a.layout_seed)
+    lay = city_roll._layout_or_starter(store)
+    print(f"layout preset {lay.city.preset.name}, layout seed {lay.city.layout_seed}: {st['buildings']} buildings; "
+          f"plan {city_roll.rolls_path(store).parent / 'city_plan.png'}")
+    for w in st["warnings"]:
+        print("warning:", w)
 
 
 def cmd_site_catalog(a) -> None:
@@ -1725,7 +1740,15 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--keep", help="rule groups to leave as they are, comma-separated: "
                                   "size, civic, density, streets, green, waterfront")
     p.add_argument("--step", choices=["previous", "next"], help="go back / forward through the last 10 rolls instead")
+    p.add_argument("--preset", help="the layout preset (ap site preset --list); default the layout's own")
+    p.add_argument("--layout-seed", type=int, help="the preset's own seed (outline, organic avenues); default the layout's own")
     p.set_defaults(fn=cmd_site_roll)
+    p = sisub.add_parser("preset", help="city mode: set the layout preset (the city's overall shape) and re-plan")
+    p.add_argument("project", nargs="?")
+    p.add_argument("name", nargs="?", help="the preset name; omit to list them")
+    p.add_argument("--layout-seed", type=int, help="the preset's own seed (outline, organic avenues)")
+    p.add_argument("--list", action="store_true", help="list the presets")
+    p.set_defaults(fn=cmd_site_preset)
     p = sisub.add_parser("catalog", help="city mode: import / export the typology catalog (YAML)")
     p.add_argument("what", choices=["import", "export"])
     p.add_argument("project")

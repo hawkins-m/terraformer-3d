@@ -467,6 +467,7 @@ class Enclosure(BaseModel):
     gate_w: float = Field(default=40.0, gt=0)
     gate_h: float = Field(default=26.0, gt=0)
     greenbelt_w: float = Field(default=120.0, ge=0)   # park ring outside the wall
+    moat_w: float = Field(default=0.0, ge=0)          # a water ring just outside the wall (0: none)
     density_floor: float = Field(default=0.5, ge=0, le=1)  # inside: no fraying edge
 
 
@@ -515,6 +516,42 @@ class StreetTrees(BaseModel):
     seed: int = 11                        # its own random stream: the city plan never moves
 
 
+class LayoutPreset(BaseModel):
+    """The city's overall shape (city mode; asset_pipeline/city.py honours every field). The
+    default is "utopia": the generator as it was before presets (radial avenues out of each node,
+    the coast and the bounds as the outline, a Gaussian density pull, heights by density, no
+    highways), so a layout without a preset plans exactly as before. The shape's own random draws
+    (a blob outline, organic avenues) come from CitySpec.layout_seed, never from the city seed's
+    stream."""
+    name: str = "utopia"
+    # radial: avenues out of each node. grid: straight avenues on a grid. ring: radials and
+    # concentric ring roads. organic: jittered winding avenues. linear: a spine and cross avenues
+    streets: Literal["radial", "grid", "ring", "organic", "linear"] = "radial"
+    # coastal: the land inside the bounds. circle / blob: round (blob: wobbly) round the main
+    # centre. strip: a band along the coast
+    outline: Literal["coastal", "circle", "strip", "blob"] = "coastal"
+    outline_m: float | None = Field(default=None, gt=0)   # circle / blob radius, strip half-width; None: from the bounds
+    rings: int = Field(default=0, ge=0, le=8)   # ring roads (ring districts) round the main centre; ring streets: 0 = 3
+    grid_m: float | None = Field(default=None, gt=40)    # grid / linear avenue spacing; None: 2 x the outskirts block
+    grid_deg: float = 0.0                       # grid orientation; linear: the spine's turn off the coast
+    # none: the city's own enclosure (if any) as it is. wall: a wall round the outline. wall_moat: and a moat
+    walls: Literal["none", "wall", "wall_moat"] = "none"
+    moat_w: float = Field(default=30.0, gt=0)
+    block_parks: float = Field(default=0.0, ge=0, le=0.5)   # share of blocks left as parks between the others
+    # how density falls off from each node: gaussian (as before), linear, or flat (even, then a quick edge)
+    falloff: Literal["gaussian", "linear", "flat"] = "gaussian"
+    falloff_scale: float = Field(default=1.0, gt=0)          # x density_falloff_m
+    # where the tallest buildings cluster: by density (as before), the main centre, every node, the waterfront
+    tall_at: Literal["density", "centre", "nodes", "waterfront"] = "density"
+    height_falloff_m: float = Field(default=800.0, gt=0)     # how fast heights fall off from there
+    # highways: wide road slots, built as flat road strips; interchanges where they cross
+    highways: Literal["none", "ring", "radial", "both"] = "none"
+    highway_w: float = Field(default=36.0, gt=0)
+    highway_ring_m: float | None = Field(default=None, gt=0)  # the ring's radius; None: just outside the outline
+    highway_spokes: int = Field(default=4, ge=1, le=12)
+    interchanges: bool = True
+
+
 class CitySpec(BaseModel):
     """City-scale layout mode: civic nodes, terrain-following avenues, organic blocks and
     parcels between them, and a density field from dense mid-rise cores to low-rise
@@ -551,6 +588,8 @@ class CitySpec(BaseModel):
     towns: list[Town] = Field(default_factory=list)
     sites: list[CivicSite] = Field(default_factory=list)   # fixed civic ensembles over the fill
     aerial_pitch: float = Field(default=40.0, ge=20, le=85)  # wide-aerial of a walled city: deg down
+    preset: LayoutPreset = Field(default_factory=LayoutPreset)   # the overall shape ("utopia": as before presets)
+    layout_seed: int = Field(default=0, ge=0)   # the preset's own draws (outline, organic avenues), apart from `seed`
 
 
 Tier = Literal["wide", "medium", "tight"]

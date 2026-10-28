@@ -306,6 +306,13 @@ class SiteReq(BaseModel):
 class RollReq(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
     keep: list[str] = []          # rule groups a roll leaves as they are (city_roll.GROUPS)
+    preset: str | None = None     # the layout preset (layout_presets.PRESETS); None: the layout's own
+    layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+
+
+class PresetReq(BaseModel):
+    preset: str | None = None
+    layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
 
 
 class StepReq(BaseModel):
@@ -1433,13 +1440,30 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         bad = set(req.keep) - set(city_roll.GROUPS)
         if bad:
             raise HTTPException(400, f"unknown rule group(s): {', '.join(sorted(bad))}")
+        _preset_check(req.preset)
 
         def run():
             from ..jobs import current_job
             job = current_job()
-            r = city_roll.roll(store, req.seed, req.keep, log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print)
+            r = city_roll.roll(store, req.seed, req.keep, log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print,
+                               preset=req.preset, layout_seed=req.layout_seed)
             return {"seed": r["seed"], "tries": r["tries"], "buildings": r["stats"]["buildings"], "warnings": r["stats"]["warnings"]}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
+
+    def _preset_check(name):
+        from .. import layout_presets
+        if name is not None and name not in layout_presets.PRESETS:
+            raise HTTPException(400, f"unknown layout preset {name!r} (presets: {', '.join(layout_presets.PRESETS)})")
+
+    @app.post("/api/projects/{slug}/site/preset")
+    def site_preset(slug: str, req: PresetReq):
+        """The layout preset and/or layout seed alone, then the re-plan (a site.plan job)."""
+        from .. import city_roll
+        store = _store(slug)
+        _roll_check(store)
+        _preset_check(req.preset)
+        return jobs.submit("site.plan", slug, lambda: city_roll.set_preset(store, req.preset, req.layout_seed)["buildings"],
+                           lane="cpu", tag={"roll": True}).public()
 
     @app.post("/api/projects/{slug}/site/roll/step")
     def site_roll_step(slug: str, req: StepReq):

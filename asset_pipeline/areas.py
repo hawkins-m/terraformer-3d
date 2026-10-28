@@ -214,7 +214,7 @@ def module_size(store: ProjectStore, e: dict) -> list[float] | None:
     from . import city
     from .stages import sw_site
     try:
-        enc = sw_site.load_layout(store).city.enclosure
+        enc = city.with_preset(sw_site.load_layout(store)).city.enclosure
     except (FileNotFoundError, AttributeError):
         return None
     if enc is None or enc.kind != "wall":
