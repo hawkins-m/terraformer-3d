@@ -339,10 +339,13 @@ new city: random city rules within believable ranges plus a new seed, then the u
 - The last 10 rolls (rules and seed, in `site/rolls.json`) are kept: *Previous roll* / *Next roll*
   (`ap site roll PROJECT --step previous|next`) restore one and re-plan.
 - A new project with the *Procedural city* starting point shows a hint pointing at the dice.
-- *Layout* picks a layout preset, the city's overall shape: street pattern (radial, grid, ring,
-  organic, linear), outline (coastal, circle, strip, blob), ring roads, walls and a moat, parks
-  between blocks, the density falloff, height zoning and highways with interchanges. *utopia*
-  (the default, and every existing project's) is the generator as it was before presets. The
+- *Layout* picks one of 20 layout presets, the city's overall shape (its one-line description
+  shows under the picker): street pattern, outline (including an island), ring roads, walls,
+  bastions and a moat, parks, canals or a river, the density falloff, height zoning with a
+  downtown of towers, suburbs with cul-de-sacs, an industrial zone, and highways with
+  interchanges. New projects start on *classic* (an ordinary modern city); *utopia*, every
+  project's from before presets, is the generator as it was. *Random preset* lets a roll pick
+  one from its seed. The
   *Layout seed* re-rolls only the preset's own shape (a blob outline, organic avenues). A roll
   uses them; *Apply layout* re-plans with them and keeps the rules, seed and shots. Every field
   is in `site/layout.json` (`city.preset`) for hand edits.
@@ -351,6 +354,7 @@ new city: random city rules within believable ranges plus a new seed, then the u
 ap site roll my-project                              # a random city; prints its seed
 ap site roll my-project --seed 2024 --keep size,waterfront
 ap site roll my-project --preset grid --layout-seed 3
+ap site roll my-project --preset random
 ap site preset --list                                # the presets and what each changes
 ap site preset my-project ring-city                  # change the shape alone and re-plan
 ```

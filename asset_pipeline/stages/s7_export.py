@@ -48,7 +48,7 @@ TINTS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0.
          "radial": (0.58, 0.56, 0.52), "plaza": (0.62, 0.60, 0.56), "garden": (0.16, 0.30, 0.10),
          "canal": (0.08, 0.22, 0.32), "pool": (0.10, 0.30, 0.40), "terrace": (0.50, 0.48, 0.42),
          "highway": (0.30, 0.30, 0.31), "interchange": (0.33, 0.33, 0.34)}
-WATER = {"pool-water", "court-pool", "canal", "sea", "moat-water"}
+WATER = {"pool-water", "court-pool", "canal", "sea", "moat-water", "river"}
 BUILDING_TINT = (0.80, 0.78, 0.72)
 
 

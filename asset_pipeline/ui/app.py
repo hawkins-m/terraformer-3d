@@ -1440,7 +1440,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         bad = set(req.keep) - set(city_roll.GROUPS)
         if bad:
             raise HTTPException(400, f"unknown rule group(s): {', '.join(sorted(bad))}")
-        _preset_check(req.preset)
+        _preset_check(req.preset, random_ok=True)
 
         def run():
             from ..jobs import current_job
@@ -1450,9 +1450,10 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return {"seed": r["seed"], "tries": r["tries"], "buildings": r["stats"]["buildings"], "warnings": r["stats"]["warnings"]}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
 
-    def _preset_check(name):
+    def _preset_check(name, random_ok=False):
         from .. import layout_presets
-        if name is not None and name not in layout_presets.PRESETS:
+        if name is not None and name not in layout_presets.PRESETS and name not in layout_presets.ALIASES \
+                and not (name == layout_presets.RANDOM and random_ok):
             raise HTTPException(400, f"unknown layout preset {name!r} (presets: {', '.join(layout_presets.PRESETS)})")
 
     @app.post("/api/projects/{slug}/site/preset")

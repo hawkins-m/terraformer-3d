@@ -180,6 +180,9 @@ def init(store: ProjectStore, layout_file: Path | None = None, force: bool = Fal
         raise FileExistsError(f"{dst} exists (use force to replace it)")
     layout = (SiteLayout.model_validate(json.loads(Path(layout_file).read_text())) if layout_file
               else starter_city() if city_mode else starter_layout())
+    if city_mode and not layout_file:        # a new city starts on the new-project preset (existing ones keep theirs)
+        from .. import layout_presets
+        layout.city.preset = layout_presets.get(layout_presets.NEW_PROJECT)
     if layout.city is not None and not layout.shots:
         layout.shots = city_shots(layout, store)
     save_layout(store, layout)

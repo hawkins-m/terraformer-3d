@@ -596,7 +596,7 @@ def cmd_site_preset(a) -> None:
     from . import city_roll, layout_presets
     if a.list or not (a.name or a.layout_seed is not None):
         for p in layout_presets.summary():
-            print(f"{p['name']:12s} " + (", ".join(f"{k}={v}" for k, v in p["changes"].items()) or "(the generator as before presets)"))
+            print(f"{p['name']:14s} {p['description']}")
         return
     store = ProjectStore.open(a.project)
     st = city_roll.set_preset(store, a.name, a.layout_seed)
@@ -1740,7 +1740,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--keep", help="rule groups to leave as they are, comma-separated: "
                                   "size, civic, density, streets, green, waterfront")
     p.add_argument("--step", choices=["previous", "next"], help="go back / forward through the last 10 rolls instead")
-    p.add_argument("--preset", help="the layout preset (ap site preset --list); default the layout's own")
+    p.add_argument("--preset", help="the layout preset (ap site preset --list), or random; default the layout's own")
     p.add_argument("--layout-seed", type=int, help="the preset's own seed (outline, organic avenues); default the layout's own")
     p.set_defaults(fn=cmd_site_roll)
     p = sisub.add_parser("preset", help="city mode: set the layout preset (the city's overall shape) and re-plan")

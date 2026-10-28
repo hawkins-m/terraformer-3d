@@ -19,7 +19,7 @@ new city (locked shots and the user's shot edits stay, as sw_site.set_city_shots
 
 The layout preset (the city's overall shape, layout_presets.py) and its layout seed are not rule
 groups: a roll keeps the layout's own unless it is given one, and records both, so Previous / Next
-restore them too. `set_preset` changes them alone and re-plans (the rules and the seed stay).
+restore them too; preset "random" draws one from the roll's seed. `set_preset` changes them alone and re-plans (the rules and the seed stay).
 
 History: site/rolls.json keeps the rules and seed of the last ROLLS_KEPT rolls ({rolls, pos});
 Previous / Next roll restore one and re-plan (no plan files are stored).
@@ -245,15 +245,18 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
          preset: str | None = None, layout_seed: int | None = None) -> dict:
     """Roll the city rules (the groups in `keep` stay) with `seed` (None: a random one, rolled
     again while the plan fails the housing-share check), save, re-plan and remember it. `preset`
-    / `layout_seed`: the city's shape (None: the layout's own). Returns {seed, keep, stats, tries,
-    history}."""
+    / `layout_seed`: the city's shape (None: the layout's own; preset "random": one drawn from each
+    seed tried). Returns {seed, keep, stats, tries, history}."""
     from .stages import sw_site
-    base = _with_shape(_layout_or_starter(store), preset, layout_seed)
+    own = _layout_or_starter(store)
+    if preset is not None and preset != layout_presets.RANDOM:
+        layout_presets.get(preset)           # an unknown name fails before anything is saved
     typed = seed is not None
     seeds = [int(seed)] if typed else [int(s) for s in np.random.default_rng().integers(1, SEED_MAX, TRIES)]
     for i, s in enumerate(seeds):
         if not 0 <= s <= SEED_MAX:
             raise ValueError(f"seed must be 0..{SEED_MAX}")
+        base = _with_shape(own, layout_presets.random_name(s) if preset == layout_presets.RANDOM else preset, layout_seed)
         layout, rules = rolled(base, s, keep)
         stats = _plan(store, layout, log)
         if typed or not _housing_fails(stats):

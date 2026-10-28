@@ -69,8 +69,7 @@ fails the housing-share check is rolled again (up to 6 tries). `site/rolls.json`
   - highways: a ring and/or spokes, `highway` slots built as flat ribbons, and `interchange`
     paving where highways cross each other or avenues.
 - The **layout seed** feeds only the preset's own draws (`city.layout_rng`).
-- **Named presets** (`layout_presets.PRESETS`): utopia, grid, ring-city, walled-town, linear,
-  organic, metro.
+- **Named presets**: see "Twenty presets" below.
 - **Roll a city** keeps the layout's preset unless given one, records the preset and layout seed
   per roll, and Previous / Next restore them. There is also `ap site roll --preset/--layout-seed`,
   `ap site preset`, `POST /site/preset`, and the Layout tab's *Layout* / *Layout seed* /
@@ -86,8 +85,78 @@ fails the housing-share check is rolled again (up to 6 tries). `site/rolls.json`
 - Highways are draped on the terrain. They need grading, so they read flat on hills and cut or
   bridge, plus real interchange geometry (ramps). Highways also ignore the sea edge beyond the
   bounds margin.
-- The roll does not pick a preset at random. It could become an optional rule group.
 - Shots: the auto shots don't yet frame highways or a linear city's length.
+
+### Twenty presets (2026-10-27)
+
+`layout_presets.CATALOG` holds name, one-line description (shown under the Layout picker) and
+preset. Three names were renamed and still resolve as aliases (`ALIASES`): metro became
+**classic**, ring-city became **concentric**, walled-town became **walled-castle**.
+
+| Preset | What it is |
+|---|---|
+| utopia | the generator as before presets (default for every existing layout) |
+| classic | an ordinary modern city (default for new projects): grid, tight tower downtown, mid-rise ring, wide suburbs, ring + radial highways with interchanges, industry by a highway |
+| grid | plain grid, grid-aligned blocks, tallest in the middle |
+| manhattan | a grid strip along the coast, long avenues and short cross streets, two tower clusters |
+| park-grid | grid blocks separated by parks (checkerboard) |
+| suburbia | winding streets, cul-de-sacs, low houses, radial highways |
+| garden-city | wards between green rings, low and leafy |
+| concentric | fantasy rings within rings round the centre |
+| walled-castle | inner ward wall round the keep, outer wall and moat, ring lanes between |
+| star-fortress | walled ring with pointed bastions and a moat, grid inside |
+| linear | one spine along the coast with cross avenues |
+| organic | winding avenues in a wobbly outline |
+| canal-city | canals along the coast through a grid |
+| river-town | a river winding from the hills to the sea past the centre |
+| harbour-port | dense waterfront, many piers, docks and warehouses by the harbour |
+| island-city | a wobbly island, sea all round, shore promenade |
+| hill-town | every quarter on a summit, winding lanes and stairs, terraced slopes |
+| cliff-town | contour terraces down a steep coast |
+| market-town | two roads crossing at the market, compact |
+| campus | a green mall on the main axis, low halls on a grid, lawns |
+
+New preset fields behind them (all honoured in `city.py`, all off in utopia):
+- `downtown_m` / `tower_storeys`: tower-on-podium blocks, tallest at the civic core's edge.
+- `suburbs_m`: house density all the way out to the outline.
+- `cul_de_sacs`: a dead-end street and a turning circle (`culdesac` slots) carved into deep
+  suburban blocks.
+- `industrial` (highway / harbour) and `industrial_m`: shed blocks (`industrial` slots).
+- `bastions`: diamond bastions (`bastion` slots) against the wall; the moat goes round them.
+- `inner_wall`: a second wall (`innerwall-*` / `innergate-*` slots, typed wall / gate) round
+  the main node, gated where ways cross it.
+- `canals` / `canal_w`, `river` / `river_w`: water ways (`canal`, `river`), bridged by the roads.
+- `outline: island`: `apply_pads` sinks the terrain outside the island and raises it inside;
+  `Fields.inland` / `land`, the land region, the promenade and the piers follow the island's
+  shore.
+- `streets: crossroads`; `grid_ratio` (long grid blocks); `park_pattern: checker`;
+  `park_rings` (the ring radii become green rings); `mall_w`.
+- `organic_nodes`, `terraces`, `max_slope`, `max_storeys`, `piers`.
+- `clear_overlaps`: drops buildings standing on a road, water or paving, or on another slot's
+  building (the larger stays), and opens a wall where a way crosses it away from a gate.
+  Every preset but utopia sets it. Utopia keeps its old overlaps (113 on the scratch city: tile
+  seams through perimeter blocks, boxes poking into avenues). Turning it on there would change
+  existing projects' plans and their locked frames.
+
+Roll: the Layout picker's **Random preset** has a roll draw one from its seed
+(`layout_presets.random_name`, own stream); the drawn one is saved and recorded per roll. New
+projects (`sw_site.init(city_mode=True)` without a layout file) start on classic.
+
+Checks: `tests/test_layout_presets.py` builds every preset (plan + greybox spec) on the test city
+with no overlapping slots (its own checker, apart from `clear_overlaps`), and checks classic's
+parts and each preset's features. On the scratch project all 19 non-utopia presets plan with
+0 overlaps. Previews of utopia, classic, manhattan, star-fortress, canal-city and garden-city are
+in the scratch project's `site/preset_previews/`.
+
+### Next (presets)
+
+- Utopia's overlaps: fix them only with the user's OK. Locked frames depend on its plan.
+- clear_overlaps drops buildings (30–290 per city). Trimming or re-fitting them would keep more.
+- Catalog (typology) cities: downtown towers and sheds are plain boxes, not catalog typologies.
+- Island presets on a layout with an enclosure or towns give a wall and greenbelt that run into
+  the sea, and towns across the water vanish.
+- Bastions and the inner wall are boxes on a circular wall. A real star trace would bend the wall.
+- Industrial sheds need their own catalog look, and suburbs need bigger lots and driveways.
 
 ## Terrain: generated vs heightmap (2026-10-27)
 

@@ -378,11 +378,13 @@ function paintRoll() {
   $("#city-roll-current").textContent = d && d.seed != null ? `City seed: ${d.seed}` : "";
   const sel = $("#city-layout-preset"), ls = $("#city-layout-seed");
   if (d && d.presets && !sel.options.length) {
-    sel.innerHTML = d.presets.map(p => `<option value="${esc(p.name)}" title="${esc(Object.entries(p.changes).map(([k, v]) => `${k}: ${v}`).join(", ") || "the generator as before layouts")}">${esc(p.name)}</option>`).join("");
+    sel.innerHTML = d.presets.map(p => `<option value="${esc(p.name)}" title="${esc(p.description)}">${esc(p.name)}</option>`).join("")
+      + `<option value="random" title="A roll picks a preset from its seed">Random preset</option>`;
   }
   if (d && document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.preset;
   if (d && document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.layout_seed;
-  $("#city-layout-apply").disabled = busy;
+  paintLayoutDesc();
+  $("#city-layout-apply").disabled = busy || sel.value === "random";
   const keepBox = $("#city-roll-keep");
   if (d && !keepBox.children.length) {
     const keep = new Set(rollKeep());
@@ -421,7 +423,13 @@ function layoutChoice() {
   delete sel.dataset.dirty; delete $("#city-layout-seed").dataset.dirty;
   return out;
 }
-$("#city-layout-preset").onchange = e => { e.target.dataset.dirty = "1"; };
+// The picked preset's one-line description under the picker
+function paintLayoutDesc() {
+  const v = $("#city-layout-preset").value, p = rollData && (rollData.presets || []).find(x => x.name === v);
+  $("#city-layout-desc").textContent = v === "random" ? "Roll a city picks one of the presets at random from its seed." : (p ? p.description : "");
+  $("#city-layout-apply").disabled = !!activeJobs("site.plan").length || v === "random";
+}
+$("#city-layout-preset").onchange = e => { e.target.dataset.dirty = "1"; paintLayoutDesc(); };
 $("#city-layout-seed").oninput = e => { e.target.dataset.dirty = "1"; };
 $("#city-layout-apply").onclick = () => siteAction("site/preset", layoutChoice());
 async function rollStep(delta) {

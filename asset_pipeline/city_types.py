@@ -293,7 +293,9 @@ class Typer:
             s += int(round(C.ZONE_STOREYS * (2 * float(hz) - 1)))   # the preset's height zoning
         floor = 1 if hi >= 1 else 0
         top = hi + max(2, j) + int(math.ceil(v.height_noise))
-        return int(np.clip(s, max(floor, lo - 1 if lo > 1 else floor), top))
+        if self.c.preset.max_storeys:          # the preset's height cap
+            top = min(top, max(self.c.preset.max_storeys, floor))
+        return int(np.clip(s, min(max(floor, lo - 1 if lo > 1 else floor), top), top))
 
     def _columns(self, t: Typology, district, facade: str) -> bool:
         rule = self.districts.get(district)

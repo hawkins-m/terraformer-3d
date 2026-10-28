@@ -525,25 +525,49 @@ class LayoutPreset(BaseModel):
     stream."""
     name: str = "utopia"
     # radial: avenues out of each node. grid: straight avenues on a grid. ring: radials and
-    # concentric ring roads. organic: jittered winding avenues. linear: a spine and cross avenues
-    streets: Literal["radial", "grid", "ring", "organic", "linear"] = "radial"
+    # concentric ring roads. organic: jittered winding avenues. linear: a spine and cross avenues.
+    # crossroads: two avenues crossing at the main centre
+    streets: Literal["radial", "grid", "ring", "organic", "linear", "crossroads"] = "radial"
     # coastal: the land inside the bounds. circle / blob: round (blob: wobbly) round the main
-    # centre. strip: a band along the coast
-    outline: Literal["coastal", "circle", "strip", "blob"] = "coastal"
+    # centre. strip: a band along the coast. island: a wobbly circle, the sea all round it
+    outline: Literal["coastal", "circle", "strip", "blob", "island"] = "coastal"
     outline_m: float | None = Field(default=None, gt=0)   # circle / blob radius, strip half-width; None: from the bounds
     rings: int = Field(default=0, ge=0, le=8)   # ring roads (ring districts) round the main centre; ring streets: 0 = 3
     grid_m: float | None = Field(default=None, gt=40)    # grid / linear avenue spacing; None: 2 x the outskirts block
     grid_deg: float = 0.0                       # grid orientation; linear: the spine's turn off the coast
+    grid_ratio: float = Field(default=1.0, gt=0.1, le=10)   # the grid's second axis spacing, x grid_m (long blocks)
     # none: the city's own enclosure (if any) as it is. wall: a wall round the outline. wall_moat: and a moat
     walls: Literal["none", "wall", "wall_moat"] = "none"
     moat_w: float = Field(default=30.0, gt=0)
+    bastions: int = Field(default=0, ge=0, le=16)    # pointed bastions round the wall (a star fortress)
+    inner_wall: bool = False                         # a second wall round the main node (a castle's inner ward)
     block_parks: float = Field(default=0.0, ge=0, le=0.5)   # share of blocks left as parks between the others
+    park_pattern: Literal["random", "checker"] = "random"   # checker: every other grid cell a park (block_parks > 0)
+    park_rings: bool = False                         # the ring roads are green rings instead (a garden city)
+    mall_w: float = Field(default=0.0, ge=0)         # a green mall along the main axis through the centre
     # how density falls off from each node: gaussian (as before), linear, or flat (even, then a quick edge)
     falloff: Literal["gaussian", "linear", "flat"] = "gaussian"
     falloff_scale: float = Field(default=1.0, gt=0)          # x density_falloff_m
     # where the tallest buildings cluster: by density (as before), the main centre, every node, the waterfront
     tall_at: Literal["density", "centre", "nodes", "waterfront"] = "density"
     height_falloff_m: float = Field(default=800.0, gt=0)     # how fast heights fall off from there
+    max_storeys: int | None = Field(default=None, ge=1)      # a height cap (towers excepted)
+    # a tight downtown of towers round the main centre: this radius (0: none), storeys centre .. edge
+    downtown_m: float = Field(default=0.0, ge=0)
+    tower_storeys: tuple[int, int] = (45, 16)
+    suburbs_m: float = Field(default=0.0, ge=0)      # beyond this from the centre: wide suburbs of houses (0: none)
+    cul_de_sacs: bool = False                        # suburban blocks get a dead-end street with a turning circle
+    industrial: Literal["none", "highway", "harbour"] = "none"   # an industrial zone of sheds by a highway / the harbour
+    industrial_m: float = Field(default=350.0, gt=0)          # its radius
+    canals: int = Field(default=0, ge=0, le=12)      # canals along the coast through the city
+    canal_w: float = Field(default=18.0, gt=0)
+    river: bool = False                              # a river from the hills to the sea past the centre
+    river_w: float = Field(default=50.0, gt=0)
+    organic_nodes: bool = False                      # every node laid out like a hill town (summit, winding lanes)
+    terraces: bool = False                           # contour-terraced blocks on every slope
+    max_slope: float | None = Field(default=None, gt=0)       # overrides the city's (steeper sites can build)
+    piers: int = Field(default=3, ge=0, le=12)       # piers per harbour node
+    clear_overlaps: bool = False                     # drop buildings that overlap a road, water or another slot
     # highways: wide road slots, built as flat road strips; interchanges where they cross
     highways: Literal["none", "ring", "radial", "both"] = "none"
     highway_w: float = Field(default=36.0, gt=0)

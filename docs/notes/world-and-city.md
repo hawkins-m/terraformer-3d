@@ -272,5 +272,7 @@ World and city mode: greybox and passes, concept frames and their control settin
   (`CitySpec.layout_seed`), never the city seed's stream; parks between blocks use a hash per block.
 - Preset walls become an `Enclosure` via `city.with_preset` (plan, shots, terrain plan/build, areas);
   never saved, so switching back to `walls: none` leaves no wall behind.
-- New slot types: `highway`, `interchange` (flat paving), `moat` (water piece `moat-water`).
+- New slot types: `highway`, `interchange` (flat paving), `moat` (water piece `moat-water`), `culdesac`,
+  `river`, `canal` ways, `tower`, `industrial`, `bastion`; inner walls are `innerwall-*` slots typed `wall`.
+- Presets other than utopia set `clear_overlaps`; utopia keeps its old overlaps on purpose (locked frames).
 - Status and next steps: [docs/layout-presets-progress.md](../layout-presets-progress.md).

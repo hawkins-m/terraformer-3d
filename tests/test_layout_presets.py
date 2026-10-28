@@ -6,7 +6,9 @@ import math
 
 import numpy as np
 import pytest
-from shapely.geometry import Point
+from shapely.geometry import Point, Polygon
+from shapely.ops import unary_union
+from shapely.strtree import STRtree
 
 from asset_pipeline import catalog, city, city_roll, greybox, layout_presets
 from asset_pipeline.project import ProjectStore, read_json, write_json
@@ -223,8 +225,149 @@ def test_roll_keeps_records_and_restores_the_preset(store):
     city_roll.step(store, -1)
     lay = sw_site.load_layout(store)
     assert (lay.city.preset.name, lay.city.layout_seed, lay.city.seed) == ("utopia", 0, 3)
-    city_roll.set_preset(store, "ring-city")
+    city_roll.set_preset(store, "ring-city")                             # a renamed preset still works
     lay = sw_site.load_layout(store)
-    assert lay.city.preset.name == "ring-city" and lay.city.seed == 3       # the rules and seed stay
+    assert lay.city.preset.name == "concentric" and lay.city.seed == 3      # the rules and seed stay
     s = city_roll.summary(store)
-    assert s["preset"] == "ring-city" and {p["name"] for p in s["presets"]} == set(layout_presets.PRESETS)
+    assert s["preset"] == "concentric" and {p["name"] for p in s["presets"]} == set(layout_presets.PRESETS)
+
+
+# --- the twenty presets ---------------------------------------------------------------------
+
+def _rect(x, y, w, d, rot):
+    u, v = city._dir(rot) * w / 2, city._dir(rot + 90) * d / 2
+    c = np.array([x, y])
+    return Polygon([c - u - v, c + u - v, c + u + v, c - u + v])
+
+
+def slot_overlaps(P, tol=2.0) -> list:
+    """Overlapping slots in a plan (checked on its own, apart from city.clear_overlaps): a building
+    footprint (housing, tower or shed box, catalog mass, stall, pier, wall bay) on a road, water
+    or paving surface, or on another slot's footprint. Slots group as add_slots does (kind or
+    typology per tile); gates span their roads by design."""
+    T = P.layout.city.tile_m
+    tile = lambda x, y: (math.floor(x / T), math.floor(y / T))  # noqa: E731
+    fp = [((b.kind, tile(b.x, b.y)), _rect(b.x, b.y, b.w, b.d, b.rot)) for b in P.buildings]
+    fp += [((b.typology, tile(b.x, b.y), b.material), _rect(p.x, p.y, p.w, p.d, p.rot))
+           for b in P.typed for p in b.parts if p.role in ("mass", "ground", "podium", "base") and isinstance(p.prim, str)]
+    fp += [(("market", i), _rect(b.x, b.y, b.w, b.d, b.rot)) for i, (_, st) in enumerate(P.markets) for b in st]
+    fp += [(("quay",), _rect(b.x, b.y, b.w, b.d, b.rot)) for b in P.piers]
+    fp += [((w.group,), _rect(w.x, w.y, w.prim["w"], w.prim["d"], w.rot)) for w in P.walls
+           if w.prim.get("kind") in ("box", "archwall") and not w.piece.startswith("gate:")]
+    surf = ([w.line.buffer(w.width / 2 - 0.5, cap_style="flat") for w in P.ways]
+            + list(P.interchanges) + list(P.moat) + list(P.culdesacs))
+    polys = [g for _, g in fp]
+    tree, stree = STRtree(polys), STRtree(surf)
+    bad = []
+    for i, (k, g) in enumerate(fp):
+        bad += [("surface", k) for j in stree.query(g) if g.intersection(surf[j]).area > tol]
+        bad += [("slots", k, fp[j][0]) for j in tree.query(g) if j > i and fp[j][0] != k
+                and g.intersection(polys[j]).area > tol]
+    return bad
+
+
+def test_twenty_presets_each_with_a_description():
+    assert len(layout_presets.PRESETS) == 20
+    assert {"utopia", "classic", "walled-castle", "star-fortress", "manhattan", "suburbia", "park-grid", "concentric",
+            "canal-city", "hill-town", "harbour-port", "garden-city", "river-town", "island-city", "market-town",
+            "cliff-town", "campus"} <= set(layout_presets.PRESETS)
+    for p in layout_presets.summary():
+        assert p["description"] and "\n" not in p["description"]
+    for old, new in layout_presets.ALIASES.items():
+        assert layout_presets.get(old).name == new
+
+
+@pytest.mark.parametrize("name", [n for n in layout_presets.PRESETS if n != "utopia"])
+def test_every_preset_plans_and_builds_with_no_overlapping_slots(base, name):
+    """utopia is left out: it must plan exactly as before presets (existing projects, locked
+    frames), overlaps included; every other preset clears them."""
+    L, h, _ = base
+    lay = layout_presets.apply(L, name)
+    P = city.plan(lay, h)
+    assert P.stats["buildings"] > 150, name
+    assert slot_overlaps(P) == [], name
+    spec = greybox.build_spec(lay, h)
+    ids = [s["id"] for s in spec["slots"]]
+    assert len(ids) == len(set(ids))
+
+
+def test_utopia_still_has_its_old_overlaps(base):
+    _, _, P0 = base
+    assert slot_overlaps(P0)        # why clear_overlaps stays off for it
+
+
+def test_classic_is_an_ordinary_modern_city():
+    st = sw_site.starter_city()
+    h = city.apply_pads(st, greybox.make_terrain(st.terrain))
+    lay = layout_presets.apply(st, "classic")
+    pr = lay.city.preset
+    assert pr.streets == "grid" and pr.highways == "both" and pr.interchanges and pr.industrial == "highway"
+    P = city.plan(lay, h)
+    C = city.main_centre(P.layout.city)
+    towers = [b for b in P.buildings if b.kind == "tower"]
+    assert towers and all(math.dist((b.x, b.y), C) < pr.downtown_m + 60 for b in towers)
+    assert max(b.h for b in towers) > 30 * P.layout.city.storey_m                # skyscrapers, over 100 m
+    ring = [b.h for b in P.buildings if b.kind == "housing" and pr.downtown_m < math.dist((b.x, b.y), C) < 900]
+    assert ring and 9 < np.median(ring) < 40                                     # the mid-rise ring
+    houses = [b for b in P.buildings if b.kind == "houses"]
+    assert houses and np.median([math.dist((b.x, b.y), C) for b in houses]) > pr.suburbs_m   # suburbs at the edge
+    assert P.interchanges and any(w.id.startswith("hw-ring") for w in P.ways) and any(w.id.startswith("hw-spoke") for w in P.ways)
+    sheds = [b for b in P.buildings if b.kind == "industrial"]
+    hw = unary_union([w.line for w in P.ways if w.kind == "highway"])
+    assert sheds and all(hw.distance(Point(b.x, b.y)) < pr.industrial_m + 100 for b in sheds)
+
+
+def test_the_presets_features(base):
+    L, h, _ = base
+    plans = {n: city.plan(layout_presets.apply(L, n), h) for n in
+             ("star-fortress", "walled-castle", "canal-city", "river-town", "suburbia", "park-grid", "island-city",
+              "market-town", "campus", "hill-town")}
+    assert sum(w.piece == "bastion" for w in plans["star-fortress"].walls) >= 4 and plans["star-fortress"].moat
+    castle = plans["walled-castle"]
+    assert any(w.group.startswith("innerwall") for w in castle.walls) and any(w.group.startswith("wall") for w in castle.walls)
+    assert castle.moat and {w.id.split("-")[0] for w in castle.ways} >= {"ring0", "ring1"}
+    assert sum(w.kind == "canal" for w in plans["canal-city"].ways) >= 3
+    assert any(w.kind == "river" for w in plans["river-town"].ways)
+    sub = plans["suburbia"]
+    assert sub.culdesacs and any(w.id.startswith("cds") for w in sub.ways)
+    assert all(b.h <= 4 * L.city.storey_m + 40 for b in sub.buildings)
+    assert len(plans["park-grid"].parks) > 30
+    isl = plans["island-city"]
+    f = city.Fields(isl.layout, city.apply_pads(isl.layout, greybox.make_terrain(isl.layout.terrain)))
+    assert f.outline.kind == "island" and all(float(f.outline.sd(b.x, b.y)) > 0 for b in isl.buildings)
+    assert {w.id for w in plans["market-town"].ways} >= {"cross0", "cross1"} or \
+        any(w.id.startswith("cross0") for w in plans["market-town"].ways)
+    assert plans["campus"].parks and max(b.h for b in plans["campus"].buildings) < 30
+    st = sw_site.starter_city()                       # it has a harbour node
+    port = city.plan(layout_presets.apply(st, "harbour-port"), city.apply_pads(st, greybox.make_terrain(st.terrain)))
+    assert len(port.piers) == 7 and any(b.kind == "industrial" for b in port.buildings)
+    assert all(n.layout == "organic" for n in plans["hill-town"].layout.city.nodes)
+
+
+def test_island_terrain_sinks_round_the_island():
+    L = layout_presets.apply(small_city(), "island-city")
+    h = city.apply_pads(L, greybox.make_terrain(L.terrain))
+    f = city.Fields(L, h)
+    C = np.array(city.main_centre(L.city))
+    far = C + (city.outline_r(L.city) * 1.5) * np.array([1.0, 0.0])
+    assert float(f.z(*far)) < L.sea_level and float(f.z(*C)) > L.sea_level
+
+
+def test_new_projects_start_on_classic_existing_keep_theirs(tmp_path, monkeypatch):
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    s = ProjectStore.create(None, name="New City", start="city")
+    assert sw_site.init(s, city_mode=True).city.preset.name == "classic"
+    old = tmp_path / "old.json"
+    old.write_text(sw_site.starter_city().model_dump_json())
+    assert sw_site.init(s, layout_file=old, force=True).city.preset.name == "utopia"
+
+
+def test_a_roll_can_pick_a_random_preset(store):
+    r = city_roll.roll(store, seed=12, preset="random")
+    lay = sw_site.load_layout(store)
+    assert lay.city.preset.name == layout_presets.random_name(12) == read_json(
+        city_roll.rolls_path(store))["rolls"][-1]["preset"]["name"]
+    assert r["seed"] == 12
+    assert len({layout_presets.random_name(s) for s in range(60)}) > 10
+    with pytest.raises(ValueError, match="unknown layout preset"):
+        city_roll.set_preset(store, "random")
