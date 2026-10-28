@@ -282,3 +282,15 @@ def test_library_lists_and_copy_reference(store):
            "sources": {"rock_small": {"source": "megascans", "asset": "/Game/A.A", "assets": ["/Game/A.A", "/Game/B.B"]}}}
     d = dressing.summary(rec, {"dressing": {"sources": {"rock_small": "megascans"}, "assets": {"rock_small": 2}}})
     assert d["assets"] == {"rock_small": 2} and "  assets used: rock_small 2" in dressing.report_lines(d)
+
+
+def test_a_scan_of_the_whole_content_never_takes_the_pipelines_own_assets(store):
+    content = ue.project_dir(store) / "Content"
+    fake_content(content)
+    own = content / "AP/Materials/Instances/MI_mat_paving.uasset"
+    own.parent.mkdir(parents=True, exist_ok=True)
+    own.write_bytes(b"..MaterialInstanceConstant..")
+    s = dressing.scan(store, folders=[str(content)])
+    assert not any(c["path"].startswith("/Game/AP/") for cs in s["candidates"].values() for c in cs)
+    dressing.save(store, library={"paving_slabs": "/Game/AP/Materials/Instances/MI_mat_paving.MI_mat_paving"})
+    assert "paving_slabs" not in dressing.rescan(store, log=lambda *a: None)    # an earlier scan's pick of it: dropped

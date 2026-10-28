@@ -83,6 +83,7 @@ OPTIONS = {   # what the UI shows: label, performance tag, one-line tooltip
                   "dressing library; free CC0 assets for the rest."),
 }
 SCAN_ROOTS = ("Fab", "Megascans", "Quixel")       # under Content/: /Game/Fab, /Game/Megascans, /Game/Quixel
+OWN = "/Game/AP/"                                 # the pipeline's own content: never a Megascans asset
 PLUGIN_NAMES = ("Fab", "Bridge", "MegascansPlugin", "QuixelBridge")
 CULL_M = {"grass": (40, 60), "shrub": (150, 200), "rock_small": (300, 400)}   # instance fade start, end (m)
 PROPOSE_MAX = 5                # name matches proposed per mesh role
@@ -793,6 +794,8 @@ def scan(store: ProjectStore, folders: list[str] | None = None) -> dict:
                 continue
             rel = p.relative_to(content).with_suffix("")
             game = "/Game/" + rel.as_posix()
+            if game.startswith(OWN):                 # (a scan folder of the whole Content sees it too)
+                continue
             ue_path = f"{game}.{p.stem}"
             if cls in ("static_mesh", "foliage"):
                 all_meshes.append({"path": ue_path, "class": cls, "name": p.stem})
@@ -822,6 +825,9 @@ def rescan(store: ProjectStore, log=print) -> dict:
     changed = []
     for r in ROLES:
         have = assets_of(lib.get(r))
+        if have and all(a.startswith(OWN) for a in have):     # an earlier scan took the pipeline's own: not a choice
+            lib.pop(r)
+            have = []
         if r in lib and (not have or any(_exists(content, a) for a in have)):
             if len(have) > 1:          # drop the ones that are gone, keep the rest
                 lib[r] = [a for a in have if _exists(content, a)]
