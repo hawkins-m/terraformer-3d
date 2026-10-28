@@ -100,6 +100,36 @@ def test_an_entry_with_a_trellis_active_version_stands_with_it_everywhere(proj, 
         assert np.linalg.norm(np.asarray(p["matrix"])[:3, 2]) * (hi[2] - lo[2]) == pytest.approx(h)
 
 
+def test_a_trellis_entry_stands_at_its_planned_buildings_without_instance_builds(proj, monkeypatch):
+    """No procedural instance builds: the Active model stands at each planned building's footprint
+    and height, keyed as its instance build would be; a building an instance build covers, and
+    entries with no Active model, get none. Materials map as the library names them."""
+    from types import SimpleNamespace
+    from asset_pipeline import library_entries, library_instances
+    part = lambda x, y, w, d, h: SimpleNamespace(prim="box", x=x, y=y, z=2.0, w=w, d=d, h=h, rot=0.0, role="mass")  # noqa: E731
+    b = lambda typ, mat, x, y: SimpleNamespace(typology=typ, material=mat, x=x, y=y, rot=90.0, h=24.0,  # noqa: E731
+                                               parts=[part(x, y, 30.0, 12.0, 24.0)])
+    P = SimpleNamespace(typed=[b("insula", "polished_concrete", 100.0, 0.0), b("insula", "polished_concrete", 100.4, 0.2),
+                               b("insula", "polished_concrete", -100.0, 0.0), b("insula", "limestone", 0.0, 50.0)])
+    monkeypatch.setattr(library_entries, "_all_entries", lambda st: {"insula-polished-concrete": {}, "insula-limestone": {}})
+    assert library_instances.entry_of(P.typed[0], {"insula-polished-concrete"}) == "insula-polished-concrete"
+    model = "3d/library/insula-polished-concrete/model.glb"
+    monkeypatch.setattr(cl, "active_model", lambda store, e: {"n": 3, "kind": "trellis", "glb": model}
+                        if e == "insula-polished-concrete" else None)
+    cands = [{"key": "built", "typology": "insula", "x": -100.0, "y": 0.0}]          # an instance build covers this one
+    pl = cl.model_placements(proj, P, cands)
+    assert [p["key"] for p in pl] == ["insula-polished-concrete_100_0".replace("-", "m")]    # the same spot counts once
+    p = pl[0]
+    assert p["planned"] and p["glb"] == model and (p["w"], p["d"], p["h"], p["yaw"]) == pytest.approx((12.0, 30.0, 24.0, 90.0))   # in its own frame
+    bounds = {model: [[-1, -0.5, -0.2], [1, 0.5, 0.8]]}
+    act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
+    assert act["insula-polished-concrete"]["placements"] == 1 and p["procedural"] is None
+    cl.ground_all(proj, pl, Flat(), "min", bounds)
+    f = cl.footprint_of(cl.world_matrix(p), *bounds[model])
+    assert (f["x"], f["y"], f["w"], f["d"], f["base"]) == pytest.approx((100.0, 0.0, 12.0, 30.0, 0.0), abs=1e-6)
+    assert np.linalg.norm(np.asarray(p["matrix"])[:3, 2]) * 1.0 == pytest.approx(24.0)
+
+
 def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, monkeypatch):
     """Clean up of the Active version for the asset's own tier wins; another tier's output, or one of
     another version, doesn't; without one the raw model stays."""

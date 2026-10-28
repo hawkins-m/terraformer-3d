@@ -487,6 +487,22 @@ Approve (`outside`).
   keep their metres and must fit within 25% after uniform scaling (0.5-2x).
 - Open-ground spots: only non-surface slots' piece boxes block (sea, avenue and street boxes span
   the whole city); a park spot needs a park tree within 25 m of each corner and the centre.
+  It must also stay clear of its own slot's pieces other than trees, pivots included (the lawn's
+  pivot under a landmark is what the placement check flagged as `overlap`), and of earlier picks;
+  else it shrinks to 3/4 or the park is skipped (`no_spot`, listed in the build report).
+- Slots a facade kit replaces whole (`unplaced.kit_slots`) give no places: a swap there was held
+  back behind the kit (the 2026-10-28 build's "40 in slots held back").
+
+## Held back vs superseded, TRELLIS at planned buildings (2026-10-28)
+- `choose` marks builds in a slot a kit or another build already replaces as `superseded`; the
+  report's "held back" counts only builds whose slot stays greybox. "Building slots still
+  greybox" leaves out terrain-category slots (streets, parks, ground: never a library build).
+- `city_library.model_placements`: a typed building no instance build covers, whose entry's
+  Active version is a model (TRELLIS), gets a `planned` placement at the plan's footprint and
+  height (`Building.h`); `use_active_models` stands the model there. Before, these entries only
+  stood where procedural instance builds existed, and showed up as "unplaced" instead.
+- `library_instances.entry_of` names materials as the library does (polished_concrete ->
+  polished-concrete); `insula-polished-concrete` etc. had matched no planned building.
 - Locked shots: only shots locked on a frame count (their id pass); greybox-locked wides see
   ~450 of ~490 slots and have no frame to keep.
 - Preview cost on the real city: ~6 s (`GET /api/projects/{slug}/next-build/unplaced`), so the UI

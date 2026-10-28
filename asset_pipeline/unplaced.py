@@ -15,13 +15,17 @@ places, open ground first, then matching civic places; repeated types up to REPE
 places that fit them (at least one). Picks go round-robin across districts.
 
 A place is a planned build's placement (a typed building, or a slot's single build): never a kit
-module, a prop, an attached piece, a variant's placement, a parent with attached pieces, or one in
+module, a prop, an attached piece, a variant's placement, a parent with attached pieces, one in
+a slot a facade kit replaces whole (kit_slots: the kit's build would stand there instead), or one in
 a slot a locked shot's frame shows (avoid_locked; greybox-locked wides have no frame to keep). Its
 build passes the gate too, so swapping never holds a slot back. Its footprint fits when the asset,
 scaled uniformly (SCALE) and turned a quarter if that fits better, is within FIT_TOL of it on both
 sides; the build whose placements are most numerous gives first, and no build gives more than
 DONOR_SHARE of its placements. On open ground the asset stands at its own size (down to 1 - FIT_TOL
-to fit) on a free spot of the lawn or paving, and the trees under it leave the greybox.
+to fit) on a free spot of the lawn or paving that overlaps nothing: no other slot's building or
+structure, no piece of its own slot but trees (not even the pivot of the lawn under it, which
+Unreal's placement check counts) and no other open-ground pick; the trees under it leave the
+greybox. A park with no such spot is skipped and the report names it (rep["no_spot"]).
 
 Deterministic: ties break on a hash of (seed, asset, place), so a rebuild picks the same places.
 Swapped placements keep their key and slot, so they stay attached to their slot actor (hand moves
@@ -49,6 +53,7 @@ WATERFRONT_M = 80.0         # a place this close to water is on the waterfront
 EDGE_PCT = 75               # a place this far out (percentile of building slots) is on the edge
 TREE_NEAR = 25.0            # m: an open-ground spot's corners each have a park tree this close
 GRID_M = 8.0                # open-ground spot search step
+PIN_M = 1.0                 # m: an open-ground model stays this clear of its slot's piece pivots
 SEED = 0
 
 
@@ -290,8 +295,9 @@ def _model(store: ProjectStore, entry: str, ent: dict, bounds: dict) -> dict | N
             "mesh": f"unplaced_{entry}" + (f"_v{m['n']}" if m else "") + (f"_{cl['usage']}" if cl else "")}
 
 
-def candidates(store: ProjectStore, ok, bounds: dict | None = None) -> tuple[list[dict], dict]:
-    """The unplaced assets: [{entry, group, one_off, max_count, w, d, model}] and {entry: why not}."""
+def candidates(store: ProjectStore, ok, bounds: dict | None = None, standing: set[str] = frozenset()) -> tuple[list[dict], dict]:
+    """The unplaced assets: [{entry, group, one_off, max_count, w, d, model}] and {entry: why not}.
+    standing: entries the plan's placements already use (a TRELLIS model at its planned buildings)."""
     from . import library_entries as le, next_build
     from .stages import sw_library
     dec = sw_library.decisions(store)
@@ -303,7 +309,7 @@ def candidates(store: ProjectStore, ok, bounds: dict | None = None) -> tuple[lis
     bounds = {} if bounds is None else bounds
     out, why = [], {}
     for eid, ent in sorted(le._all_entries(store).items()):
-        if eid in used or ent.get("kind") == "vegetation":
+        if eid in used or eid in standing or ent.get("kind") == "vegetation":
             continue
         reason, appears = next_build.outside_reason(eid, ent, dec.get(eid), rel)
         if appears or reason == "excluded":
@@ -337,6 +343,7 @@ def places(store: ProjectStore, gb: dict, placements: list[dict], ok, avoid_lock
     parents = set(next_build._relations(store, dec)["attached"].values())
     ents, typ = le._all_entries(store), _families(store)
     locked = locked_slots(store) if avoid_locked else set()
+    kit = kit_slots(store, ok)
     geo = _geography(gb)
     good: dict[str, int] = {}
     for p in placements:
@@ -349,7 +356,7 @@ def places(store: ProjectStore, gb: dict, placements: list[dict], ok, avoid_lock
             continue                                      # its block stays greybox anyway
         e = p["entry"]
         if (s is None or p.get("kit") or p.get("prop") or p.get("layer_of") or p.get("variant_of") or p.get("unplaced")
-                or e in parents or s["id"] in locked or not ok(e)):
+                or p.get("planned") or e in parents or s["id"] in locked or s["id"] in kit or not ok(e)):
             continue
         ent = ents.get(e) or {}
         if ent.get("kind") not in (None, "building") or (ent.get("part") in sw_library.KIT_TYPES):
@@ -360,6 +367,19 @@ def places(store: ProjectStore, gb: dict, placements: list[dict], ok, avoid_lock
         out.append({"key": p["key"], "slot": s["id"], "entry": e, "group": group, "typology": t.id if t else None,
                     "district": s.get("district"),
                     "w": float(p.get("w") or 0), "d": float(p.get("d") or 0)} | geo(p.get("x"), p.get("y"), s))
+    return out
+
+
+def kit_slots(store: ProjectStore, ok) -> set[str]:
+    """Slots a facade kit replaces whole (city_library.choose): its kit has every module built and
+    each passes the gate."""
+    from . import kit_assembly
+    lib = store.root / "3d" / "library"
+    out = set()
+    for k in kit_assembly.kits(store):
+        mods = [a[0] for a in k["modules"].values()]
+        if all((lib / a / "procedural.glb").is_file() and (lib / a / "procedural" / "job.json").is_file() and ok(a) for a in mods):
+            out |= set(k["slots"])
     return out
 
 
@@ -404,33 +424,45 @@ def opens(store: ProjectStore, gb: dict, index: dict | None, avoid_locked: bool)
             cache["obs"] = unary_union([b for s in gb["slots"] if s["type"] not in SURFACE_TYPES for b in boxes(s)])
         return cache["obs"]
 
+    picked: list = []                                 # this build's open-ground footprints so far
+
     def open_fit(a, sid):
         from shapely.geometry import Point, box
         s = slots[sid]
         S = np.asarray(s["matrix"], float)
-        trees, ground = [], []
+        trees, ground, own = [], [], []
+        (x0, y0, _), (x1, y1, _) = s["bbox"]
         for p in s["pieces"]:
             W = S @ np.asarray(p["matrix_local"], float)
             if p["piece"].startswith("tree:"):
                 trees.append(W[:2, 3])
-            elif p["piece"] in ("lawn", "paving"):
-                b = ((index or {}).get(p.get("mesh")) or {}).get("bounds")
-                (x0, y0, _), (x1, y1, _) = s["bbox"]
+                continue
+            b = ((index or {}).get(p.get("mesh")) or {}).get("bounds")
+            own.append(Point(*W[:2, 3]).buffer(PIN_M))       # its pivot: the placement check's overlap test
+            if p["piece"] in ("lawn", "paving"):
                 ground.append(rect(*_box2d(W, *b)) if b else box(x0, y0, x1, y1))
+            elif b:
+                own.append(rect(*_box2d(W, *b)))              # a pool, a garden bed: stands clear of it
         if not ground:
+            open_fit.no_spot.setdefault(a["entry"], []).append(sid)
             return None
         area = unary_union(ground).buffer(-2.0)
         if area.is_empty:
+            open_fit.no_spot.setdefault(a["entry"], []).append(sid)
             return None
         yaw = math.degrees(math.atan2(S[1, 0], S[0, 0]))
         cen = np.mean(trees, 0) if trees else np.array(area.centroid.coords[0])
-        spot = free_spot(area, trees if s["type"] == "park" else [], obstacles(), a["w"], a["d"], yaw, cen)
+        spot = free_spot(area, trees if s["type"] == "park" else [], unary_union([obstacles(), *own, *picked]),
+                         a["w"], a["d"], yaw, cen)
         if spot is None:
+            open_fit.no_spot.setdefault(a["entry"], []).append(sid)
             return None
+        picked.append(rect(spot["x"], spot["y"], a["w"] * spot["k"], a["d"] * spot["k"], yaw))
         foot = rect(spot["x"], spot["y"], a["w"] * spot["k"] + 2, a["d"] * spot["k"] + 2, yaw)
         drop = [i for i, p in enumerate(s["pieces"]) if p["piece"].startswith("tree:")
                 and foot.contains(Point(*(S @ np.asarray(p["matrix_local"], float))[:2, 3]))]
         return spot | {"turn": False, "pieces": drop, "z": float(S[2, 3])}
+    open_fit.no_spot = {}                             # {entry: [open slots with no clear spot for it]}
     return sites, open_fit
 
 
@@ -447,10 +479,11 @@ def plan(store: ProjectStore, gb: dict, placements: list[dict], ok, index: dict 
     """The picks for this build: {picks, skipped, assets {entry: model}}; nothing changes yet.
     planned: {typed slot: buildings} (places)."""
     bounds = {} if bounds is None else bounds
-    assets, why = candidates(store, ok, bounds)
+    assets, why = candidates(store, ok, bounds, {p["entry"] for p in placements})
     sites, open_fit = opens(store, gb, index, avoid_locked)
     rep = select(assets, places(store, gb, placements, ok, avoid_locked, planned), sites, open_fit, seed)
     rep["skipped"] |= why
+    rep["no_spot"] = open_fit.no_spot
     rep["assets"] = {a["entry"]: a["model"] for a in assets}
     return rep
 
@@ -491,13 +524,23 @@ def apply(store: ProjectStore, gb: dict, rep: dict, placements: list[dict], entr
     return new
 
 
+def no_spot_lines(rep: dict) -> list[str]:
+    """The open-ground places skipped for want of a clear spot: "temple: 2 parks (park-a, park-b); placed 1"."""
+    out = []
+    for e, sids in sorted((rep or {}).get("no_spot", {}).items()):
+        got = sum(p["kind"] == "open" for p in rep["picks"].get(e, []))
+        out.append(f"{e}: {len(sids)} {'park' if len(sids) == 1 else 'parks'} ({', '.join(sids)}); "
+                   + (f"placed {got} elsewhere" if got else "not placed on open ground"))
+    return out
+
+
 def summary(rep: dict | None) -> dict:
-    """What the build report and the preview show: {swapped, open, lines, skipped}."""
+    """What the build report and the preview show: {swapped, open, lines, skipped, no_spot_lines}."""
     if not rep:
-        return {"swapped": 0, "open": 0, "lines": [], "skipped": {}}
+        return {"swapped": 0, "open": 0, "lines": [], "skipped": {}, "no_spot_lines": []}
     ps = [p for v in rep["picks"].values() for p in v]
     return {"swapped": sum(p["kind"] == "swap" for p in ps), "open": sum(p["kind"] == "open" for p in ps),
-            "lines": lines(rep), "skipped": dict(sorted(rep["skipped"].items())),
+            "lines": lines(rep), "skipped": dict(sorted(rep["skipped"].items())), "no_spot_lines": no_spot_lines(rep),
             "assets": [{"entry": e, "count": len(v), "slots": sorted({p["slot"] for p in v}),
                         "from": sorted({p["from"] for p in v if p["from"]}), "open": sum(p["kind"] == "open" for p in v)}
                        for e, v in sorted(rep["picks"].items())]}

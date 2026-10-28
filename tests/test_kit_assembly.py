@@ -135,7 +135,7 @@ def test_a_kit_slot_is_placed_whole_only_when_every_module_is_approved():
     other = {"key": "rep", "entry": "my-block", "slot": "blk", "typed": False}
     placed, replaced, held = cl.choose(kit + [other], {}, lambda e: True)
     assert [p["key"] for p in placed] == ["k0", "k1", "k2"] and replaced == {"blk": "whole"}
-    assert held[0]["why"] == "a kit assembly stands in this slot"
+    assert held[0]["why"] == "a kit assembly stands in this slot" and held[0]["superseded"]   # not held back as greybox
     placed, replaced, held = cl.choose(kit + [other], {}, lambda e: e != "my-block-corner")
     assert [p["key"] for p in placed] == ["rep"]                      # the slot's other build, as before
     assert {h["why"] for h in held} == {"not approved: my-block-corner"}

@@ -267,3 +267,41 @@ def test_the_summary_lists_each_asset_its_count_and_the_slots_it_takes(city):
     assert a["entry"] == "court" and a["from"] == ["row"] and set(a["slots"]) <= {f"row-{i}" for i in range(10)}
     assert s["lines"][0].startswith(f"court: {a['count']} ({a['count']} from row; slots ")
     assert len(s["lines"]) == 1
+
+
+def test_slots_a_facade_kit_replaces_whole_give_no_places(city, monkeypatch):
+    for a in ("kit-bay", "kit-corner"):
+        glb_box(city.store.root / f"3d/library/{a}/procedural.glb", [-2, -1, 0], [2, 1, 5])
+        write_json(city.store.root / f"3d/library/{a}/procedural/job.json", {})
+    monkeypatch.setattr(kit_assembly, "kits", lambda st: [{"kit": "kit", "slots": ["row-1", "row-2"],
+                                                         "modules": {"bay": ["kit-bay"], "corner": ["kit-corner"]}}])
+    assert up.kit_slots(city.store, lambda e: True) == {"row-1", "row-2"}
+    assert up.kit_slots(city.store, lambda e: e != "kit-corner") == set()       # not placed: the slot's own builds stand
+    base = cl.base_placements(city.store, city.gb)[0]
+    took = {p["slot"] for p in up.places(city.store, city.gb, base, lambda e: True, True)}
+    assert not took & {"row-1", "row-2"} and "row-4" in took
+    on = _plan(city, {"avoid_locked": True, "seed": 0})
+    assert on["unplaced"]["held"] == 0 and not any(p.get("unplaced") and p["slot"] in ("row-1", "row-2") for p in on["placed"])
+
+
+def test_open_ground_spots_stay_clear_of_the_parks_own_pieces_and_earlier_picks(tmp_path):
+    from shapely.geometry import Point
+    park = _slot("park-1", 0.0, 0.0, stype="park",
+                 pieces=[{"piece": "lawn", "mesh": "lawn", "matrix_local": np.eye(4).tolist()}]
+                 + [{"piece": "tree:oak", "matrix_local": cl.world_matrix({"x": x, "y": y, "z": 0.0, "yaw": 0.0}).tolist()}
+                    for x in range(-25, 30, 10) for y in range(-25, 30, 10)])
+    park["category"] = "terrain"
+    small = _slot("park-2", 300.0, 0.0, stype="park", pieces=[{"piece": "lawn", "mesh": "small", "matrix_local": np.eye(4).tolist()}])
+    gb = {"slots": [park, small]}
+    index = {"lawn": {"bounds": [[-30, -30, 0], [30, 30, 0.1]]}, "small": {"bounds": [[-5, -5, 0], [5, 5, 0.1]]}}
+    store = SimpleNamespace(root=tmp_path)
+    sites, open_fit = up.opens(store, gb, index, avoid_locked=False)
+    a = {"entry": "temple", "w": 12.0, "d": 8.0}
+    s1 = open_fit(a, "park-1")
+    r1 = up.rect(s1["x"], s1["y"], 12 * s1["k"], 8 * s1["k"], 0.0)
+    assert not r1.buffer(up.PIN_M).contains(Point(0, 0))           # the lawn's pivot stays uncovered
+    s2 = open_fit(a, "park-1")                                      # a second pick in the same park: clear of the first
+    assert not up.rect(s2["x"], s2["y"], 12 * s2["k"], 8 * s2["k"], 0.0).intersects(r1)
+    assert open_fit(a, "park-2") is None and open_fit.no_spot == {"temple": ["park-2"]}
+    rep = {"picks": {"temple": [{"kind": "open", "slot": "park-1"}]}, "no_spot": open_fit.no_spot}
+    assert up.no_spot_lines(rep) == ["temple: 1 park (park-2); placed 1 elsewhere"]

@@ -126,14 +126,28 @@ def _prop_entries(store: ProjectStore, gb: dict) -> set[str]:
     return out
 
 
-def _building_entries(store: ProjectStore) -> set[str]:
-    """Entries with building placements: instance builds of typed buildings, or slots of their own."""
+def _building_entries(store: ProjectStore, modelled: set[str] | None = None) -> set[str]:
+    """Entries with building placements: instance builds of typed buildings, slots of their own,
+    or planned buildings their Active model (TRELLIS) stands at (_modelled_entries)."""
     lib = store.root / LIB
     out = {p.parent.parent.name for p in lib.glob("*/instances/index.json")}
     for ent in (read_json(store.root / "site" / "library.json", default={}) or {}).get("entries", []):
         if ent.get("slot_ids"):
             out.add(ent["id"])
-    return out
+    return out | (_modelled_entries(store) if modelled is None else modelled)
+
+
+def _modelled_entries(store: ProjectStore) -> set[str]:
+    """Entries of planned typed buildings whose Active version is a model, not a procedural build:
+    it stands at those buildings with no instance builds (city_library.model_placements)."""
+    from . import city_library, library_entries, library_instances
+    try:
+        P = city_library.city_plan(store)
+    except FileNotFoundError:
+        return set()
+    ents = set(library_entries._all_entries(store))
+    planned = {library_instances.entry_of(b, ents) for b in P.typed} - {None}
+    return {e for e in planned if building_model(store, e) is not None}
 
 
 # --- the explanation -------------------------------------------------------------------------
@@ -149,14 +163,15 @@ def explain(store: ProjectStore, use_active: bool = False) -> dict:
     has_gb = (sw_site.site_dir(store) / "greybox.json").is_file()
     gb = sw_site.load_greybox(store) if has_gb else {"slots": []}
     props = _prop_entries(store, gb) if has_gb else set()
-    buildings = _building_entries(store) if has_gb else set()
+    modelled = _modelled_entries(store) if has_gb else set()
+    buildings = _building_entries(store, modelled) if has_gb else set()
     ok, good = gate(store, use_active), approved_set(store)
     dec = sw_library.decisions(store)
     rel = _relations(store, dec)
     rows = []
     for eid, ent in sorted(le._all_entries(store).items()):
         r = _row(store, eid, ent, eid in props, eid in buildings, has_gb, ok(eid), eid in good, use_active,
-                 (dec.get(eid) or {}).get("decision") == "exclude", versions, s6_cleanup)
+                 (dec.get(eid) or {}).get("decision") == "exclude", versions, s6_cleanup, eid in modelled)
         if has_gb and r["role"] == "none":            # why no slot, building or prop piece uses it, and whether it shows anyway
             r["outside_reason"], r["appears"] = outside_reason(eid, ent, dec.get(eid), rel)
             if not r["excluded"] and not r["placed"]:
@@ -193,7 +208,8 @@ def outside_reason(eid: str, ent: dict, decision: dict | None, rel: dict) -> tup
     return f"{what} with no share or slots", False
 
 
-def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, excluded, versions, s6_cleanup) -> dict:
+def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, excluded, versions, s6_cleanup,
+         modelled: bool = False) -> dict:
     cur = versions.current(store, eid) if versions.has_bank(store, eid) else None
     rows = versions.load(store, eid) if versions.has_bank(store, eid) else []
     appr_v = next((r["n"] for r in rows if r.get("approved")), None)
@@ -212,7 +228,7 @@ def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, e
     elif building:
         m = building_model(store, eid)
         pb = procedural_build(store, eid)
-        if m is not None and pb is not None:          # the Active TRELLIS model takes the procedural placements
+        if m is not None and (pb is not None or modelled):    # the Active TRELLIS model takes the placements
             model = {"n": m["n"], "kind": m["kind"], "model": "cleaned" if m["cleaned"] else "raw",
                      "cleaned": m["cleaned"] is not None, "used": True,
                      "available": m["available"]}

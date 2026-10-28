@@ -87,7 +87,7 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
             if not bad:
                 placed += kit
                 replaced[sid] = "whole"
-                held += [p | {"why": "a kit assembly stands in this slot"} for p in ps if not p.get("kit")]
+                held += [p | {"why": "a kit assembly stands in this slot", "superseded": True} for p in ps if not p.get("kit")]
                 continue
             held += [p | {"why": f"not approved: {', '.join(bad)}"} for p in kit]
             ps = [p for p in ps if not p.get("kit")]
@@ -102,7 +102,7 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
                 mine = [q for q in layers if q["layer_of"] == good[0]["key"]]
                 placed += good[:1] + mine           # one build per kit slot
                 replaced[sid] = "whole"
-                held += [p | {"why": "another build stands in this slot"} for p in ps + layers
+                held += [p | {"why": "another build stands in this slot", "superseded": True} for p in ps + layers
                          if p is not good[0] and p not in mine]
             else:
                 held += [p | {"why": "not approved"} for p in ps]
@@ -115,6 +115,16 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
             why = "not approved" if len(good) < len(ps) else f"{len(good)} of {need} buildings in the slot have a build"
             held += [p | {"why": why} for p in ps]
     return placed, replaced, held
+
+
+def held_reasons(held: list[dict]) -> dict[str, int]:
+    """{why: builds} of the builds held back (the build report's breakdown)."""
+    out: dict[str, int] = {}
+    for h in held:
+        why = "not approved" if h["why"].startswith("not approved") else (
+            "block not fully built" if "buildings in the slot have a build" in h["why"] else h["why"])
+        out[why] = out.get(why, 0) + 1
+    return dict(sorted(out.items(), key=lambda kv: -kv[1]))
 
 
 def footprint_of(W: np.ndarray, lo, hi) -> dict:
@@ -327,12 +337,18 @@ def count_planned(buildings, typed: list[dict]) -> dict[str, int]:
     return {sid: len(v) for sid, v in seen.items()}
 
 
-def planned_buildings(store: ProjectStore, gb: dict) -> dict[str, list[tuple]]:
-    """{typed slot id: [(typology, x, y, base z, yaw) of each distinct planned building in it]}."""
-    from . import city, library_instances
+def city_plan(store: ProjectStore):
+    from . import city
     from .stages import sw_site
     layout = sw_site.load_layout(store)
-    P = city.plan(layout, sw_site.plan_terrain(store, layout))
+    return city.plan(layout, sw_site.plan_terrain(store, layout))
+
+
+def planned_buildings(store: ProjectStore, gb: dict, P=None) -> dict[str, list[tuple]]:
+    """{typed slot id: [(typology, x, y, base z, yaw) of each distinct planned building in it]}.
+    P: the city plan (city_plan), when the caller has it."""
+    from . import library_instances
+    P = P or city_plan(store)
     typed = [s for s in gb["slots"] if s.get("typology")]
     out: dict[str, dict] = {}
     for b in P.typed:
@@ -376,6 +392,37 @@ def representative_placements(store: ProjectStore, gb: dict, cands: list[dict], 
             out.append({"key": f"{e}_{sid}".replace("-", "m"), "entry": e, "glb": glb.relative_to(store.root).as_posix(),
                         "x": float(x), "y": float(y), "z": float(z), "yaw": float(yaw), "w": w, "d": d, "slot": sid,
                         "typed": False, "representative": True})
+    return out
+
+
+def model_placements(store: ProjectStore, P, cands: list[dict]) -> list[dict]:
+    """Typed buildings no instance build covers whose entry's Active version is a model (TRELLIS,
+    no procedural build needed): a placement at the building's planned footprint and height
+    ("planned": use_active_models stands the model there). Keyed as its instance build would be,
+    so building instances later keeps the place. An entry that is procedural needs its instance
+    builds (`ap library build-instances`)."""
+    from . import library_entries, library_instances
+    ents = set(library_entries._all_entries(store))
+    have: dict[str, list] = {}
+    for p in cands:
+        have.setdefault(p.get("typology"), []).append((p["x"], p["y"]))
+    models: dict[str, dict | None] = {}
+    out, seen = [], set()
+    for b in P.typed:
+        e = library_instances.entry_of(b, ents)
+        if e is None:
+            continue
+        x, y, z, w, d = library_instances.footprint(b)
+        if any(math.hypot(x - u, y - v) < 1.0 for u, v in have.get(b.typology, [])):
+            continue
+        if e not in models:
+            models[e] = active_model(store, e)
+        key = f"{e}_{round(x)}_{round(y)}".replace("-", "m")
+        if models[e] is None or key in seen:
+            continue
+        seen.add(key)
+        out.append({"key": key, "entry": e, "typology": b.typology, "glb": models[e]["glb"], "x": float(x), "y": float(y),
+                    "z": float(z), "yaw": float(b.rot), "w": float(w), "d": float(d), "h": float(b.h), "planned": True})
     return out
 
 
@@ -475,9 +522,13 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
         if m is None:
             continue
         B = world_matrix(p)
-        (plo, phi), (mlo, mhi) = bounds_of(p["glb"]), bounds_of(m["glb"])
-        w, d, h = phi[0] - plo[0], phi[1] - plo[1], phi[2] - plo[2]
-        cx, cy = (plo[0] + phi[0]) / 2, (plo[1] + phi[1]) / 2
+        mlo, mhi = bounds_of(m["glb"])
+        if p.get("planned"):                            # no procedural build: the plan's footprint and height
+            w, d, h, cx, cy, z0 = p["w"], p["d"], p["h"], 0.0, 0.0, 0.0
+        else:
+            plo, phi = bounds_of(p["glb"])
+            w, d, h = phi[0] - plo[0], phi[1] - plo[1], phi[2] - plo[2]
+            cx, cy, z0 = (plo[0] + phi[0]) / 2, (plo[1] + phi[1]) / 2, plo[2]
         if p.get("typed") or p.get("typology"):
             w, d = p.get("w") or w, p.get("d") or d
         elif slots.get(p.get("slot")) is not None:      # a slot's build: the slot's masses
@@ -493,12 +544,12 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
         k = [w / max(ext[0], 1e-6), d / max(ext[1], 1e-6), h / max(ext[2], 1e-6)]
         mc = [(mlo[0] + mhi[0]) / 2, (mlo[1] + mhi[1]) / 2, mlo[2]]
         T = np.eye(4)
-        T[:3, 3] = [cx, cy, plo[2]]
+        T[:3, 3] = [cx, cy, z0]
         M = B @ T @ np.diag([*k, 1.0])
         M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
         cl = m.get("cleaned")
         p.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}" + (f"_{cl['usage']}" if cl else ""), matrix=M.tolist(),
-                 active=m["n"], active_kind=m["kind"], procedural=p["glb"])
+                 active=m["n"], active_kind=m["kind"], procedural=None if p.get("planned") else p["glb"])
         p.pop("vrole", None)
         r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "model": model_label(m), "placements": 0})
         r["placements"] += 1
@@ -584,12 +635,14 @@ def base_placements(store: ProjectStore, gb: dict) -> tuple[list[dict], dict, di
     entries {entry: job.json}, planned buildings {typed slot: [...]}, variants.assignments)."""
     from .look import _candidates
     cands, _, entries = _candidates(store, None, math.inf)
+    P = city_plan(store)
+    cands += model_placements(store, P, cands)
     typed = [s for s in gb["slots"] if s.get("typology")]
     for p in cands:
         if p.get("slot") is None:
             p["typed"] = True
             p["slot"] = slot_of_point(typed, p.get("typology"), p["x"], p["y"])
-    buildings = planned_buildings(store, gb)
+    buildings = planned_buildings(store, gb, P)
     reps = representative_placements(store, gb, cands, buildings)
     for p in reps:
         entries[p["entry"]] = (Path("3d/library") / p["entry"] / "procedural" / "job.json").as_posix()
@@ -637,7 +690,7 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     drop: dict[str, set] = {}
     for p in extra + props:                       # one model per prop entry: all its pieces, or none
         if not ok(p["entry"]) or replaced.get(p["slot"]) == "whole":
-            held.append(p | {"why": "not approved" if not ok(p["entry"]) else "its slot is replaced whole"})
+            held.append(p | ({"why": "not approved"} if not ok(p["entry"]) else {"why": "its slot is replaced whole", "superseded": True}))
             continue
         placed.append(p)
         drop.setdefault(p["slot"], set()).update(p["pieces"])
@@ -727,10 +780,12 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     m["material_overrides"] = {e: v for e, v in over.items() if not e.startswith("_") and e in {a["entry"] for a in assets.values()}}
     m["source"] = "library+greybox"
     m["terrain"] = terrain_section(gb)
-    held_entries = sorted({h["entry"] for h in pl["held"]})
+    held = [h for h in pl["held"] if not h.get("superseded")]     # superseded: a kit or another build stands in its slot
+    held_entries = sorted({h["entry"] for h in held})
     m["library"] = {"use_active": use_active, "ground_rule": pl["ground_rule"], "placed": len(pl["placed"]), "parents": pl["parents"],
                     "props": pl["props"], "no_model": pl["no_model"],
-                    "slots_replaced": len(pl["replaced"]), "held": len(pl["held"]), "held_entries": held_entries,
+                    "slots_replaced": len(pl["replaced"]), "held": len(held), "held_entries": held_entries,
+                    "superseded": len(pl["held"]) - len(held), "held_why": held_reasons(held),
                     "missing_children": pl["missing_children"],
                     "kit_modules": sum(1 for p in pl["placed"] if p.get("kit")),
                     "kit_notes": kit_assembly.report_lines(pl["kits"]),
@@ -744,5 +799,6 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     for line in m["library"]["kit_notes"] + m["library"]["active_models"] + ((m["library"].get("unplaced") or {}).get("lines") or []):
         log(line)
     log(f"library: {pl['parents']} builds + {pl['props']} props + {len(pl['placed']) - pl['parents'] - pl['props']} attached pieces in "
-        f"{len(pl['replaced'])} slots; {len(pl['held'])} held back as greybox")
+        f"{len(pl['replaced'])} slots; {len(held)} held back as greybox"
+        + (f" ({m['library']['superseded']} more not needed: a kit or another build stands in their slot)" if m["library"]["superseded"] else ""))
     return m["library"]

@@ -236,11 +236,14 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
                                                                           for s in man["shots"]],
                                                        ue.work_dir(store) / "shots", "ap_shot_render", 5400, adapter=gpu))
     lib = man.get("library") or {}
-    greybox_slots = sum(1 for s in man["slots"] if not s.get("replaced"))      # untouched: no build in them
+    grey = [s for s in man["slots"] if not s.get("replaced")]             # untouched: no build in them
+    greybox_slots = sum(1 for s in grey if s.get("category") != "terrain")   # (streets, parks and ground counted apart)
     out = {"ok": bool(rep.get("ok")), "use_active": use_active, "placed": (rep.get("library") or {}).get("placed", 0),
            "props": lib.get("props", 0), "attached": lib.get("placed", 0) - lib.get("parents", 0) - lib.get("props", 0),
            "slots_replaced": lib.get("slots_replaced", 0), "no_model": lib.get("no_model", []),
-           "greybox_slots": greybox_slots, "greybox_instances": c["instances"], "held": lib.get("held", 0),
+           "greybox_slots": greybox_slots, "ground_slots": len(grey) - greybox_slots,
+           "greybox_instances": c["instances"], "held": lib.get("held", 0), "held_why": lib.get("held_why") or {},
+           "superseded": lib.get("superseded", 0),
            "held_entries": lib.get("held_entries", []), "imported": len(rep["assets"]["imported"]),
            "skipped": len(rep["assets"]["skipped"]), "reset": len(rep["actors"]["reset"]),
            "pruned": len(rep.get("pruned", [])), "terrain_outer": bool(rep.get("terrain_outer")),
@@ -262,8 +265,12 @@ def report_lines(r: dict) -> list[str]:
     extra = [f"{r.get('props', 0)} props"] * bool(r.get("props")) + [f"{r['attached']} attached pieces"] * bool(r["attached"])
     lines = [f"{'OK' if r['ok'] else 'PROBLEMS'}: {r['placed']} library actors placed"
              + (f" ({r['placed'] - r.get('props', 0) - r['attached']} builds, {', '.join(extra)})" if extra else "")
-             + f" in {r['slots_replaced']} slots; {r['greybox_slots']} slots still greybox"
-             + (f", {r['held']} builds held back (slot not fully built or not approved)" if r["held"] else ""),
+             + f" in {r['slots_replaced']} slots; {r['greybox_slots']} building slots still greybox"
+             + (f" (+{r['ground_slots']} streets, parks and ground)" if r.get("ground_slots") else "")
+             + (f", {r['held']} builds held back ("
+                + (", ".join(f"{n} {w}" for w, n in r["held_why"].items()) if r.get("held_why") else "slot not fully built or not approved")
+                + ")" if r["held"] else "")
+             + (f"; {r['superseded']} builds not needed (a kit or another build stands in their slot)" if r.get("superseded") else ""),
              f"assets: {r['imported']} imported, {r['skipped']} unchanged; {r['reset']} stale slots moved back; "
              f"{r['pruned']} orphans pruned; outer ring {'placed' if r['terrain_outer'] else 'not placed'}"
              + (f"; {r['shots']} shots rendered" if r["shots"] is not None else ""),
@@ -274,6 +281,9 @@ def report_lines(r: dict) -> list[str]:
         lines.append(f"unplaced assets: {u['placed']} places taken ({u['swapped']} swapped, {u['open']} on open ground"
                      + (f"; {u['held']} in slots held back" if u.get("held") else "") + ")")
         lines += [f"  {x}" for x in u["lines"]]
+        if u.get("no_spot_lines"):
+            lines.append("open ground skipped (no spot clear of everything, even at 3/4 size):")
+            lines += [f"  {x}" for x in u["no_spot_lines"]]
     from .dressing import report_lines as dressing_lines
     lines += dressing_lines(r.get("dressing") or {})
     if r.get("placement") is not None:

@@ -28,7 +28,11 @@ def test_report_is_short_and_lists_warnings():
          "imported": 3, "skipped": 900, "reset": 2, "pruned": 1, "terrain_outer": True, "shots": None,
          "steps": {"export": 20.0, "import": 300.0}, "seconds": 330.0, "warnings": ["no Landscape in the level"]}
     lines = ue_build.report_lines(r)
-    assert lines[0] == "OK: 555 library actors placed in 38 slots; 470 slots still greybox, 121 builds held back (slot not fully built or not approved)"
+    assert lines[0] == "OK: 555 library actors placed in 38 slots; 470 building slots still greybox, 121 builds held back (slot not fully built or not approved)"
+    r |= {"ground_slots": 190, "held_why": {"block not fully built": 120, "not approved": 1}, "superseded": 530}
+    assert ue_build.report_lines(r)[0] == ("OK: 555 library actors placed in 38 slots; 470 building slots still greybox "
+                                           "(+190 streets, parks and ground), 121 builds held back (120 block not fully built, "
+                                           "1 not approved); 530 builds not needed (a kit or another build stands in their slot)")
     assert "3 imported, 900 unchanged" in lines[1] and lines[2].startswith("time: 5.5 min")
     assert lines[-1] == "warning: no Landscape in the level" and len(lines) == 4
 

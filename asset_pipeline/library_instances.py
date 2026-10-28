@@ -15,9 +15,10 @@ SKIP_ROLES = {"roof", "cornice", "roof-garden", "tree", "vault", "crown"}
 
 
 def entry_of(b, entries: set[str]) -> str | None:
-    """The library entry a typed building belongs to: <typology>-<material>, else <typology>."""
+    """The library entry a typed building belongs to: <typology>-<material>, else <typology>
+    (named as the library names them: polished_concrete -> polished-concrete)."""
     t = b.typology.replace("_", "-")
-    for k in ((f"{t}-{b.material}" if b.material else None), t):
+    for k in ((f"{t}-{b.material.replace('_', '-')}" if b.material else None), t):
         if k and k in entries:
             return k
     return None
