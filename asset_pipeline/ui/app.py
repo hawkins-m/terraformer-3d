@@ -308,6 +308,7 @@ class RollReq(BaseModel):
     keep: list[str] = []          # rule groups a roll leaves as they are (city_roll.GROUPS)
     preset: str | None = None     # the layout preset (layout_presets.PRESETS); None: the layout's own
     layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    keep_shape: bool = False      # keep the current outline and districts (new streets only)
 
 
 class PresetReq(BaseModel):
@@ -1446,7 +1447,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             from ..jobs import current_job
             job = current_job()
             r = city_roll.roll(store, req.seed, req.keep, log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print,
-                               preset=req.preset, layout_seed=req.layout_seed)
+                               preset=req.preset, layout_seed=req.layout_seed, keep_shape=req.keep_shape)
             return {"seed": r["seed"], "tries": r["tries"], "buildings": r["stats"]["buildings"], "warnings": r["stats"]["warnings"]}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
 

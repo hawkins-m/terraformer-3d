@@ -158,6 +158,66 @@ in the scratch project's `site/preset_previews/`.
 - Bastions and the inner wall are boxes on a circular wall. A real star trace would bend the wall.
 - Industrial sheds need their own catalog look, and suburbs need bigger lots and driveways.
 
+### A preset owns the whole city shape on a roll (2026-10-27)
+
+Before this, a preset only changed streets: `ap site preset` / *Apply layout* left the project's
+wall, green belt, districts and satellite town in place, so the scratch project's six previews all
+showed the same round wall and districts. Now:
+
+- **`city_shape.py`** has a recipe for every preset but utopia: the outline and its size, the wall
+  (kind, radius, moat, green belt, trace: circle or **star**), the districts (ids, roles, landmark
+  monuments, places as angle and distance from the centre, core size, square, civic ring, stoas)
+  and the satellite towns (how many, how far, names).
+- **A roll with such a preset** (`city_roll.roll`) places that shape on the plan's ground
+  (`sw_site.plan_ground`):
+  - The centre sits at the recipe's distance from the coast; an island goes offshore.
+  - Every district core sits on land, above the sea and off steep ground, inside the bounds and
+    the outline, apart from the others. "high" districts take the highest ground near their spot;
+    "coast" districts sit by the water.
+  - Towns sit beyond the city on land, and the bounds grow to take them in.
+  - The project's own civic sites are dropped, because they were placed for the old shape.
+  - The wall, towns and sites are stored per roll, so Previous / Next restore them.
+- **Classic** has no wall, no green belt and no forum. Its districts are downtown (a plain square,
+  no arcades, no stoas, with towers round it), midtown, eastside, westside and a harbour. It has
+  ring and radial highways, a mid-rise ring, suburbs, sheds by a highway, and two satellite towns.
+- **Manhattan** is a narrow strip along the coast: the sea on one long side, and `channel` river
+  ways along both long sides wherever there's land.
+- **Star-fortress** gets a star trace (`Enclosure.shape = "star"`, `points`, `point_m`). Its bays
+  follow the sides, gates sit at the inner corners, and the moat and green belt follow the star.
+- **Island-city**: `preset_terrain` raises the island and sinks a strait of sea
+  (`ISLAND_STRAIT_M`) round it. The mainland stays land and gets a "mainland" town.
+- **"Keep current outline and districts"** (a tick box in the roll, off by default;
+  `--keep-shape`; `keep_shape` in the API) keeps the size, civic and waterfront groups, the
+  wall, towns and sites, and the layout's own `SHAPE_FIELDS` (outline, walls, water). The roll
+  then takes only the new preset's streets.
+- **Utopia** (and a roll with "Civic nodes" kept) rolls as before: the rolled districts, the
+  project's own wall and towns. A new fit pass (`city_shape.fit_nodes`) moves any district
+  out of the sea and leaves the rest alone.
+- **Heightmap terrain** keeps its waterfront rules on every roll. The heightmap holds the coast,
+  and before this a roll's rules moved the plan's coast away from it.
+- **Existing projects** keep utopia unless rolled with another preset. `ap site preset` /
+  *Apply layout* still change the preset alone.
+
+Checks: `tests/test_city_shape.py` rolls every recipe preset on a walled test project with a
+town. It checks the preset's own districts and towns, that every district core is on land, and
+the wall (or none). It also checks classic's parts, Manhattan's strip and water, the star trace,
+the island's strait, keep-shape, utopia, history restore, heightmap coasts, and the API and CLI.
+Previews from rolls through a second app instance are in the scratch project's
+`site/preset_previews/`: `flat-*` (a blank flat test project: utopia, classic, manhattan,
+star-fortress) and `scratch-*` (walled-castle, suburbia, island-city, canal-city). The earlier six
+street-only previews were removed.
+
+### Next (shape)
+
+- The catalog's district rules (mix, palette) are keyed by the old district names. Renamed
+  districts fall back to an even housing mix. A preset could bring its own catalog districts.
+- Manhattan's channels are water ribbons, not cut into the terrain. Rivers on slopes sit on the
+  ground.
+- An island has no bridge to the mainland.
+- Recipes place districts by angle and distance. They could also read the terrain's valleys and
+  ridges.
+- Locked shots keep their cameras after a shape roll, though their frames show the old city.
+
 ## Terrain: generated vs heightmap (2026-10-27)
 
 - **Generated**: `greybox.make_terrain(TerrainSpec)` builds a fictional coast and hills from the

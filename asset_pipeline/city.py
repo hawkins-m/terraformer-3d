@@ -165,11 +165,11 @@ class Fields:
 
     def inland(self, x, y):
         """Metres from the shoreline, positive on land (an island: from its shore)."""
-        if self.outline is not None and self.outline.kind == "island":
-            return self.outline.sd(x, y)
         x, y = np.asarray(x, float), np.asarray(y, float)
         along = x * self.u[0] + y * self.u[1]
         lat = x * self.v[0] + y * self.v[1]
+        if self.outline is not None and self.outline.kind == "island":
+            return np.maximum(self.outline.sd(x, y), self._shore(lat) - along)
         return self._shore(lat) - along
 
     def land(self, x, y):
@@ -326,7 +326,7 @@ def with_preset(layout: SiteLayout) -> SiteLayout:
     if c.enclosure is None:
         x0, y0, x1, y1 = c.bounds
         r = outline_r(c) if pr.outline in ("circle", "blob") else 0.8 * 0.5 * min(x1 - x0, y1 - y0)
-        c.enclosure = Enclosure(center=main_centre(c), radius=round(r))
+        c.enclosure = Enclosure(center=main_centre(c), radius=round(r), shape=pr.wall_shape)
     if pr.walls == "wall_moat" and not c.enclosure.moat_w:
         c.enclosure.moat_w = pr.moat_w
     return L
@@ -378,6 +378,28 @@ def pads(layout: SiteLayout, heights: np.ndarray) -> list[tuple[float, float, fl
     return out
 
 
+ISLAND_STRAIT_M = 300.0         # an island: the sea this wide all round it (the mainland beyond stays)
+
+
+def preset_terrain(layout: SiteLayout, heights: np.ndarray):
+    """The preset's own ground: an island (land inside its shore, a strait of sea all round).
+    Returns (heights, the island's signed distance or None); unchanged for other presets."""
+    from .greybox import grid_coords, sea_axes
+    c = layout.city
+    h = heights.astype(np.float32).copy()
+    if c is None or c.preset.outline != "island":
+        return h, None
+    t = layout.terrain
+    x, y = grid_coords(t)
+    u, _ = sea_axes(t)
+    o = Outline(c, type("F", (), {"u": u})())
+    sd = o.sd(x, y)
+    sea = layout.sea_level
+    sink = _smooth(-20, 120, -sd) * (1 - _smooth(ISLAND_STRAIT_M, ISLAND_STRAIT_M + 150, -sd))
+    h = np.where(sd > 0, np.maximum(h, sea + 2 + 10 * _smooth(0, 300, sd)), h) * (1 - sink) + (sea - 14) * sink
+    return h.astype(np.float32), sd
+
+
 def apply_pads(layout: SiteLayout, heights: np.ndarray) -> np.ndarray:
     """Level each node's ground into a terrace that grades into the terrain (no wall).
     The sea is left alone except right at a pad's edge."""
@@ -386,17 +408,10 @@ def apply_pads(layout: SiteLayout, heights: np.ndarray) -> np.ndarray:
     x, y = grid_coords(t)
     u, v = sea_axes(t)
     inland = shore_at(t, x * v[0] + y * v[1]) - (x * u[0] + y * u[1])
-    h = heights.astype(np.float32).copy()
-    c = layout.city
-    if c is not None and c.preset.outline == "island":   # land inside the island's shore, the sea all round
-        o = Outline(c, type("F", (), {"u": u})())
-        sd = o.sd(x, y)
-        sea = layout.sea_level
-        sink = _smooth(-20, 120, -sd)
-        h = np.where(sd > 0, np.maximum(h, sea + 2 + 10 * _smooth(0, 300, sd)), h) * (1 - sink) + (sea - 14) * sink
-        h = h.astype(np.float32)
-        inland = sd
-        heights = h
+    h, sd = preset_terrain(layout, heights)
+    if sd is not None:            # an island: inland is from its own shore (the mainland keeps the coast's)
+        inland = np.maximum(sd, inland)
+    heights = h
     for cx, cy, r, z, blend in pads(layout, heights):
         d = np.hypot(x - cx, y - cy)
         w = (1 - _smooth(r, r + blend, d)) * _smooth(-40, 10, inland)
@@ -727,8 +742,55 @@ def _trace(f: Fields, start, heading, length, curve, target=None, free_m=0.0, st
 
 # --- enclosure: a walled city -------------------------------------------------------------------
 
-WALL_BAY_M = 9.0             # one wall bay (chord); whole bays go round the circle
+WALL_BAY_M = 9.0             # one wall bay (chord); whole bays go round the circle (or along a star's sides)
 TOWN_PLAZA_M = 30.0
+
+
+def star_trace(e: Enclosure) -> np.ndarray:
+    """A star fortress's wall: curtains between bastion tips, the inner corners on the circle
+    (where the gates go), the tips `point_m` x radius further out. Closed polyline (n x 2)."""
+    n = e.points
+    pts = []
+    for k in range(n):
+        a = 360 * k / n
+        pts.append(np.array(e.center) + e.radius * _dir(a))
+        pts.append(np.array(e.center) + e.radius * (1 + e.point_m) * _dir(a + 180 / n))
+    pts.append(pts[0])
+    return np.array(pts)
+
+
+def wall_outline(e: Enclosure) -> Polygon:
+    """The wall's line as a polygon: its circle, or its star trace."""
+    if e.shape == "star":
+        return Polygon(star_trace(e))
+    return Point(e.center).buffer(e.radius, quad_segs=48)
+
+
+def _wall_bays(e: Enclosure) -> list[tuple[float, float, float, float, float]]:
+    """(x, y, chord, rot, angle round the centre) of every wall bay: whole bays round the
+    circle, or along each side of a star trace."""
+    if e.shape != "star":
+        R = e.radius
+        n = max(8, round(2 * math.pi * R / WALL_BAY_M))
+        step = 360 / n
+        chord = round(2 * R * math.sin(math.radians(step / 2)) + 0.1, 2)
+        out = []
+        for i in range(n):
+            a = i * step
+            x, y = np.array(e.center) + R * _dir(a)
+            out.append((float(x), float(y), chord, a + 90, a))
+        return out
+    pts = star_trace(e)
+    out = []
+    for p, q in zip(pts[:-1], pts[1:]):
+        L_ = float(np.linalg.norm(q - p))
+        k = max(1, round(L_ / WALL_BAY_M))
+        rot = math.degrees(math.atan2(q[1] - p[1], q[0] - p[0]))
+        for i in range(k):
+            x, y = p + (q - p) * (i + 0.5) / k
+            out.append((float(x), float(y), round(L_ / k + 0.1, 2), rot,
+                        math.degrees(math.atan2(y - e.center[1], x - e.center[0])) % 360))
+    return out
 
 
 def ring_road_r(c: CitySpec) -> float:
@@ -747,6 +809,15 @@ def gate_angles(c: CitySpec, f: Fields) -> list[float]:
         inl = math.degrees(math.atan2(-f.u[1], -f.u[0]))
         want = [inl - 180 + 360 * (k + 0.5) / e.gate_count for k in range(e.gate_count)]
     out: list[float] = []
+    if e.shape == "star":         # gates at the trace's inner corners, the ones nearest the wanted angles
+        corners = [360 * k / e.points for k in range(e.points)]
+        for a in want:
+            for cn in sorted(corners, key=lambda cn: abs(_angdiff(cn, a))):
+                p = np.array(e.center) + e.radius * _dir(cn)
+                if float(f.inland(*p)) > 80 and bool(f.land(*p)) and all(abs(_angdiff(cn, o)) > 15 for o in out):
+                    out.append(round(cn % 360, 2))
+                    break
+        return sorted(out)
     for a in want:
         for d in sorted(range(-60, 61, 2), key=abs):
             p = np.array(e.center) + e.radius * _dir(a + d)
@@ -765,9 +836,7 @@ def wall_parts(c: CitySpec, f: Fields, gates: list[float], e: Enclosure | None =
     inner wall, its slots named `prefix`wall-k / `prefix`gate-k)."""
     e = e or c.enclosure
     R = e.radius
-    n = max(8, round(2 * math.pi * R / WALL_BAY_M))
-    step = 360 / n
-    chord = round(2 * R * math.sin(math.radians(step / 2)) + 0.1, 2)
+    step = 360 / max(8, round(2 * math.pi * R / WALL_BAY_M))
     clear = math.degrees((e.gate_w / 2 + 12) / R)
     out: list[WallPart] = []
     order = sorted(gates)
@@ -775,11 +844,13 @@ def wall_parts(c: CitySpec, f: Fields, gates: list[float], e: Enclosure | None =
     def stretch(a):        # which stretch between gates a bay is in
         return sum(1 for g in order if g <= a % 360) % max(len(order), 1)
 
-    for i in range(n):
-        a = i * step
-        if any(abs(_angdiff(a, g)) < clear for g in gates):
+    gpts = [np.array(e.center) + R * _dir(g) for g in gates]
+    for x, y, chord, rot, a in _wall_bays(e):
+        if e.shape == "star":      # clear of the gates by distance (a side runs at a slant to the radius)
+            if any(math.dist((x, y), gp) < e.gate_w / 2 + 12 for gp in gpts):
+                continue
+        elif any(abs(_angdiff(a, g)) < clear for g in gates):
             continue
-        x, y = np.array(e.center) + R * _dir(a)
         if float(f.inland(x, y)) < 15 or not bool(f.land(x, y)):
             continue
         z = float(f.z(x, y)) - 0.5
@@ -788,9 +859,9 @@ def wall_parts(c: CitySpec, f: Fields, gates: list[float], e: Enclosure | None =
             span = round(WALL_BAY_M * 0.55, 2)
             out.append(WallPart(g, "wall:bay", {"kind": "archwall", "w": chord, "d": e.wall_d, "h": e.wall_h,
                                                  "span": span, "spring": round(max(e.wall_h - span / 2 - 3.5, 2.0), 2)},
-                                float(x), float(y), z, a + 90))
+                                float(x), float(y), z, rot))
             out.append(WallPart(g, "wall:parapet", {"kind": "box", "w": chord, "d": e.wall_d + 0.8, "h": 1.2},
-                                float(x), float(y), z + e.wall_h, a + 90))
+                                float(x), float(y), z + e.wall_h, rot))
         elif e.kind == "colonnade":
             ch = round(e.wall_h * 0.75, 1)
             for off in (0.0, -6.0):
@@ -801,7 +872,7 @@ def wall_parts(c: CitySpec, f: Fields, gates: list[float], e: Enclosure | None =
                                 *(np.array(e.center) + (R - 3) * _dir(a)), z + ch, a + 90))
         else:              # greenbelt: a low wall in a park ring
             out.append(WallPart(g, "wall:low", {"kind": "box", "w": chord, "d": 1.2, "h": 2.5},
-                                float(x), float(y), z, a + 90))
+                                float(x), float(y), z, rot))
     for k, a in enumerate(gates):
         x, y = np.array(e.center) + R * _dir(a)
         t = _dir(a + 90)
@@ -826,10 +897,14 @@ def greenbelt(c: CitySpec, region: Polygon, cut) -> list[Polygon]:
     e = c.enclosure
     if not e.greenbelt_w:
         return []
-    ring = Point(e.center).buffer(e.radius + e.greenbelt_w, quad_segs=48).difference(
-        Point(e.center).buffer(e.radius + e.wall_d / 2 + 2, quad_segs=48))
+    if e.shape == "star":
+        wl = wall_outline(e)
+        ring = wl.buffer(e.moat_w + e.greenbelt_w + e.wall_d / 2 + 3).difference(wl.buffer(e.wall_d / 2 + 2))
+    else:
+        ring = Point(e.center).buffer(e.radius + e.greenbelt_w, quad_segs=48).difference(
+            Point(e.center).buffer(e.radius + e.wall_d / 2 + 2, quad_segs=48))
     out = []
-    far = e.radius + e.greenbelt_w + 50
+    far = e.radius * (1 + (e.point_m if e.shape == "star" else 0)) + e.moat_w + e.greenbelt_w + 50
     for k in range(24):
         a0, a1 = 15 * k, 15 * (k + 1)
         wedge = Polygon([e.center] + [tuple(np.array(e.center) + far * _dir(a)) for a in np.linspace(a0, a1, 5)])
@@ -845,7 +920,12 @@ def moat(c: CitySpec, land: Polygon, cut) -> list[Polygon]:
     gates' roads among them), in wedges (a surface is drawn from its outline: no holes)."""
     e = c.enclosure
     r0 = e.radius + e.wall_d / 2 + 3
-    ring = Point(e.center).buffer(r0 + e.moat_w, quad_segs=48).difference(Point(e.center).buffer(r0, quad_segs=48))
+    if e.shape == "star":     # the moat follows the bastions
+        wl = wall_outline(e)
+        ring = wl.buffer(e.wall_d / 2 + 3 + e.moat_w).difference(wl.buffer(e.wall_d / 2 + 3))
+        r0 = e.radius * (1 + e.point_m) + e.wall_d / 2 + 3
+    else:
+        ring = Point(e.center).buffer(r0 + e.moat_w, quad_segs=48).difference(Point(e.center).buffer(r0, quad_segs=48))
     g = ring.intersection(land)
     if not cut.is_empty:
         g = g.difference(cut)
@@ -1011,6 +1091,11 @@ def pattern_ways(c: CitySpec, f: Fields, ok, ok_river=None) -> list[Way]:
             off = 120 + (deep - 240) * (k + 0.5) / pr.canals
             pts = np.outer(f._shore(lat) - off, f.u) + np.outer(lat, f.v)
             out += _clipped(f"canal{k}", "canal", pts, ok, pr.canal_w)
+    if pr.strip_water and pr.outline == "strip":   # channels along the strip's long sides, where there's land
+        r = outline_r(c)
+        for k, side in enumerate((-1, 1)):
+            off = C + side * (r + pr.river_w / 2 + 15) * f.u
+            out += _clipped(f"channel{k}", "river", off + np.outer(t, f.v), lambda p: ok_river(p), pr.river_w)
     if pr.river:           # from the hills to the sea, meandering past the centre
         lr = layout_rng(c, "river")
         side, phase = lr.choice([-1, 1]), lr.uniform(0, 2 * math.pi)
@@ -1171,13 +1256,14 @@ def split_by_grade(f: Fields, ln: LineString, wid: str, kind: str, width: float,
 
 def _land_region(L: SiteLayout, f: Fields, margin: float) -> Polygon:
     c = L.city
-    if f.outline is not None and f.outline.kind == "island":
-        return f.outline.polygon(f.t.extent_m).buffer(-margin).intersection(sbox(*c.bounds))
+    island = f.outline is not None and f.outline.kind == "island"
     lat = np.arange(-2 * f.t.extent_m, 2 * f.t.extent_m, STEP_M)
     s = f._shore(lat) - margin
     shore = np.outer(s, f.u) + np.outer(lat, f.v)
     far = [shore[-1] - 4 * f.t.extent_m * f.u, shore[0] - 4 * f.t.extent_m * f.u]
     land = Polygon(np.vstack([shore, far])).buffer(0)
+    if island:             # the island and the mainland
+        land = land.union(f.outline.polygon(f.t.extent_m).buffer(-margin))
     return land.intersection(sbox(*c.bounds))
 
 
@@ -1622,8 +1708,8 @@ def _slot_footprints(P: CityPlan) -> list[tuple[str, Polygon, tuple]]:
     for mi, (sq, stalls) in enumerate(P.markets):
         for si, b in enumerate(stalls):
             out.append((f"market:{mi}", _rect(b.x, b.y, b.w, b.d, b.rot), ("m", mi, si)))
-    for b in P.piers:
-        out.append(("quay", _rect(b.x, b.y, b.w, b.d, b.rot), ("p",)))
+    for i, b in enumerate(P.piers):
+        out.append(("quay", _rect(b.x, b.y, b.w, b.d, b.rot), ("p", i)))
     for i, w in enumerate(P.walls):
         if w.prim.get("kind") in ("box", "archwall") and not w.piece.startswith("gate:"):
             out.append((w.group, _rect(w.x, w.y, w.prim["w"], w.prim["d"], w.rot), ("w", i)))
@@ -1639,14 +1725,14 @@ def _surfaces(P: CityPlan) -> list[Polygon]:
 def clear_overlaps(P: CityPlan, tol_m2: float = 1.0) -> None:
     """Drop buildings (housing boxes, whole catalog buildings, stalls) that stand on a road,
     water or paving, or on another slot's building (the larger one stays). A wall opens where
-    a way crosses it away from its gates (those bays go); piers stay."""
+    a way crosses it away from its gates (those bays go); a pier on a road goes."""
     from shapely.strtree import STRtree
     fp = _slot_footprints(P)
     surf = _surfaces(P)
     tree = STRtree(surf)
     drop = set()
     for key, g, ref in fp:
-        if ref[0] in ("b", "t", "m", "w") and any(g.intersection(surf[j]).area > tol_m2 for j in tree.query(g)):
+        if ref[0] in ("b", "t", "m", "w", "p") and any(g.intersection(surf[j]).area > tol_m2 for j in tree.query(g)):
             drop.add(ref)
     keep = [(k, g, r) for k, g, r in fp if r not in drop]
     gs = [g for _, g, _ in keep]
@@ -1666,6 +1752,7 @@ def clear_overlaps(P: CityPlan, tol_m2: float = 1.0) -> None:
     if bays:              # a dropped bay takes its parapet with it (same place, same group)
         gone = {(P.walls[i].group, round(P.walls[i].x, 2), round(P.walls[i].y, 2)) for i in bays}
         P.walls = [w for w in P.walls if (w.group, round(w.x, 2), round(w.y, 2)) not in gone]
+    P.piers = [b for i, b in enumerate(P.piers) if ("p", i) not in drop]
     P.dropped = len(drop) - len(bays)
     P.buildings = [b for i, b in enumerate(P.buildings) if ("b", i) not in drop]
     P.typed = [b for i, b in enumerate(P.typed) if ("t", i) not in drop]

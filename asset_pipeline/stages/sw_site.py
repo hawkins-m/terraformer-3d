@@ -220,6 +220,16 @@ def plan_terrain(store: ProjectStore, layout: SiteLayout) -> np.ndarray:
     return terrain(store, plain, write=False)
 
 
+def plan_ground(store: ProjectStore, layout: SiteLayout) -> np.ndarray:
+    """The ground the plan is made on, before the node pads and the preset's own ground: what
+    a roll places a city's districts on (plan_terrain without the pads)."""
+    t = layout.terrain
+    if t.far or not t.heightmap:
+        return greybox.make_terrain(t.model_copy(update={"heightmap": None, "far": None}))
+    a = np.array(Image.open(store.root / t.heightmap))
+    return greybox.from_png16(a, t.z_range)
+
+
 def terrain(store: ProjectStore, layout: SiteLayout, write: bool = True) -> np.ndarray:
     """Generate (or load) the heightmap, write site/terrain.png + .json (write); returns metres."""
     t = layout.terrain

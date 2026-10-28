@@ -468,6 +468,10 @@ class Enclosure(BaseModel):
     gate_h: float = Field(default=26.0, gt=0)
     greenbelt_w: float = Field(default=120.0, ge=0)   # park ring outside the wall
     moat_w: float = Field(default=0.0, ge=0)          # a water ring just outside the wall (0: none)
+    # circle; star: a bastioned trace, `points` bastions reaching `point_m` x radius past the curtain
+    shape: Literal["circle", "star"] = "circle"
+    points: int = Field(default=8, ge=4, le=16)
+    point_m: float = Field(default=0.3, gt=0, le=1)
     density_floor: float = Field(default=0.5, ge=0, le=1)  # inside: no fraying edge
 
 
@@ -539,6 +543,7 @@ class LayoutPreset(BaseModel):
     # none: the city's own enclosure (if any) as it is. wall: a wall round the outline. wall_moat: and a moat
     walls: Literal["none", "wall", "wall_moat"] = "none"
     moat_w: float = Field(default=30.0, gt=0)
+    wall_shape: Literal["circle", "star"] = "circle"   # star: a bastioned star trace (a star fortress)
     bastions: int = Field(default=0, ge=0, le=16)    # pointed bastions round the wall (a star fortress)
     inner_wall: bool = False                         # a second wall round the main node (a castle's inner ward)
     block_parks: float = Field(default=0.0, ge=0, le=0.5)   # share of blocks left as parks between the others
@@ -567,6 +572,7 @@ class LayoutPreset(BaseModel):
     terraces: bool = False                           # contour-terraced blocks on every slope
     max_slope: float | None = Field(default=None, gt=0)       # overrides the city's (steeper sites can build)
     piers: int = Field(default=3, ge=0, le=12)       # piers per harbour node
+    strip_water: bool = False                        # a strip outline: channels along its long sides, wherever there's land
     clear_overlaps: bool = False                     # drop buildings that overlap a road, water or another slot
     # highways: wide road slots, built as flat road strips; interchanges where they cross
     highways: Literal["none", "ring", "radial", "both"] = "none"

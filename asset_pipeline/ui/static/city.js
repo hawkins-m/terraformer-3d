@@ -412,7 +412,8 @@ async function rollCity() {
   if (!(await rollConfirm())) return;
   const v = $("#city-roll-seed").value.trim();
   const keep = [...$("#city-roll-keep").querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep);
-  await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep, ...layoutChoice()});
+  await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep, keep_shape: $("#city-roll-keep-shape").checked,
+                                 ...layoutChoice()});
 }
 // The layout preset and layout seed as picked (unchanged ones go as null: the layout's own)
 function layoutChoice() {

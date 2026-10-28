@@ -583,7 +583,7 @@ def cmd_site_roll(a) -> None:
         r = city_roll.step(store, -1 if a.step == "previous" else 1)
         print(f"roll {r['pos'] + 1} of {r['count']}: seed {r['seed']}, {r['stats']['buildings']} buildings")
         return
-    r = city_roll.roll(store, a.seed, keep, preset=a.preset, layout_seed=a.layout_seed)
+    r = city_roll.roll(store, a.seed, keep, preset=a.preset, layout_seed=a.layout_seed, keep_shape=a.keep_shape)
     print(f"rolled a city: seed {r['seed']}{f' (keeping {', '.join(r['keep'])})' if r['keep'] else ''}, "
           f"{r['stats']['buildings']} buildings{f', {r['tries']} tries' if r['tries'] > 1 else ''}; "
           f"plan {city_roll.rolls_path(store).parent / 'city_plan.png'}")
@@ -1742,6 +1742,8 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--step", choices=["previous", "next"], help="go back / forward through the last 10 rolls instead")
     p.add_argument("--preset", help="the layout preset (ap site preset --list), or random; default the layout's own")
     p.add_argument("--layout-seed", type=int, help="the preset's own seed (outline, organic avenues); default the layout's own")
+    p.add_argument("--keep-shape", action="store_true",
+                   help="keep the current outline and districts (wall, towns, civic sites): new streets only")
     p.set_defaults(fn=cmd_site_roll)
     p = sisub.add_parser("preset", help="city mode: set the layout preset (the city's overall shape) and re-plan")
     p.add_argument("project", nargs="?")

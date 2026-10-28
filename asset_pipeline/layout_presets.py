@@ -19,8 +19,8 @@ CATALOG: dict[str, tuple[str, LayoutPreset]] = {
                   industrial="highway", clear_overlaps=True)),
     "grid": ("A plain grid of avenues with grid-aligned blocks, a few parks, tallest in the middle.",
              P(streets="grid", block_parks=0.04, tall_at="centre", height_falloff_m=900, clear_overlaps=True)),
-    "manhattan": ("A long grid strip along the coast: long avenues, short cross streets, towers in two clusters.",
-                  P(streets="grid", outline="strip", grid_m=260, grid_ratio=0.35, tall_at="nodes",
+    "manhattan": ("A long narrow grid strip, water on its long sides: long avenues, short cross streets, two tower clusters.",
+                  P(streets="grid", outline="strip", strip_water=True, grid_m=260, grid_ratio=0.35, tall_at="nodes",
                     height_falloff_m=500, downtown_m=300, tower_storeys=(55, 22), clear_overlaps=True)),
     "park-grid": ("Grid blocks separated by parks: every other grid cell is green.",
                   P(streets="grid", block_parks=0.5, park_pattern="checker", max_storeys=6, clear_overlaps=True)),
@@ -36,8 +36,8 @@ CATALOG: dict[str, tuple[str, LayoutPreset]] = {
     "walled-castle": ("A castle town: an inner ward wall round the keep, an outer wall and moat, ring lanes between.",
                       P(streets="organic", outline="circle", rings=2, walls="wall_moat", inner_wall=True,
                         falloff="flat", falloff_scale=0.8, max_storeys=5, clear_overlaps=True)),
-    "star-fortress": ("A star fortress: a walled ring with pointed bastions and a moat, a regular grid inside.",
-                      P(streets="grid", outline="circle", walls="wall_moat", bastions=8, falloff="flat",
+    "star-fortress": ("A star fortress: a star-shaped bastioned wall and moat round a parade, a regular grid inside.",
+                      P(streets="grid", outline="circle", walls="wall_moat", wall_shape="star", falloff="flat",
                         max_storeys=5, clear_overlaps=True)),
     "linear": ("A linear city: one spine along the coast with cross avenues, tallest at the waterfront.",
                P(streets="linear", outline="strip", tall_at="waterfront", height_falloff_m=500, clear_overlaps=True)),
@@ -74,6 +74,10 @@ ALIASES = {"metro": "classic", "ring-city": "concentric", "walled-town": "walled
 DEFAULT = "utopia"          # a layout without a preset (every project made before presets)
 NEW_PROJECT = "classic"     # a new project's starter city
 RANDOM = "random"           # a roll picks one from its seed
+# the preset fields that make the city's shape: a roll with "Keep current outline and districts"
+# keeps the layout's own (new streets only)
+SHAPE_FIELDS = ("outline", "outline_m", "walls", "wall_shape", "moat_w", "bastions", "inner_wall", "strip_water",
+                "canals", "canal_w", "river", "river_w", "organic_nodes", "max_slope")
 
 
 def get(name: str) -> LayoutPreset:

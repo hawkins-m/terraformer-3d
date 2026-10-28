@@ -19,7 +19,11 @@ new city (locked shots and the user's shot edits stay, as sw_site.set_city_shots
 
 The layout preset (the city's overall shape, layout_presets.py) and its layout seed are not rule
 groups: a roll keeps the layout's own unless it is given one, and records both, so Previous / Next
-restore them too; preset "random" draws one from the roll's seed. `set_preset` changes them alone and re-plans (the rules and the seed stay).
+restore them too; preset "random" draws one from the roll's seed. A preset with a shape recipe
+(city_shape.py: every one but utopia) owns the whole city shape on a roll: outline, wall, districts,
+landmarks and satellite towns, placed on the plan's ground; `keep_shape` leaves the outline and
+districts as they are (new streets only). A heightmap terrain keeps its waterfront rules (its coast
+is in the heightmap, the rules can't move it). `set_preset` changes the preset alone and re-plans (the rules and the seed stay).
 
 History: site/rolls.json keeps the rules and seed of the last ROLLS_KEPT rolls ({rolls, pos});
 Previous / Next roll restore one and re-plan (no plan files are stored).
@@ -29,7 +33,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 
-from . import layout_presets
+from . import city_shape, layout_presets
 from .project import ProjectStore, read_json, write_json
 from .schema import CivicNode, LayoutPreset, SiteLayout
 
@@ -54,7 +58,8 @@ def rules_of(layout: SiteLayout) -> dict:
         "size": {"bounds": list(c.bounds)},
         "civic": {"nodes": [{k: (list(v) if isinstance(v, tuple) else v) for k, v in
                              n.model_dump(include={"id", "center", "radius", "role", "monument", "weight",
-                                                   "avenue_m", "layout"}).items()} for n in c.nodes]},
+                                                   "avenue_m", "layout", "centre", "civic_ring",
+                                                   "stoa_share"}).items()} for n in c.nodes]},
         "density": {"density_falloff_m": c.density_falloff_m, "urban_threshold": c.urban_threshold,
                     "storeys": list(c.storeys)},
         "streets": {"nodes": {n.id: {"radials": n.radials, "rot": n.rot, "spiral_deg_per_100m": n.spiral_deg_per_100m}
@@ -241,8 +246,15 @@ def set_preset(store: ProjectStore, preset: str | None = None, layout_seed: int 
     return stats
 
 
+def _keep_shape_of(layout: SiteLayout, own: SiteLayout) -> SiteLayout:
+    """The new preset's streets on the layout's own outline, walls and water."""
+    L = layout.model_copy(deep=True)
+    L.city.preset = L.city.preset.model_copy(update={k: getattr(own.city.preset, k) for k in layout_presets.SHAPE_FIELDS})
+    return L
+
+
 def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True,
-         preset: str | None = None, layout_seed: int | None = None) -> dict:
+         preset: str | None = None, layout_seed: int | None = None, keep_shape: bool = False) -> dict:
     """Roll the city rules (the groups in `keep` stay) with `seed` (None: a random one, rolled
     again while the plan fails the housing-share check), save, re-plan and remember it. `preset`
     / `layout_seed`: the city's shape (None: the layout's own; preset "random": one drawn from each
@@ -251,13 +263,34 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
     own = _layout_or_starter(store)
     if preset is not None and preset != layout_presets.RANDOM:
         layout_presets.get(preset)           # an unknown name fails before anything is saved
+    keep = set(keep)
+    if own.terrain.heightmap:
+        keep.add("waterfront")
+    if keep_shape:
+        keep |= {"size", "civic", "waterfront"}
     typed = seed is not None
     seeds = [int(seed)] if typed else [int(s) for s in np.random.default_rng().integers(1, SEED_MAX, TRIES)]
     for i, s in enumerate(seeds):
         if not 0 <= s <= SEED_MAX:
             raise ValueError(f"seed must be 0..{SEED_MAX}")
         base = _with_shape(own, layout_presets.random_name(s) if preset == layout_presets.RANDOM else preset, layout_seed)
+        if keep_shape:
+            base = _keep_shape_of(base, own)
         layout, rules = rolled(base, s, keep)
+        shaped = not keep_shape and "civic" not in keep and city_shape.has_recipe(layout.city.preset.name)
+        if shaped:
+            try:
+                layout = city_shape.shape(layout, sw_site.plan_ground(store, layout), layout.city.preset.name, s)
+            except ValueError as e:
+                if typed or i == len(seeds) - 1:
+                    raise
+                log(f"seed {s}: {e}; rolling again")
+                continue
+            rules = rules_of(layout)
+        elif "civic" not in keep:       # rolled districts placed by the rules' coast: none left in the sea
+            fitted = city_shape.fit_nodes(layout, sw_site.plan_ground(store, layout))
+            if fitted is not layout:
+                layout, rules = fitted, rules_of(fitted)
         stats = _plan(store, layout, log)
         if typed or not _housing_fails(stats):
             break
@@ -266,8 +299,12 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
         sw_site.set_city_shots(store)
     h = _remember(store, {"seed": s, "rules": rules, "keep": sorted(keep), "warnings": stats.get("warnings", []),
                           "preset": layout.city.preset.model_dump(), "layout_seed": layout.city.layout_seed,
+                          **({"shape": {"enclosure": layout.city.enclosure.model_dump(mode="json") if layout.city.enclosure else None,
+                                        "towns": [tw.model_dump(mode="json") for tw in layout.city.towns],
+                                        "sites": [st.model_dump(mode="json") for st in layout.city.sites]}}
+                             if shaped else {}),
                           "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
-    store.log_run({"stage": "site.roll", "seed": s, "keep": sorted(keep), "tries": i + 1, "buildings": stats.get("buildings")})
+    store.log_run({"stage": "site.roll", "seed": s, "keep": sorted(keep), "preset": layout.city.preset.name, "tries": i + 1, "buildings": stats.get("buildings")})
     return {"seed": s, "keep": sorted(keep), "stats": stats, "tries": i + 1, "history": {"pos": h["pos"], "count": len(h["rolls"])}}
 
 
@@ -283,6 +320,9 @@ def step(store: ProjectStore, delta: int, log=print, shots: bool = True) -> dict
     if "preset" in r:       # rolls from before presets keep the layout's own shape
         layout.city.preset = LayoutPreset.model_validate(r["preset"])
         layout.city.layout_seed = int(r.get("layout_seed", 0))
+    if "shape" in r:        # a preset's own wall, towns and civic sites
+        layout = SiteLayout.model_validate(layout.model_dump(mode="json") | {"city": layout.city.model_dump(mode="json") | {
+            "enclosure": r["shape"]["enclosure"], "towns": r["shape"]["towns"], "sites": r["shape"]["sites"]}})
     stats = _plan(store, layout, log)
     if shots:
         sw_site.set_city_shots(store)

@@ -345,7 +345,12 @@ new city: random city rules within believable ranges plus a new seed, then the u
   downtown of towers, suburbs with cul-de-sacs, an industrial zone, and highways with
   interchanges. New projects start on *classic* (an ordinary modern city); *utopia*, every
   project's from before presets, is the generator as it was. *Random preset* lets a roll pick
-  one from its seed. The
+  one from its seed.
+
+  A roll with any preset but utopia makes the whole city shape: outline, wall (a star trace for
+  star-fortress), moat and green belt or none, named districts and landmarks, satellite towns,
+  all placed on land. Tick *Keep current outline and districts* (`--keep-shape`) for new streets
+  only. The
   *Layout seed* re-rolls only the preset's own shape (a blob outline, organic avenues). A roll
   uses them; *Apply layout* re-plans with them and keeps the rules, seed and shots. Every field
   is in `site/layout.json` (`city.preset`) for hand edits.

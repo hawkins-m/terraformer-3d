@@ -322,7 +322,10 @@ def test_the_presets_features(base):
     plans = {n: city.plan(layout_presets.apply(L, n), h) for n in
              ("star-fortress", "walled-castle", "canal-city", "river-town", "suburbia", "park-grid", "island-city",
               "market-town", "campus", "hill-town")}
-    assert sum(w.piece == "bastion" for w in plans["star-fortress"].walls) >= 4 and plans["star-fortress"].moat
+    star = plans["star-fortress"]
+    e = star.layout.city.enclosure
+    assert e.shape == "star" and star.moat
+    assert max(math.dist((w.x, w.y), e.center) for w in star.walls if w.piece == "wall:bay") > e.radius * 1.2
     castle = plans["walled-castle"]
     assert any(w.group.startswith("innerwall") for w in castle.walls) and any(w.group.startswith("wall") for w in castle.walls)
     assert castle.moat and {w.id.split("-")[0] for w in castle.ways} >= {"ring0", "ring1"}
@@ -349,8 +352,14 @@ def test_island_terrain_sinks_round_the_island():
     h = city.apply_pads(L, greybox.make_terrain(L.terrain))
     f = city.Fields(L, h)
     C = np.array(city.main_centre(L.city))
-    far = C + (city.outline_r(L.city) * 1.5) * np.array([1.0, 0.0])
-    assert float(f.z(*far)) < L.sea_level and float(f.z(*C)) > L.sea_level
+    o = f.outline
+    d = np.array([1.0, 0.0])
+    r = float(o.radius_at(0.0))
+    strait = C + (r + 150) * d                    # the strait round it is sea ...
+    beyond = C + (r + city.ISLAND_STRAIT_M + 400) * d   # ... the mainland beyond keeps its ground
+    raw = greybox.Heights(greybox.make_terrain(L.terrain), L.terrain.extent_m)
+    assert float(f.z(*strait)) < L.sea_level and float(f.z(*C)) > L.sea_level
+    assert abs(float(f.z(*beyond)) - float(raw(*beyond))) < 0.5
 
 
 def test_new_projects_start_on_classic_existing_keep_theirs(tmp_path, monkeypatch):
