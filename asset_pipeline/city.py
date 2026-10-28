@@ -129,6 +129,7 @@ class CityPlan:
     interchanges: list[Polygon] = field(default_factory=list)  # paved, where highways cross (the preset's)
     moat: list[Polygon] = field(default_factory=list)     # the enclosure's moat (water), open at the bridges
     culdesacs: list[Polygon] = field(default_factory=list)  # turning circles at the end of dead-end streets
+    pads: list[tuple] = field(default_factory=list)       # flat pads under buildings on slopes: x y w d rot z_lo z_top
     dropped: int = 0                                       # buildings clear_overlaps took out
     stats: dict = field(default_factory=dict)
 
@@ -928,6 +929,19 @@ def _wall_bays(e: Enclosure) -> list[tuple[float, float, float, float, float]]:
     return out
 
 
+STEEP = 0.45          # a footprint rising more than this (rise / run) is a cliff: nothing is built there
+ROUGH = 0.2           # a block's ground steeper than this stays a park
+PAD_MIN_M = 0.8       # a footprint sloping more than this (m, across its corners) stands on a flat pad
+HIGHWAY_GRADE = 0.25  # a highway leaves no steeper ground than this
+
+
+def fits_terrain(layout: SiteLayout) -> bool:
+    """Whether the plan follows the ground (terrain settings, or any preset but utopia): no building on
+    water or a cliff, flat pads on slopes, parks on rough ground, highways round steep ground. Utopia on
+    a project's own terrain plans as it always has."""
+    return layout.terrain.settings is not None or (layout.city is not None and layout.city.preset.name != "utopia")
+
+
 def ring_road_r(c: CitySpec) -> float:
     """The ring road just inside the wall; blocks stop at its inner edge."""
     e = c.enclosure
@@ -1343,9 +1357,13 @@ def highways(c: CitySpec, f: Fields) -> list[Way]:
     half = f.t.extent_m / 2 - 50
     mx, my = 0.25 * (x1 - x0), 0.25 * (y1 - y0)
 
+    fit = fits_terrain(SiteLayout(terrain=f.t, city=c))
+
     def ok(p):
         return (max(x0 - mx, -half) <= p[0] <= min(x1 + mx, half) and max(y0 - my, -half) <= p[1] <= min(y1 + my, half)
-                and bool(f.land(*p)) and all(math.dist(p, n.center) > n.radius + 20 for n in c.nodes)
+                and bool(f.ground(*p) if fit else f.land(*p))            # following the ground: rivers are bridged
+                and (not fit or float(f.slope(*p)) < HIGHWAY_GRADE)
+                and all(math.dist(p, n.center) > n.radius + 20 for n in c.nodes)
                 and all(math.dist(p, tw.center) > tw.radius for tw in c.towns))
     out: list[Way] = []
     if pr.highways in ("ring", "both"):
@@ -1358,8 +1376,13 @@ def highways(c: CitySpec, f: Fields) -> list[Way]:
         far = math.hypot(x1 - x0, y1 - y0)
         tt = np.arange(r0, far, STEP_M)
         for k in range(pr.highway_spokes):
-            d = _dir(rot + 180 / max(pr.highway_spokes, 1) + 360 * k / pr.highway_spokes)   # between the radials
-            out += _clipped(f"hw-spoke{k}", "highway", C + np.outer(tt, d), ok, pr.highway_w, min_len=120.0)
+            a = rot + 180 / max(pr.highway_spokes, 1) + 360 * k / pr.highway_spokes      # between the radials
+            if fit:            # traced: it steers round steep ground (_trace), stopping at the sea
+                ln = _trace(f, C + r0 * _dir(a), a, far - r0, 0.0, free_m=0.0)
+                pts = np.asarray(ln.coords) if ln is not None else np.zeros((0, 2))
+            else:
+                pts = C + np.outer(tt, _dir(a))
+            out += _clipped(f"hw-spoke{k}", "highway", pts, ok, pr.highway_w, min_len=120.0)
     return out
 
 
@@ -2086,6 +2109,31 @@ def _surfaces(P: CityPlan) -> list[Polygon]:
             + list(P.interchanges) + list(P.culdesacs) + list(P.moat))
 
 
+def fit_buildings(P: CityPlan, f: Fields) -> None:
+    """Buildings follow the ground: none on water or a cliff (a footprint rising more than STEEP),
+    and a box on a slope (more than PAD_MIN_M across its corners) stands on a flat pad at its
+    uphill corner's height, the pad filling down to the ground."""
+    c = P.layout.city
+    kept = []
+    for b in P.buildings:
+        u, v = _dir(b.rot), _dir(b.rot + 90)
+        cs = np.array([np.array([b.x, b.y]) + sx * b.w / 2 * u + sy * b.d / 2 * v for sx in (-1, 1) for sy in (-1, 1)]
+                      + [[b.x, b.y]])
+        if not bool(np.all(f.land(cs[:, 0], cs[:, 1]))):
+            continue
+        zs = f.z(cs[:4, 0], cs[:4, 1])
+        lo, hi = float(zs.min()), float(zs.max())
+        if (hi - lo) / max(min(b.w, b.d), 1.0) > STEEP:
+            continue
+        if hi - lo > PAD_MIN_M and b.kind != "stall":
+            P.pads.append((b.x, b.y, b.w + 2.0, b.d + 2.0, b.rot, lo - 0.5, hi))
+            base = b.h - (hi - lo) - 0.3          # the box's own height (_box_on added the slope to it)
+            b.z, b.h = hi - 0.05, base + 0.35
+        kept.append(b)
+    P.buildings = kept
+    P.typed = [b for b in P.typed if bool(f.land(b.x, b.y)) and float(f.slope(b.x, b.y)) < STEEP]
+
+
 def clear_overlaps(P: CityPlan, tol_m2: float = 1.0) -> None:
     """Drop buildings (housing boxes, whole catalog buildings, stalls) that stand on a road,
     water or paving, or on another slot's building (the larger one stays). A wall opens where
@@ -2208,6 +2256,8 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
                                              for w in P.walls if w.piece == "bastion"]))
         if c.enclosure.moat_w:
             P.moat = moat(c, _land_region(L, f, 20), outside)
+            if fits_terrain(layout):          # never over a river or down a cliff: the moat stays on dry ground
+                P.moat = [q for q in P.moat if bool(f.land(*q.representative_point().coords[0]))]
         P.parks += greenbelt(c, _land_region(L, f, 30).difference(
             unary_union([Point(tw.center).buffer(tw.radius) for tw in c.towns]) if c.towns else Polygon()),
             outside.union(unary_union(P.moat)) if P.moat else outside)
@@ -2226,6 +2276,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
                                          nearest_node(c, m.x, m.y))
     if pr.cul_de_sacs:
         culdesacs(P, f, c)
+    fit = fits_terrain(layout)
+    if fit:                    # a block over water (a river, the sea round an island, a dock) is not built on
+        P.blocks = [b for b in P.blocks if bool(f.land(*b.representative_point().coords[0]))]
 
     # markets: avenue crossings at middling density, spread out; and each market node
     avs = [w for w in P.ways if w.kind in ("avenue", "arterial")]
@@ -2273,6 +2326,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
 
     def keep(i, b):
         cx, cy = b.centroid.coords[0]
+        if fit and float(f.slope(cx, cy)) > ROUGH:        # rough ground stays green
+            P.parks.append(b)
+            return False
         if pr.downtown_m and math.dist((cx, cy), C) < pr.downtown_m:
             zoned.append(("tower", b, nearest_node(c, cx, cy)))
             return False
@@ -2322,6 +2378,8 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     for nd in c.nodes:
         if nd.role == "harbour":
             P.piers += piers(L, f, nd)
+    if fit:
+        fit_buildings(P, f)
     if pr.clear_overlaps:
         clear_overlaps(P)
 
@@ -2569,6 +2627,14 @@ def add_slots(P: CityPlan, new, hs) -> None:
         sb.add("paving", poly([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], 0.1), tuple(o))
         for b in stalls:
             stall_pieces(sb, b)
+    pads: dict[str, list] = {}
+    for pd in P.pads:                  # the flat pads under buildings on slopes, per tile
+        pads.setdefault(tile(pd[0], pd[1]), []).append(pd)
+    for key, items in sorted(pads.items()):
+        cx, cy = float(np.mean([p[0] for p in items])), float(np.mean([p[1] for p in items]))
+        sb = new(f"pad-{key}", "pad", (cx, cy, float(hs(cx, cy))), district=nearest_node(c, cx, cy))
+        for x, y, w, d, rot, z0, z1 in items:
+            sb.add("pad", UNIT_BOX, (x, y, z0), rot, (w, d, z1 - z0))
     for name, polys, lift in (("interchange", P.interchanges, 0.18), ("moat", P.moat, 0.05),
                               ("culdesac", P.culdesacs, 0.14)):
         for i, q in enumerate(polys):    # flat paving / water, draped on the ground

@@ -359,6 +359,18 @@ marked done here.
   - harbour-port: new `docks` (3), dock basins cut below the sea beside each harbour district
     (`city.dock_basins`, `cut_docks`).
   Tests: `tests/test_terrain_presets.py`.
-- [ ] Phase 3: the plan respects the terrain (slopes, pads, routing, parks, walls on land).
+- [x] **Phase 3: the plan follows the ground** (committed). `city.fits_terrain(layout)` is true with terrain
+  settings or any preset but utopia, so utopia on a project's own terrain plans as before (its digests
+  hold). Then:
+  - blocks over water are dropped and a block steeper than `ROUGH` (0.2) stays a park;
+  - `fit_buildings` drops any box with a corner on water or the sea, or a footprint rising more than
+    `STEEP` (0.45), and catalog buildings on water or steep ground;
+  - a box sloping more than `PAD_MIN_M` (0.8 m) across its corners stands on a flat pad (`CityPlan.pads`,
+    `pad` slots, structure), its top at the uphill corner, the box on it;
+  - highways stay on ground under `HIGHWAY_GRADE` (0.25), bridge rivers, and their spokes are traced
+    round steep ground (`_trace`);
+  - avenues already steer to gentle grades and now bridge rivers (`Fields.ground`);
+  - the moat keeps only the pieces on dry land, and wall bays and gates already skip water.
+  Tests: `tests/test_terrain_fit.py`.
 - [ ] Phase 4: Describe the terrain (VLM text mode, keyword fallback), `ap terrain roll`.
 - [ ] Phase 5: rerolls through Greybox and Shots (generated and heightmap), six previews.

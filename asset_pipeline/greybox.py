@@ -50,7 +50,7 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             "gate": "structure", "portico": "building", "forum_gate": "structure", "fountain": "structure",
             "highway": "terrain", "interchange": "terrain", "moat": "terrain", "culdesac": "terrain",
             "river": "terrain", "tower": "building", "industrial": "building", "bastion": "structure",
-            "mall": "building", "boulevard": "terrain"}
+            "mall": "building", "boulevard": "terrain", "pad": "structure"}
 DEFAULT_KIT = Kit(id="default")
 
 

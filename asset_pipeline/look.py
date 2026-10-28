@@ -631,7 +631,7 @@ def split_tiles(store: ProjectStore, shot: dict, slot_ids: list[str], out_dir: P
 
 
 SLOT_SKIP = ("pool", "plaza", "radial", "avenue", "street", "stair", "lane", "ring", "terrain", "park", "sea", "garden",
-             "highway", "interchange", "moat", "culdesac", "canal", "river", "boulevard")
+             "highway", "interchange", "moat", "culdesac", "canal", "river", "boulevard", "pad")
 DRAFT_PROMPT = """This crop is from a concept frame of a city. Describe the main building in it (the one
 filling most of the crop) as a short design brief for a procedural building generator. Judge only
 what you can see. Pick the closest form: {forms}, or "other". Give its storeys, its front's

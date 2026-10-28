@@ -55,7 +55,7 @@ TYPE_WORDS = {"temple": "classical temples with colonnades", "rotunda": "a domed
               "street": "narrow streets", "park": "parks and green corridors of Italian stone pines with broad flat canopies, cypresses and olive trees",
               "market": "a market square with stalls", "quay": "harbour piers",
               "highway": "wide highways", "interchange": "highway interchanges", "moat": "a moat",
-              "culdesac": "cul-de-sacs", "boulevard": "a wide tree-lined boulevard with a green median", "mall": "a shopping mall in a car park", "river": "a river", "tower": "a tight cluster of downtown skyscrapers",
+              "culdesac": "cul-de-sacs", "boulevard": "a wide tree-lined boulevard with a green median", "pad": "stone terraces levelling the buildings on the slopes", "mall": "a shopping mall in a car park", "river": "a river", "tower": "a tight cluster of downtown skyscrapers",
               "industrial": "industrial sheds and warehouses", "bastion": "pointed star-fort bastions",
               "stair": "stone stairs climbing the slope", "cloister": "an arcaded courtyard of round arches on piers",
               "wall": "a monumental ring wall around the city", "gate": "monumental city gates"}
