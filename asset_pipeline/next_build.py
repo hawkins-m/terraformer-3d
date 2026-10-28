@@ -148,7 +148,9 @@ def _modelled_entries(store: ProjectStore) -> set[str]:
         return set()
     ents = set(library_entries._all_entries(store))
     from .stages import sw_library
+    stand = sw_library.stand_ins(store)
     planned = {library_instances.entry_of(b, ents) for b in P.typed} - {None}
+    planned |= {stand[e] for e in planned if e in stand}                       # (an excluded entry's stand-in)
     planned |= {c["id"] for c in sw_library.claims(store) if c.get("slot_ids")}      # (a slot's own: model_slot_placements)
     return {e for e in planned if building_model(store, e) is not None}
 

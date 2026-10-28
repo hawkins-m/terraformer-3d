@@ -971,6 +971,37 @@ Crops: the best source frame, the entry's slots bright (object-id pass), everyth
 """
 
 
+STAND_IN_KEY = "_stand_in"      # in the decisions file: {entry: the built entry whose model stands for it}
+
+
+def stand_ins(store: ProjectStore) -> dict[str, str]:
+    """{entry: target}: a planned building of `entry` (excluded, or with no build of its own) takes
+    the target entry's model. The entry keeps its decision (an excluded one stays excluded)."""
+    return dict(decisions(store).get(STAND_IN_KEY) or {})
+
+
+def set_stand_in(store: ProjectStore, entry: str, target: str | None) -> dict[str, str]:
+    """Make `target` stand for `entry`'s buildings (None: back to the entry's own)."""
+    ids = {e["id"] for e in claims(store)} | set(custom(store))
+    d = decisions(store)
+    s = dict(d.get(STAND_IN_KEY) or {})
+    if target is None:
+        s.pop(entry, None)
+    else:
+        bad = [x for x in (entry, target) if x not in ids]
+        if bad:
+            raise KeyError(f"no library entry {', '.join(bad)}")
+        if entry == target or target in s:
+            raise ValueError(f"{target}: a stand-in must be an entry that stands as itself")
+        s[entry] = target
+    if s:
+        d[STAND_IN_KEY] = s
+    else:
+        d.pop(STAND_IN_KEY, None)
+    write_json(decisions_path(store), d)
+    return s
+
+
 def claims(store: ProjectStore) -> list[dict]:
     """The entries that own greybox slots (slot_ids), as library.json holds them: the ones a locked
     frame shows and the unseen ones (a temple or a quay no shot frames still stands in its slot)."""

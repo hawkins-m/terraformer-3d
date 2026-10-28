@@ -401,9 +401,12 @@ def model_placements(store: ProjectStore, P, cands: list[dict]) -> list[dict]:
     no procedural build needed): a placement at the building's planned footprint and height
     ("planned": use_active_models stands the model there). Keyed as its instance build would be,
     so building instances later keeps the place. An entry that is procedural needs its instance
-    builds (`ap library build-instances`)."""
+    builds (`ap library build-instances`). An entry with no model of its own takes its stand-in's
+    (`ap library stand-in`: an excluded entry stays excluded and its buildings take another's model)."""
     from . import library_entries, library_instances
+    from .stages import sw_library
     ents = set(library_entries._all_entries(store))
+    stand = sw_library.stand_ins(store)
     have: dict[str, list] = {}
     for p in cands:
         have.setdefault(p.get("typology"), []).append((p["x"], p["y"]))
@@ -416,9 +419,13 @@ def model_placements(store: ProjectStore, P, cands: list[dict]) -> list[dict]:
         x, y, z, w, d = library_instances.footprint(b)
         if any(math.hypot(x - u, y - v) < 1.0 for u, v in have.get(b.typology, [])):
             continue
+        key = f"{e}_{round(x)}_{round(y)}".replace("-", "m")
         if e not in models:
             models[e] = active_model(store, e)
-        key = f"{e}_{round(x)}_{round(y)}".replace("-", "m")
+        if models[e] is None and stand.get(e):
+            e = stand[e]
+            if e not in models:
+                models[e] = active_model(store, e)
         if models[e] is None or key in seen:
             continue
         seen.add(key)

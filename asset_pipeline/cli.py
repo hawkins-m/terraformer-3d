@@ -939,6 +939,18 @@ def cmd_library_form(a) -> None:
           f"{' x '.join(f'{x:g}' for x in info['size_m']) if info['size_m'] else '-'} ({info['size_source'] or 'none'})")
 
 
+def cmd_library_stand_in(a) -> None:
+    from .stages import sw_library
+    store = ProjectStore.open(a.project)
+    if not (a.clear or a.target):
+        raise SystemExit("ap library stand-in PROJECT ENTRY TARGET (or --clear)")
+    try:
+        s = sw_library.set_stand_in(store, a.entry, None if a.clear else a.target)
+    except (KeyError, ValueError) as e:
+        raise SystemExit(str(e))
+    print("\n".join(f"{k} -> {v}" for k, v in sorted(s.items())) or "no stand-ins")
+
+
 def cmd_library_variants(a) -> None:
     from . import variants
     store = ProjectStore.open(a.project)
@@ -2036,6 +2048,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("form", help="a form choice, or auto (back to the catalog's)")
     p.add_argument("--size", type=float, nargs=3, metavar=("W", "D", "H"), help="width, depth, height (m)")
     p.set_defaults(fn=cmd_library_form)
+    p = libsub.add_parser("stand-in", help="a building entry with no model of its own (an excluded one stays excluded) takes "
+                                           "another built entry's model at its planned buildings")
+    p.add_argument("project")
+    p.add_argument("entry")
+    p.add_argument("target", nargs="?", help="the built entry whose model stands for it")
+    p.add_argument("--clear", action="store_true", help="back to the entry's own")
+    p.set_defaults(fn=cmd_library_stand_in)
     p = libsub.add_parser("variants", help="a prop type's variant set: its places pick from several entries by weight, "
                                            "reproducibly per place (show; --member ENTRY=WEIGHT adds or reweights)")
     p.add_argument("project")

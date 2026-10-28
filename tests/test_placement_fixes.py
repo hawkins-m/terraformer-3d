@@ -160,6 +160,29 @@ def test_slots_an_unseen_entry_owns_get_its_model_and_typed_slots_with_no_buildi
     assert [c["id"] for c in sw_library.claims(proj)] == ["seen", "temple"]          # not only the frames' entries
 
 
+def test_an_excluded_entry_takes_its_stand_ins_model_at_its_planned_buildings(proj, monkeypatch):
+    from types import SimpleNamespace
+    from asset_pipeline import library_entries
+    from asset_pipeline.stages import sw_library
+    part = SimpleNamespace(prim="box", x=0.0, y=0.0, z=1.0, w=20.0, d=10.0, h=9.0, rot=0.0, role="mass")
+    b = SimpleNamespace(typology="domus", material="limestone", x=50.0, y=0.0, rot=0.0, h=9.0, parts=[part])
+    P = SimpleNamespace(typed=[b])
+    monkeypatch.setattr(library_entries, "_all_entries", lambda st: {"domus-limestone": {}, "domus-render": {}})
+    monkeypatch.setattr(sw_library, "claims", lambda st: [{"id": "domus-limestone"}, {"id": "domus-render"}])
+    monkeypatch.setattr(cl, "active_model", lambda st, e: {"n": 1, "kind": "trellis", "glb": f"3d/library/{e}/m.glb"}
+                        if e == "domus-render" else None)
+    assert cl.model_placements(proj, P, []) == []                                   # excluded, no model: greybox
+    sw_library.save_custom(proj, {})
+    with pytest.raises(KeyError):
+        sw_library.set_stand_in(proj, "domus-limestone", "nope")
+    assert sw_library.set_stand_in(proj, "domus-limestone", "domus-render") == {"domus-limestone": "domus-render"}
+    with pytest.raises(ValueError):
+        sw_library.set_stand_in(proj, "domus-render", "domus-limestone")             # a stand-in stands as itself
+    (p,) = cl.model_placements(proj, P, [])
+    assert p["entry"] == "domus-render" and p["glb"] == "3d/library/domus-render/m.glb" and p["key"].startswith("domusmlimestone_")
+    assert sw_library.set_stand_in(proj, "domus-limestone", None) == {} and cl.model_placements(proj, P, []) == []
+
+
 def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, monkeypatch):
     """Clean up of the Active version for the asset's own tier wins; another tier's output, or one of
     another version, doesn't; without one the raw model stays."""

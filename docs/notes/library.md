@@ -508,6 +508,11 @@ Approve (`outside`).
   build stands at each slot it owns that holds no planned building (typed slots with none too: the
   forum rotunda and colonnade, the market fountain), at the slot's pose and `size_m`, fitted to the
   slot's masses when it has them. Open-ground "unplaced" copies of such an entry drop out.
+- Stand-ins (`ap library stand-in PROJECT ENTRY TARGET`, `_stand_in` in the decisions file): a
+  planned building whose entry has no model (excluded, unbuilt) takes TARGET's Active model, fitted
+  to its own footprint and height (`model_placements`). The entry keeps its decision.
+- There is no "run" kit role (roles are bay, corner, end, filler around block outlines): a
+  module that repeats along a thin slot's length would be new assembly code.
 - `kit_assembly.outline` drops pieces under 4 m2 and blocks under 1.5 m thick, so a stoa (a row of
   0.9 m wall segments and columns) gives its kit no block: the 11 stoa slots stay greybox though
   `stoa-bay` is built.
