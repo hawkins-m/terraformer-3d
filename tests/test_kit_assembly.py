@@ -234,3 +234,79 @@ def test_manage_entry_reads_and_sets_kit_roles(proj):
     assert {m["asset"]: (m["role"], m["source"]) for m in r["modules"]}["my-block-bay"] == ("filler", "yours")
     assert c.post("/api/projects/p/library/entries/my-block/kit", json={"roles": {"other": "bay"}}).status_code == 404
     assert c.get("/api/projects/p/library/entries/nope/kit").status_code == 404
+
+
+def _box(x, y, w, d, h, yaw=0.0, z=0.0):
+    a = math.radians(yaw)
+    W = np.eye(4)
+    W[:2, :2] = [[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]
+    W[:3, 3] = [x, y, z]
+    return W, [-w / 2, -d / 2, 0.0], [w / 2, d / 2, h]
+
+
+def _stoa(r=80.0, n=7, step=2.9, start=10.0):
+    """A curved stoa's greybox: per segment a back wall outside, a column inside, a roof over both
+    (the thin pieces the block outline drops)."""
+    out = []
+    for i in range(n):
+        a = math.radians(start + step * i)
+        seg = 2 * r * math.sin(math.radians(step) / 2)
+        at = lambda rr: (rr * math.cos(a), rr * math.sin(a))       # noqa: E731
+        yaw = math.degrees(a)                                        # x radial, y along the arc
+        out += [_box(*at(r + 3.3), 0.9, seg, 6.0, yaw), _box(*at(r - 3.3), 0.9, 0.9, 5.0, yaw),
+                _box(*at(r), 7.4, seg, 0.5, yaw, z=6.8)]
+    return out
+
+
+def test_a_run_follows_a_curved_stoa_its_modules_alike_and_facing_its_open_side():
+    from shapely.geometry import Point
+    assert ka.outline(_stoa()) == []                                 # the block assembly sees nothing here
+    sp = ka.run_spine(_stoa())
+    arc = 80 * math.radians(2.9 * 7)
+    assert sp["length"] == pytest.approx(arc, rel=0.03) and sp["depth"] == pytest.approx(7.4, abs=0.2)
+    assert sp["z0"] == 0.0 and sp["height"] == pytest.approx(7.3)
+    lo, hi = [-2.0, -4.0, 0.0], [2.0, 4.0, 7.3]
+    ms = ka.run(sp, lo, hi)
+    assert len(ms) == round(arc / 4.0)
+    ks = [m["k"] for m in ms]
+    assert max(ks) - min(ks) < 0.01                                  # each one equal share
+    for m in ms:
+        W = m["matrix"]
+        c = W @ np.array([0.0, 0.0, 0.0, 1.0])
+        front = W @ np.array([0.0, -1.0, 0.0, 1.0]) - c                # its -Y: towards the columns, inside the arc
+        assert math.hypot(*(c[:2] + front[:2] * 10)) < math.hypot(*c[:2])
+        assert 76.0 < math.hypot(*c[:2]) < 84.0 and abs(c[2]) < 1e-6
+        assert np.linalg.norm(W[:3, 2]) == pytest.approx(1.0)       # the slot's height: the module's own
+    rev = ka.run_spine(list(reversed(_stoa())))                      # the facing doesn't depend on piece order
+    assert Point(rev["pts"][0]).distance(Point(sp["pts"][0])) < 1.0
+
+
+def test_a_run_kit_places_its_module_along_each_slot_and_replaces_it_whole(proj):
+    with pytest.raises(ValueError):
+        ka.set_roles(proj, "my-block", {"my-block-bay": "roof"})
+    ka.set_roles(proj, "my-block", {"my-block-bay": "run", "my-block-turn": "none"})
+    assert ka.kits(proj) == [{"kit": "my-block", "slots": ["blk-1"], "modules": {"run": ["my-block-bay"]}}]
+    d = proj.root / "3d" / "library" / "my-block-bay"
+    (d / "procedural").mkdir(parents=True)
+    (d / "procedural.glb").write_bytes(b"glb")
+    (d / "procedural" / "job.json").write_text("{}")
+    rel = "3d/library/my-block-bay/procedural.glb"
+    bounds = {rel: [[-2.0, -4.0, 0.0], [2.0, 4.0, 7.0]]}
+    pieces = [{"mesh": "wall", "piece": "wall", "matrix_local": _box(x, 3.0, 4.0, 0.8, 6.0)[0].tolist()} for x in range(-18, 20, 4)]
+    pieces += [{"mesh": "col", "piece": "col", "matrix_local": _box(x, -3.0, 0.8, 0.8, 5.0)[0].tolist()} for x in range(-18, 20, 4)]
+    pieces += [{"mesh": "roof", "piece": "roof", "matrix_local": _box(0, 0, 40.0, 7.0, 0.5, z=6.5)[0].tolist()}]
+    S = np.eye(4)
+    S[:3, 3] = [100, 50, 0]
+    gb = {"slots": [{"id": "blk-1", "typology": None, "matrix": S.tolist(), "bbox": [[80, 46, 0], [120, 54, 7]], "pieces": pieces}]}
+    index = {"wall": {"bounds": [[-2.0, -0.4, 0.0], [2.0, 0.4, 6.0]]}, "col": {"bounds": [[-0.4, -0.4, 0.0], [0.4, 0.4, 5.0]]},
+             "roof": {"bounds": [[-20.0, -3.5, 0.0], [20.0, 3.5, 0.5]]}}
+    pl, reps = ka.placements(proj, gb, index, bounds)
+    assert len(pl) == 10 and {p["role"] for p in pl} == {"run"} and reps[0]["run"]["modules"] == 10
+    assert len({p["key"] for p in pl}) == 10 and all(p["kit"] == "my-block" and p["slot"] == "blk-1" for p in pl)
+    feet = [Polygon(ka.module_outline(np.asarray(p["matrix"]), *bounds[rel])) for p in pl]
+    run = Polygon([(80, 46.5), (120, 46.5), (120, 53.5), (80, 53.5)])
+    assert unary_union(feet).symmetric_difference(run).area < 0.5              # covers the stoa, no more
+    fronts = [np.asarray(p["matrix"]) @ [0, -1, 0, 0] for p in pl]
+    assert all(f[1] / np.linalg.norm(f) < -0.99 for f in fronts)                 # fronts face the columns (-y)
+    placed, replaced, held = cl.choose(pl, {}, lambda e: True)
+    assert replaced == {"blk-1": "whole"} and len(placed) == 10

@@ -6,6 +6,8 @@ A kit module is an asset with a role:
              faces are facades, its outer corner at its bounds' (lo x, lo y))
     end      optional: caps a run where no corner module stands (an inner corner of an L)
     filler   optional: closes what the bays can't (narrower than a bay)
+    run      repeats along a thin slot's length instead (a stoa, a colonnade): no block outline,
+             no corners; `run_spine` and `run`
 Modules face -Y (building_parts' facade frame), x along the facade.
 
 Roles: the user's choice (Manage entry… › Kit modules; site/library_review.json, the asset's own
@@ -23,6 +25,14 @@ out, each edge filled with bays scaled along the facade by at most SCALE_TOL to 
 that isn't enough, fillers, else a gap (reported). Inner corners take an end module per run if
 the kit has one, else the two runs meet there.
 
+A kit with a run module (`run`) assembles each slot along its spine instead: the slot's whole
+footprint (every piece, thin walls and columns too), cut across its long axis every RUN_STEP m;
+the cuts' midpoints make the spine (it follows a curved stoa), their median length the depth.
+The run takes n = the length over one module scaled to the slot's height, each module one equal
+share of the spine (its chord), the slot's depth and height: so a module never stretches more
+than half a module along the run. Modules face the open side: the side of the spine with less
+tall mass (a stoa's columns, not its back wall).
+
 Heights (vertical.py): each module is built at the height of the masses under it (a height
 variant with the storeys that fill it); only past a builder's most storeys, or for a module with
 no building brief, do layers stack, each with its vertical role (bottom, middle, top: no ground
@@ -39,7 +49,7 @@ import numpy as np
 
 from .project import ProjectStore, read_json, write_json
 
-ROLES = ("bay", "corner", "end", "filler")
+ROLES = ("bay", "corner", "end", "filler", "run")
 SCALE_TOL = 0.10           # a run's bays scale along the facade by at most this to close an edge
 GAP_TOL = 0.05             # m: a gap or overlap below this isn't reported
 MIN_PIECE_H = 2.0          # m: greybox pieces lower than this (paving, kerbs) aren't the block's mass
@@ -51,6 +61,7 @@ SETBACK = 1.3              # a mass on others whose footprint is this many times
 CORNER_DEG = 10.0          # an outer corner further than this from square is reported
 CLOSE_M = 3.0              # m: gaps under twice this in what an upper mass stands on still hold it up
 FIT_M = 0.5                # m: an upper mass or module reaching this far past what holds it up overhangs
+RUN_STEP = 1.0             # m: a run slot's footprint is cut across every this many metres (its spine)
 
 ROLE_WORDS = (("corner", ("corner", "corners")), ("end", ("end", "cap", "terminal")),
               ("filler", ("filler", "fill", "infill", "spacer")), ("bay", ("bay", "bays", "module", "repeat")))
@@ -168,7 +179,7 @@ def kits(store: ProjectStore) -> list[dict]:
             g["slots"] += [s for s in e.get("slot_ids") or [] if s not in g["slots"]]
     for kid, g in groups.items():
         g["slots"] += [s for s in (ents.get(kid) or {}).get("slot_ids") or [] if s not in g["slots"]]
-    return [g for _, g in sorted(groups.items()) if g["modules"].get("bay") and g["slots"]]
+    return [g for _, g in sorted(groups.items()) if (g["modules"].get("bay") or g["modules"].get("run")) and g["slots"]]
 
 
 # --- the footprint outline -------------------------------------------------------------------
@@ -434,6 +445,94 @@ def assemble(pts, mods: dict[str, tuple], height: float, z0: float = 0.0, stack:
     return out, rep
 
 
+def run_spine(boxes) -> dict | None:
+    """A thin slot's run (module doc): {pts [(x, y)] along it, the open side on the right of the
+    direction they run in (each module's front, -Y, faces there), length, depth, z0, height}; None
+    without a footprint."""
+    from shapely.geometry import LineString, Point, Polygon
+    from shapely.ops import unary_union
+    polys, tall, z0, top = [], [], math.inf, -math.inf
+    for W, lo, hi in boxes:
+        W = np.asarray(W, float)
+        P = Polygon([(W @ np.array([x, y, lo[2], 1.0]))[:2] for x, y in
+                     ((lo[0], lo[1]), (hi[0], lo[1]), (hi[0], hi[1]), (lo[0], hi[1]))])
+        if P.area < 1e-3:
+            continue
+        b = float((W @ np.array([0, 0, lo[2], 1.0]))[2])
+        h = (hi[2] - lo[2]) * float(np.linalg.norm(W[:3, 2]))
+        polys.append(P)
+        if h >= MIN_PIECE_H:
+            tall.append(P)
+        z0, top = min(z0, b), max(top, b + h)
+    if not polys:
+        return None
+    U = unary_union(polys).buffer(FUSE_M, join_style="mitre").buffer(-FUSE_M, join_style="mitre")
+    R = np.asarray(U.minimum_rotated_rectangle.exterior.coords)[:4]
+    e1, e2 = R[1] - R[0], R[2] - R[1]
+    ax = e1 if np.linalg.norm(e1) >= np.linalg.norm(e2) else e2
+    L = float(np.linalg.norm(ax))
+    u, v = ax / L, np.array([-ax[1], ax[0]]) / L
+    c = R.mean(0)
+    reach = float(np.linalg.norm(e1) + np.linalg.norm(e2))
+    pts, depths = [], []
+    for t in np.arange(-L / 2 + RUN_STEP / 2, L / 2, RUN_STEP):
+        cut = LineString([c + u * t - v * reach, c + u * t + v * reach]).intersection(U)
+        segs = [g for g in getattr(cut, "geoms", [cut]) if g.length > 0]
+        if not segs:
+            continue
+        g = max(segs, key=lambda g: g.length)
+        a, b = np.asarray(g.coords[0]), np.asarray(g.coords[-1])
+        pts.append((a + b) / 2)
+        depths.append(g.length)
+    full = [q for q, dd in zip(pts, depths) if dd >= 0.8 * np.median(depths)]     # not the ends' oblique cuts
+    if len(full) < 2:
+        return None
+    P = np.array(full)
+
+    def reach_out(a, t):                              # from a along t to where the footprint ends
+        t = t / np.linalg.norm(t)
+        g = LineString([a, a + t * reach]).intersection(U)
+        g = min(getattr(g, "geoms", [g]), key=lambda x: x.distance(Point(a)), default=None)
+        return a + t * (g.length if g is not None and not g.is_empty else 0.0)
+    P = np.vstack([reach_out(P[0], P[0] - P[1]), P, reach_out(P[-1], P[-1] - P[-2])])
+    line = LineString(P)
+    T = unary_union(tall) if tall else None
+    if T is not None:                                 # the open side: less tall mass on it
+        right = line.buffer(-reach, single_sided=True)
+        left = line.buffer(reach, single_sided=True)
+        if T.intersection(right).area > T.intersection(left).area:
+            P = P[::-1]
+    return {"pts": [tuple(map(float, q)) for q in P], "length": float(LineString(P).length),
+            "depth": float(np.median(depths)), "z0": float(z0), "height": float(top - z0)}
+
+
+def run(spine: dict, lo, hi) -> list[dict]:
+    """A run module (bounds lo, hi) repeated along a spine (run_spine): [{matrix, k (its scale
+    along the run), i}]. n = the spine's length over the module's width at the slot's height
+    (at least 1); each takes one equal share of the spine's length."""
+    from shapely.geometry import LineString
+    ext = np.maximum(np.subtract(hi, lo), 1e-6)
+    sz = spine["height"] / ext[2]
+    line = LineString(spine["pts"])
+    n = max(1, round(line.length / (ext[0] * sz)))
+    step = line.length / n
+    out = []
+    for i in range(n):
+        a = np.asarray(line.interpolate(i * step).coords[0])
+        b = np.asarray(line.interpolate((i + 1) * step).coords[0])
+        t = b - a
+        chord = float(np.linalg.norm(t))
+        t = t / max(chord, 1e-9)
+        k = chord / ext[0]
+        W = np.eye(4)
+        W[:2, :2] = np.array([[t[0], -t[1]], [t[1], t[0]]]) @ np.diag([k, spine["depth"] / ext[1]])
+        W[2, 2] = sz
+        mc = np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]])
+        W[:3, 3] = np.array([*((a + b) / 2), spine["z0"]]) - W[:3, :3] @ mc
+        out.append({"matrix": W, "k": round(float(k), 4), "i": i})
+    return out
+
+
 def module_outline(W: np.ndarray, lo, hi) -> list[tuple[float, float]]:
     """A placed module's footprint corners in the world (for checks)."""
     return [tuple((W @ np.array([x, y, lo[2], 1.0]))[:2]) for x, y in
@@ -488,6 +587,17 @@ def placements(store: ProjectStore, gb: dict, index: dict | None, bounds: dict, 
             if missing:
                 continue
             m_bounds = {role: tuple(bounds[rel]) for role, (_, rel) in mods.items()}
+            if "run" in mods:                          # a thin slot: the module repeats along it
+                a, rel = mods["run"]
+                sp = run_spine(slot_boxes(s, index))
+                ms = run(sp, *m_bounds["run"]) if sp else []
+                for p in ms:
+                    out.append({"key": _key(a, sid, "run", p["i"]), "entry": a, "mesh": f"kit_{a}", "glb": rel,
+                                "matrix": p["matrix"].tolist(), "slot": sid, "typed": False, "kit": kit["kit"],
+                                "role": "run", "tier": 0, "course": 0, "vrole": None})
+                r["run"] = {"modules": len(ms), "length": round(sp["length"], 2) if sp else 0.0,
+                            "k": [p["k"] for p in ms]}
+                continue
             columns = []                               # (tier, footprint, first layer's key, top over its origin)
             blocks = outline(slot_boxes(s, index))
             rings = [assemble(blk["pts"], m_bounds, blk["height"], blk["z0"], stack=False) for blk in blocks]
@@ -542,6 +652,8 @@ def report_lines(reps: list[dict]) -> list[str]:
         if r["unbuilt"]:
             out.append(f"kit {r['kit']} in {r['slot']}: not placed, unbuilt module(s) {', '.join(r['unbuilt'])}")
             continue
+        if r.get("run") is not None and not r["run"]["modules"]:
+            out.append(f"kit {r['kit']} in {r['slot']}: not placed, no run along the slot (no footprint)")
         if r.get("folded"):
             out.append(f"kit {r['kit']} in {r['slot']}: {r['folded']} upper tier(s) too small for the modules "
                        "built into the tier under them (no overhang)")

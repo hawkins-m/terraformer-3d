@@ -1,6 +1,8 @@
 """Upper tiers never wider than the tier under them (kit_assembly + the "overhang" check), rows
 never sliced into houses narrower than min_house_w, and an entry's non-procedural Active version
 standing at all its placements. Synthetic slots and stand-in builds only."""
+import math
+
 import numpy as np
 import pytest
 
@@ -88,7 +90,8 @@ def test_an_entry_with_a_trellis_active_version_stands_with_it_everywhere(proj, 
           {"key": "other_s", "entry": "other", "glb": "3d/library/other/procedural.glb", "x": 0.0, "y": 0.0, "z": 0.0,
            "yaw": 0.0, "w": 10.0, "d": 10.0, "slot": "s1", "typed": False}]
     act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
-    assert act == {"hall": {"n": 6, "kind": "trellis", "model": "raw GLB (Clean up output is optional and not chosen)", "placements": 2}}
+    assert act == {"hall": {"n": 6, "kind": "trellis", "model": "raw GLB (Clean up output is optional and not chosen)", "placements": 2,
+                            "runs": 0}}
     assert cl.active_lines(act) == ["hall: 2 placements use Active v6 TRELLIS, raw GLB (Clean up output is optional and not chosen)"]
     a, b, other = pl
     assert a["glb"] == b["glb"] == "3d/library/hall/model.glb" and a["mesh"] == b["mesh"] == "active_hall_v6"
@@ -181,6 +184,39 @@ def test_an_excluded_entry_takes_its_stand_ins_model_at_its_planned_buildings(pr
     (p,) = cl.model_placements(proj, P, [])
     assert p["entry"] == "domus-render" and p["glb"] == "3d/library/domus-render/m.glb" and p["key"].startswith("domusmlimestone_")
     assert sw_library.set_stand_in(proj, "domus-limestone", None) == {} and cl.model_placements(proj, P, []) == []
+
+
+def test_a_long_row_takes_copies_of_its_model_at_its_own_proportions():
+    assert cl.row_run(20.0, 14.0, [30.0, 14.0, 9.0]) is None                     # about its own length: stretched as before
+    run = cl.row_run(90.0, 14.0, [30.0, 14.0, 9.0])
+    assert [round(o[0], 6) for o in run] == [-30.0, 0.0, 30.0] and all(o[2:] == (1.0, 1.0, False) for o in run)
+    run = cl.row_run(14.0, 61.0, [3.0, 1.4, 1.0])                               # along the building's y: turned, model scale 14/1.4
+    assert len(run) == 2 and all(o[0] == 0.0 and o[4] for o in run) and [o[1] for o in run] == [-15.25, 15.25]
+    assert run[0][2:4] == pytest.approx((30.5 / 3.0, 10.0))
+
+
+def test_a_row_buildings_trellis_model_stands_as_a_run_of_copies(proj, monkeypatch):
+    from types import SimpleNamespace
+    from asset_pipeline import unplaced
+    monkeypatch.setattr(unplaced, "_families", lambda st: {"townhouses": SimpleNamespace(form="row")})
+    model = "3d/library/row/model.glb"
+    bounds = {model: [[-1.5, -0.7, 0.0], [1.5, 0.7, 1.0]]}
+    monkeypatch.setattr(cl, "active_model", lambda st, e: {"n": 2, "kind": "trellis", "glb": model})
+    pl = [{"key": "row_1", "entry": "row", "typology": "townhouses", "typed": True, "planned": True, "glb": model, "slot": "t",
+           "x": 100.0, "y": 0.0, "z": 0.0, "yaw": 30.0, "w": 90.0, "d": 14.0, "h": 10.0}]
+    act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
+    assert [p["key"] for p in pl] == ["row_1", "row_1_r1", "row_1_r2"] and [p.get("run_of") for p in pl] == [None, "row_1", "row_1"]
+    assert act["row"]["runs"] == 1 and act["row"]["placements"] == 3
+    assert "1 row buildings as runs of copies" in cl.active_lines(act)[0]
+    cl.ground_all(proj, pl, Flat(), "min", bounds)
+    feet = [cl.footprint_of(cl.world_matrix(p), *bounds[model]) for p in pl]
+    assert all((f["w"], f["d"]) == pytest.approx((30.0, 14.0)) and f["yaw"] == pytest.approx(30.0) for f in feet)
+    a = math.radians(30.0)
+    assert [(f["x"], f["y"]) for f in feet] == pytest.approx([(100 + o * math.cos(a), o * math.sin(a)) for o in (-30, 0, 30)])
+    monkeypatch.setattr(unplaced, "_families", lambda st: {"townhouses": SimpleNamespace(form="hall")})
+    one = [pl[0] | {"key": "x"}]
+    cl.use_active_models(proj, {"slots": []}, None, one, bounds)
+    assert len(one) == 1                                                       # not a row form: one model, stretched
 
 
 def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, monkeypatch):

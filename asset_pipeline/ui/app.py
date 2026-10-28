@@ -177,7 +177,7 @@ class ChildrenReq(BaseModel):
 
 
 class KitRolesReq(BaseModel):
-    roles: dict[str, str | None]   # {asset: bay / corner / end / filler / none, or None: detected}
+    roles: dict[str, str | None]   # {asset: bay / corner / end / filler / run / none, or None: detected}
 
 
 class EntryDescriptionReq(BaseModel):

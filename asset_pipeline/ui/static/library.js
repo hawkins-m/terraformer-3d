@@ -589,14 +589,15 @@ function entrySavedNotice(id, saved) {
 
 // Manage entry… › Kit modules (kit_assembly.py): each module's role. Block slots assigned to a kit
 // are built from it in Unreal: corners at the block's corners, bays along its edges, end modules at
-// inner corners, fillers for what the bays can't close. "detected": from the id, brief or description.
+// inner corners, fillers for what the bays can't close; a run module repeats along a thin slot
+// (a stoa) instead. "detected": from the id, brief or description.
 async function kitSection(id, box) {
   let info;
   try { info = await api(`/api/projects/${slug}/library/entries/${encodeURIComponent(id)}/kit`, undefined, "GET"); }
   catch (err) { box.innerHTML = `<p class="error">${esc(errorText(err))}</p>`; return null; }
   const mine = m => m.source === "yours" ? (m.role || "none") : "";
   box.innerHTML = `<fieldset><legend>Kit modules</legend>
-    <p class="hint" style="margin:0 0 4px">Block slots assigned to a kit are assembled from its modules in Unreal: a corner at each corner, bays along the edges (scaled at most 10% to fit), end and filler modules where they help.</p>
+    <p class="hint" style="margin:0 0 4px">Block slots assigned to a kit are assembled from its modules in Unreal: a corner at each corner, bays along the edges (scaled at most 10% to fit), end and filler modules where they help. A run module instead repeats along a thin slot's length, following its curve (a stoa, a colonnade).</p>
     ${info.modules.map((m, i) => `<div><label>${esc(assetName(m.asset) || m.asset)}: <select class="kit-role" data-i="${i}">
       <option value="">${m.detected ? `detected (${esc(m.detected)})` : "not a kit module (detected)"}</option>
       ${info.roles.map(r => `<option value="${r}"${mine(m) === r ? " selected" : ""}>${r}</option>`).join("")}

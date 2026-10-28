@@ -540,15 +540,44 @@ def model_label(m: dict) -> str:
     return f"Cleaned ({how})" + (f" {c['faces']:,} faces" if c.get("faces") else "")
 
 
+RUN_FORMS = {"row"}         # catalog forms whose Active model repeats along a long footprint instead of stretching
+RUN_STRETCH = 1.5           # ... when one copy would stretch more than this along it
+
+
+def row_run(w: float, d: float, ext) -> list[tuple] | None:
+    """A long footprint (w along its own x, d) as copies of a model (footprint ext[0] x ext[1]) at
+    its own proportions as near as whole copies allow, the model's long side along the
+    footprint's: [(ox, oy, kx, ky, turn)] (each copy's centre offset, the model's scales on its own
+    axes, turn: a quarter turn first); None when one copy stretches less than RUN_STRETCH."""
+    along_x, ml_x = w >= d, ext[0] >= ext[1]
+    L, D = (w, d) if along_x else (d, w)
+    me, md = (ext[0], ext[1]) if ml_x else (ext[1], ext[0])
+    if me <= 0 or md <= 0 or L / me < RUN_STRETCH * D / md:
+        return None
+    n = max(2, round(L / (me * D / md)))
+    kl, kd = (L / n) / me, D / md
+    out = []
+    for i in range(n):
+        o = -L / 2 + (i + 0.5) * L / n
+        out.append(((o, 0.0) if along_x else (0.0, o)) + ((kl, kd) if ml_x else (kd, kl)) + (along_x != ml_x,))
+    return out
+
+
 def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], bounds: dict) -> dict[str, dict]:
     """Placements (in place) of entries whose Active version isn't procedural take that model
     instead of their procedural build: one mesh per entry and version, scaled to the placement's
     footprint (a typed building's own; a slot's masses, else the build's) and height (the slot's
-    masses, else the procedural build it replaces), centred on it. Kit modules and props are
-    left alone (props already take the Active model). Returns {entry: {n, kind, placements}}."""
+    masses, else the procedural build it replaces), centred on it. A typed building of a row
+    form (RUN_FORMS: townhouses) that would stretch the model past RUN_STRETCH takes copies of it
+    in a run along its length instead (row_run; keys <key>_r<n>, "run_of" the first). Kit modules
+    and props are left alone (props already take the Active model). Returns {entry: {n, kind,
+    placements, runs (buildings made runs)}}; the run copies are added to placements."""
     from . import kit_assembly
     from .assembly import glb_bounds
+    from .unplaced import _families
     slots = {s["id"]: s for s in gb["slots"]}
+    fam = _families(store)
+    extra: list[dict] = []
 
     def bounds_of(rel):
         if rel not in bounds:
@@ -585,25 +614,35 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
                 w, d, cx, cy = x1 - x0, y1 - y0, (x0 + x1) / 2, (y0 + y1) / 2
                 h = max(t for *_, t in ms) - min(b for _, b, _ in ms)
         ext = np.subtract(mhi, mlo)
-        k = [w / max(ext[0], 1e-6), d / max(ext[1], 1e-6), h / max(ext[2], 1e-6)]
         mc = [(mlo[0] + mhi[0]) / 2, (mlo[1] + mhi[1]) / 2, mlo[2]]
-        T = np.eye(4)
-        T[:3, 3] = [cx, cy, z0]
-        M = B @ T @ np.diag([*k, 1.0])
-        M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
+        t = fam.get(p.get("typology") or "")
+        copies = row_run(w, d, ext) if p.get("typology") and t is not None and t.form in RUN_FORMS else None
         cl = m.get("cleaned")
-        p.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}" + (f"_{cl['usage']}" if cl else ""), matrix=M.tolist(),
-                 active=m["n"], active_kind=m["kind"], procedural=None if p.get("planned") else p["glb"])
-        p.pop("vrole", None)
-        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "model": model_label(m), "placements": 0})
-        r["placements"] += 1
+        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "model": model_label(m), "placements": 0, "runs": 0})
+        r["runs"] += copies is not None
+        for i, (ox, oy, kx, ky, turn) in enumerate(copies or [(0.0, 0.0, w / max(ext[0], 1e-6), d / max(ext[1], 1e-6), False)]):
+            T = np.eye(4)
+            T[:3, 3] = [cx + ox, cy + oy, z0]
+            if turn:
+                T[:2, :2] = [[0.0, -1.0], [1.0, 0.0]]
+            M = B @ T @ np.diag([kx, ky, h / max(ext[2], 1e-6), 1.0])
+            M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
+            q = p if i == 0 else dict(p, key=f"{p['key']}_r{i}", run_of=p["key"])
+            q.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}" + (f"_{cl['usage']}" if cl else ""), matrix=M.tolist(),
+                     active=m["n"], active_kind=m["kind"], procedural=None if p.get("planned") else p["glb"])
+            q.pop("vrole", None)
+            if i:
+                extra.append(q)
+            r["placements"] += 1
+    placements.extend(extra)
     return out
 
 
 def active_lines(active: dict[str, dict]) -> list[str]:
     """The build report's line per entry placed with its non-procedural Active version."""
     return [f"{e}: {r['placements']} placements use Active v{r['n']} {r['kind'].upper() if r['kind'] == 'trellis' else r['kind']}"
-            + (f", {r['model']}" if r.get("model") else "") for e, r in sorted(active.items())]
+            + (f", {r['model']}" if r.get("model") else "")
+            + (f"; {r['runs']} row buildings as runs of copies (not stretched)" if r.get("runs") else "") for e, r in sorted(active.items())]
 
 
 def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], fitter, bounds: dict) -> list[dict]:
@@ -742,7 +781,8 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
         replaced.setdefault(p["slot"], "pieces")
     used = {p["entry"] for p in placed + kids if not p.get("active")}     # (an Active model keeps its own maps)
     entries = {e: j for e, j in {**kid_entries, **entries}.items() if e in used}
-    active = {e: r | {"placements": sum(1 for p in placed if p["entry"] == e and p.get("active"))} for e, r in active.items()}
+    active = {e: r | {"placements": sum(1 for p in placed if p["entry"] == e and p.get("active")),
+                      "runs": len({p["run_of"] for p in placed if p["entry"] == e and p.get("run_of")})} for e, r in active.items()}
     active = {e: r for e, r in active.items() if r["placements"]}
     if picks is not None:                         # what actually stands: a held slot's swap doesn't count
         stand = {p["key"] for p in placed}

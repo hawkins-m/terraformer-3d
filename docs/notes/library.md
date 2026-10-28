@@ -511,11 +511,16 @@ Approve (`outside`).
 - Stand-ins (`ap library stand-in PROJECT ENTRY TARGET`, `_stand_in` in the decisions file): a
   planned building whose entry has no model (excluded, unbuilt) takes TARGET's Active model, fitted
   to its own footprint and height (`model_placements`). The entry keeps its decision.
-- There is no "run" kit role (roles are bay, corner, end, filler around block outlines): a
-  module that repeats along a thin slot's length would be new assembly code.
-- `kit_assembly.outline` drops pieces under 4 m2 and blocks under 1.5 m thick, so a stoa (a row of
-  0.9 m wall segments and columns) gives its kit no block: the 11 stoa slots stay greybox though
-  `stoa-bay` is built.
+- Kit role "run" (2026-10-28, `kit_assembly.run_spine` / `run`): a module repeated along a thin
+  slot. `outline` drops pieces under 4 m2 and blocks under 1.5 m thick, so a stoa (0.9 m wall
+  segments, columns, a roof; arcs of r80 / r44 whose pieces pivot at the arc centre) gave the block
+  kit nothing. The spine is cut from the union of every piece (oblique end cuts dropped, then
+  reached out along its own ends); the open side is the one with less tall mass. The real stoas
+  take 7 (forum) and 8 (harbour) stoa-bay modules at k 0.94-0.97: the greybox's own bay count.
+- Row runs (`city_library.row_run`, RUN_FORMS {"row"}): a TRELLIS model on a typed townhouse
+  footprint that would stretch past 1.5x along it stands as copies at about its own proportions
+  (keys `<key>_r<n>`, `run_of`). Single-house plots narrower than the model (townhouses-render,
+  8 x 12.7 m under a 2:1 row model) stay squashed: a run can't make a footprint longer.
 - `library_instances.entry_of` names materials as the library does (polished_concrete ->
   polished-concrete); `insula-polished-concrete` etc. had matched no planned building.
 - Locked shots: only shots locked on a frame count (their id pass); greybox-locked wides see
