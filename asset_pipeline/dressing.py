@@ -515,6 +515,25 @@ def sea_slots(man: dict) -> list[str]:
     return [s["id"] for s in man["slots"] if s.get("type") == "sea"]
 
 
+RIVER_TYPES = ("river", "canal")       # lowered water inland: the sea's material at a steady depth
+RIVER_DEPTH = 0.15                     # its depth map value (of SEA_DEPTH_M): mid-blue, no shore foam
+
+
+def river_slots(man: dict) -> list[str]:
+    return [s["id"] for s in man["slots"] if s.get("type") in RIVER_TYPES]
+
+
+def river_depth() -> str:
+    """A flat depth map for rivers and canals (their bed isn't below the sea plane, so the sea's
+    depth map would make them all shore foam); made once."""
+    from PIL import Image
+    p = root() / "generated" / "T_AP_RiverDepth.png"
+    if not p.is_file():
+        p.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (8, 8), (round(RIVER_DEPTH * 255), 0, 0)).save(p)
+    return str(p)
+
+
 def sea_depth(store: ProjectStore, grid: Grid, sea_z: float) -> dict:
     """A depth map under the sea plane over the dressed area, in Unreal's frame (u along +X, v along
     +Y = Blender -Y): R = depth / SEA_DEPTH_M. {png, origin_cm, size_cm}."""
@@ -651,7 +670,7 @@ def prepare(store: ProjectStore, opts: DressingOptions, log=print) -> dict:
     old = read_json(out, default=None) or {}
     rec |= {"key": key, "sources": src, "roles": roles}
     if old.get("key") == key and "instances" in old:
-        rec |= {k: old[k] for k in ("instances", "hide", "counts", "area")}
+        rec |= {k: old[k] for k in ("instances", "hide", "counts", "area") if k in old}    # (no area: rocks and vegetation off)
         log("dressing: placement unchanged")
     else:
         rec |= {"instances": {}, "hide": [], "counts": {}}
@@ -683,12 +702,17 @@ def prepare(store: ProjectStore, opts: DressingOptions, log=print) -> dict:
     rec["water"] = None
     if opts.water != "off":
         sea = sea_slots(man)
-        if not sea:
+        rivers = river_slots(man)
+        if not sea and not rivers:
             rec["warnings"].append("water: the greybox has no sea slot; nothing to dress")
+        elif not sea:                            # inland: rivers only, the sea's material at a steady depth
+            rec["water"] = {"mode": opts.water, "slots": [], "rivers": rivers, "river_depth": river_depth(), "waves": wave_normal()}
         else:
             grid = Grid(class_map(store, gb, log), Ground.from_project(store))
             rec["water"] = {"mode": opts.water, "slots": sea, "sea_z_cm": _sea_z(gb) * 100,
                             "depth": sea_depth(store, grid, _sea_z(gb)), "waves": wave_normal()}
+            if rivers:
+                rec["water"] |= {"rivers": rivers, "river_depth": river_depth()}
             if opts.water == "ocean":
                 rec["water"]["plugin_enabled_now"] = ue.enable_plugin(store, "Water")
     write_json(out, rec)

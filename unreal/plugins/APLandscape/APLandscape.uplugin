@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "AP Landscape",
+	"Description": "Terraformer: create a Landscape from a raw 16-bit heightmap from editor Python (UE's Python has no call for it).",
+	"Category": "Editor",
+	"CreatedBy": "Terraformer",
+	"EnabledByDefault": false,
+	"CanContainContent": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "APLandscape",
+			"Type": "Editor",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Linux",
+				"Win64"
+			]
+		}
+	]
+}

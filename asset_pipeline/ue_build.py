@@ -17,8 +17,8 @@ otherwise the render step refuses with the reason (the rest of the build stands)
 """
 import time
 
-from . import layout_history, ue
-from .project import ProjectStore, read_json
+from . import landscape, layout_history, ue
+from .project import ProjectStore, read_json, write_json
 from .stages import s7_export, sw_site
 
 def _vision_gpu() -> int:
@@ -71,8 +71,26 @@ def render_gpu(comfy_up: bool, vram: dict[int, float]) -> tuple[int | None, str]
 
 # the stages the UI shows (Jobs panel), in run order, and the build step each one covers
 STAGES = ["backup", "export", "terrain", "dressing", "lighting", "import", "check"]
-STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "dressing": "dressing", "lighting": "lighting",
+STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "landscape": "terrain", "dressing": "dressing", "lighting": "lighting",
             "level read": "import", "import": "import", "check": "check", "render": "render"}
+
+
+def generated_landscape(store: ProjectStore, log=print) -> dict:
+    """A generated terrain's Landscape for the import: the APLandscape plugin in the project, the
+    auto material (MI_AP_TerrainAuto) when missing or older, the raw heights; added to the manifest
+    as "landscape_build" (unreal/ap_import.py place_landscape)."""
+    from . import terrain_build
+    ue.install_plugin(store, ue.LANDSCAPE_PLUGIN, log)
+    done = read_json(store.root / terrain_build.FAR_DIR / "ue_assets.json", default={}) or {}
+    mi = ue.project_dir(store) / "Content/AP/Terrain/MI_AP_TerrainAuto.uasset"
+    if not mi.is_file() or done.get("version") != terrain_build.TERRAIN_MAT_VERSION:
+        terrain_build.ue_assets(store)
+    out = s7_export.export_dir(store)
+    rec = landscape.export(store, out)
+    man = s7_export.load_manifest(store)
+    man["landscape_build"] = rec
+    write_json(out / "manifest.json", man)
+    return rec
 
 
 def terrain_due(store: ProjectStore) -> bool:
@@ -191,8 +209,11 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
     man = s7_export.load_manifest(store)
     if terrain_due(store):
         step("terrain assets", lambda: terrain_build.ue_assets(store))
-    elif not (store.root / terrain_build.FAR_DIR / "outer.glb").is_file():
+    elif not (store.root / terrain_build.FAR_DIR / "outer.glb").is_file() and not landscape.wanted(store):
         warnings.append("no outer ring built (ap terrain outer): the terrain-outer greybox stays")
+    if landscape.wanted(store):                 # a generated terrain: a Landscape of its own (heightmap projects keep theirs)
+        lrec = step("landscape", lambda: generated_landscape(store, log))
+        log(f"landscape: {lrec['size'][0]} x {lrec['size'][1]} samples, {lrec['spacing_m']} m apart")
     opts = dressing if dressing is not None else dress.options(store)
     dress.save(store, opts)
     drec = step("dressing", lambda: dress.prepare(store, opts, log=log))

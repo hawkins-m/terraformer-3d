@@ -735,8 +735,11 @@ or through an Unreal MCP server.
     - Starting values come from the material's words (polished, honed, bronze...).
     - A parameter you change in Unreal is yours: re-imports keep it.
   - Pipeline actors that left the manifest are reported (`--prune` deletes them).
-- **Terrain** comes in as a Nanite mesh. For a real Landscape, use Landscape mode →
-  Import from File with `export/terrain/heightmap.png` and the `landscape` values in
+- **Terrain**: a generated terrain (Terrain picker, `ap terrain roll`) becomes a real Landscape,
+  `AP_Landscape`, with MI_AP_TerrainAuto, built by the APLandscape editor plugin (compiled once for
+  your engine and copied into the project's Plugins/); rivers and canals take the Simple sea's water.
+  A heightmap project's terrain comes in as a Nanite mesh and its Landscape stays yours: Landscape
+  mode → Import from File with `export/terrain/heightmap.png` and the `landscape` values in
   `export/manifest.json`.
 
 # Library assets by area (the daily loop)

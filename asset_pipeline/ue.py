@@ -180,6 +180,53 @@ def init(store: ProjectStore) -> Path:
     return up
 
 
+LANDSCAPE_PLUGIN = "APLandscape"          # unreal/plugins/APLandscape: a Landscape from a raw heightmap (landscape.py)
+
+
+def plugin_build_dir() -> Path:
+    """Where the repo's editor plugins are built for this engine: $AP_ROOT/unreal/plugins/<name>."""
+    return config.ap_root() / "unreal" / "plugins"
+
+
+def build_plugin(name: str, log=print) -> Path:
+    """The repo's plugin unreal/plugins/<name> compiled for this engine (RunUAT BuildPlugin, a few
+    minutes the first time; kept until the source changes). Linux engines; a Windows engine
+    (UnrealEditor-Cmd.exe under WSL) is untested and refused."""
+    src = config.REPO_ROOT / "unreal" / "plugins" / name
+    out = plugin_build_dir() / name
+    tag = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(src.rglob("*")) if p.is_file())).hexdigest()[:12]
+    stamp = out / ".ap_source"
+    if stamp.is_file() and stamp.read_text().strip() == tag:
+        return out
+    cmd = editor_cmd()
+    if cmd.suffix.lower() == ".exe":
+        raise RuntimeError(f"{name}: building editor plugins for a Windows engine isn't supported yet (untested)")
+    uat = cmd.parents[2] / "Build" / "BatchFiles" / "RunUAT.sh"
+    shutil.rmtree(out, ignore_errors=True)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    log(f"building the {name} editor plugin for {cmd.parents[3].name} (once)")
+    r = subprocess.run([str(uat), "BuildPlugin", f"-Plugin={src / (name + '.uplugin')}", f"-Package={out}", "-TargetPlatforms=Linux"],
+                       capture_output=True, text=True)
+    if r.returncode != 0 or not any((out / "Binaries").rglob("*.so")):
+        (out.parent / f"{name}.build.log").write_text(r.stdout + r.stderr)
+        raise RuntimeError(f"{name}: RunUAT BuildPlugin failed (exit {r.returncode}); log {out.parent / (name + '.build.log')}")
+    shutil.rmtree(out / "HostProject", ignore_errors=True)
+    stamp.write_text(tag)
+    return out
+
+
+def install_plugin(store: ProjectStore, name: str, log=print) -> bool:
+    """Copy a built repo plugin into the project's Plugins/ and enable it (loads on the next editor
+    start: every headless run starts one). True when it changed."""
+    built = build_plugin(name, log)
+    dst = init(store).parent / "Plugins" / name
+    same = (dst / ".ap_source").is_file() and (dst / ".ap_source").read_text() == (built / ".ap_source").read_text()
+    if not same:
+        shutil.rmtree(dst, ignore_errors=True)
+        shutil.copytree(built, dst, ignore=shutil.ignore_patterns("*.debug", "*.sym", "Intermediate"))
+    return enable_plugin(store, name) or not same
+
+
 def enable_plugin(store: ProjectStore, name: str) -> bool:
     """Enable an engine plugin in the project's .uproject (e.g. Water for the dressing's ocean); it
     loads on the next editor start. True when this call added it."""

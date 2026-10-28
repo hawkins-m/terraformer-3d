@@ -408,6 +408,34 @@ marked done here.
     - terrain-island-city-on-island.png
     - terrain-suburbia-on-mountain-bowl.png
 
+- [x] **Phase 6: a generated terrain in Unreal** (2026-10-28).
+  - `ap ue build` on a generated terrain (no `terrain.heightmap`, greybox built) adds a "landscape" step
+    (`ue_build.generated_landscape`): the APLandscape editor plugin in the Unreal project, the auto
+    material (`terrain_build.ue_assets` when MI_AP_TerrainAuto is missing or older), and the heights
+    (`landscape.export`: site/terrain.png, pads and lowered water included, at whole components of
+    2 x 63 quads, rows north to south) as `export/terrain/landscape.r16` with the import values in the
+    manifest's `landscape_build`.
+  - UE 5.8's Python can't create a Landscape, so `unreal/plugins/APLandscape` (C++, one Blueprint
+    callable, `UAPLandscapeLibrary::CreateLandscapeFromRaw`, what Landscape mode's Import does) is built
+    once per engine with RunUAT BuildPlugin into `$AP_ROOT/unreal/plugins/` (`ue.build_plugin`, rebuilt
+    when its source changes; Linux engines only, a Windows engine is refused) and copied into the
+    project's Plugins/ and enabled (`ue.install_plugin`).
+  - `unreal/ap_import.py place_landscape`: `AP_Landscape` (tags `ap:terrain=landscape`, `ap:sha`), kept
+    while the heights are the same and replaced when they change; the terrain slots' greybox mesh hidden
+    with no collision (the Landscape is the ground).
+  - Water: rivers and canals take the Simple sea's material through `MI_AP_RiverSimple` (the same waves
+    and colours, a flat depth map: their bed isn't under the sea plane, so the sea's depth map would
+    make them all shore foam); the coast keeps MI_AP_SeaSimple.
+  - Heightmap projects: no landscape step, nothing installed, their Landscape untouched
+    (`landscape.wanted` is false: checked on the scratch heightmap project).
+  - Live on the scratch AP_ROOT: flat-test as river-valley (seed 5) with classic, its Unreal project in
+    `/mnt/storage/ap-scratch/unreal/flat-test`. The build made a 2017 x 2017 Landscape (256 components,
+    3.97 m spacing, 8 x 8 km under the city) in 30 s. Read back after a reload: MI_AP_TerrainAuto on it;
+    line traces at five points hit AP_Landscape at the greybox heights to the centimetre. A rebuild kept it
+    (0.3 min). Renders (GPU 0): the river and the sea in the same water.
+  - Fix on the way: a dressing rebuild with rocks and vegetation off failed on a missing "area".
+  Tests: `tests/test_landscape.py`.
+
 ### Next (terrain)
 
 - The local model path is tested with a fake model only; live it fell back to keywords (no server running).
@@ -419,5 +447,8 @@ marked done here.
   bounds may grow (towns), so a later terrain change can move them again.
 - The mountain ring, plateau and island centre on the bounds' middle when the settings' centre is
   (0, 0). Set `centre` in the settings to move them.
-- The Greybox build bakes the lowered river into the terrain mesh. Unreal gets the river ribbons as
-  water-tinted slots, not a water body.
+- The Landscape has no paint layers: MI_AP_TerrainAuto blends by slope and height itself. In the
+  renders so far (all from the sea) the land is far and hazy; a close look at its material is still due.
+- The Unreal river is the ribbon slot in the sea's material, not a Water plugin river body (the plugin
+  can't be driven headless in UE 5.8).
+- APLandscape is built for Linux engines only; a Windows engine (WSL) is refused until tested.

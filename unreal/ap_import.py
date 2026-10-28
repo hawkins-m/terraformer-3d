@@ -23,8 +23,12 @@ What it builds (all under /Game/AP):
                                a setting you change in Unreal is kept on later builds
         AP_Terrain_outer       the outer ring (/Game/AP/Terrain/SM_OuterRing, `ap terrain ue`)
                                in place of its greybox slot; the terrain slots take
-                               MI_AP_TerrainAuto (manifest "terrain"); a Landscape stays a
-                               manual import (report["landscape"]: whether the level has one)
+                               MI_AP_TerrainAuto (manifest "terrain"); a heightmap project's
+                               Landscape stays a manual import (report["landscape"]: whether the
+                               level has one)
+        AP_Landscape           a generated terrain's Landscape (manifest "landscape_build",
+                               asset_pipeline/landscape.py), made by the APLandscape plugin and
+                               remade only when its heights change; the terrain mesh under it hides
     Cinematics/LS_<Name>                     Level Sequence, one camera cut per shot
     Dressing/...           world dressing (args "dressing": ap_dressing.py): ground and sea materials,
                            AP_Dress_<role> instanced rocks and plants, placeholder trees hidden
@@ -754,6 +758,46 @@ def place_library(man, meshes, eas, report):
         rep["removed"] += 1
 
 
+def place_landscape(man, eas, report):
+    """A generated terrain's Landscape: kept while its heights are the same (ap:sha), else replaced;
+    the terrain slots' greybox mesh hidden under it. Nothing in the manifest: nothing touched."""
+    spec = man.get("landscape_build")
+    if not spec:
+        return
+    mine = [a for a in eas.get_all_level_actors() if tagged(a).get("ap:terrain") == "landscape"]
+    keep = next((a for a in mine if tagged(a).get("ap:sha") == spec["sha"]), None)
+    for a in mine:
+        if a is not keep:
+            eas.destroy_actor(a)
+    if keep is None:
+        lib = getattr(unreal, "APLandscapeLibrary", None)
+        if lib is None:
+            report["warnings"].append("landscape not made: the APLandscape plugin isn't loaded (Plugins/APLandscape)")
+            return
+        mi = eal.load_asset(spec["material"]) if eal.does_asset_exist(spec["material"]) else None
+        if mi is None:
+            report["warnings"].append(f"landscape material {spec['material']} missing: made without it")
+        keep = lib.create_landscape_from_raw(spec["raw"], spec["size"][0], spec["size"][1], spec["sections"], spec["quads"],
+                                             unreal.Vector(*spec["location_cm"]), unreal.Vector(*spec["scale_cm"]), mi,
+                                             spec["label"])
+        if keep is None:
+            report["warnings"].append("landscape not made (APLandscape refused the heightmap: see the editor log)")
+            return
+        set_tags(keep, ["ap:terrain=landscape", f"ap:sha={spec['sha']}", "ap:source=pipeline-lib"])
+        keep.set_folder_path("AP/Terrain")
+        report["landscape_made"] = True
+    hidden = 0
+    actors = {tagged(a).get("ap:id"): a for a in eas.get_all_level_actors() if "ap:id" in tagged(a)}
+    for sid in spec.get("hide_slots") or []:
+        for ism in ism_components(actors[sid]).values() if sid in actors else []:
+            ism.set_visibility(False, False)
+            ism.set_hidden_in_game(True)
+            ism.set_collision_enabled(unreal.CollisionEnabled.NO_COLLISION)     # the Landscape is the ground
+            hidden += 1
+    report["landscape_build"] = {"label": keep.get_actor_label(), "size": spec["size"], "hidden": hidden,
+                                 "made": bool(report.get("landscape_made"))}
+
+
 def place_terrain(man, eas, report):
     """The outer ring in place of its greybox slot, and the auto material on the terrain slots."""
     t = man.get("terrain")
@@ -764,7 +808,9 @@ def place_terrain(man, eas, report):
     old = [a for a in eas.get_all_level_actors() if tagged(a).get("ap:terrain") == "outer"]
     ring = eal.load_asset(t["outer_ring"]) if eal.does_asset_exist(t["outer_ring"]) else None
     slot = actors.get(t.get("outer_slot"))
-    if ring is None or slot is None:
+    if t.get("outer_slot") is None:
+        pass                                     # no outer ring in this greybox (a generated terrain)
+    elif ring is None or slot is None:
         report["warnings"].append(f"outer ring not placed: {t['outer_ring']} missing (ap terrain ue)" if ring is None
                                   else f"outer ring not placed: no slot actor {t.get('outer_slot')}")
     else:
@@ -874,6 +920,7 @@ def main(args):
         envs = {tagged(a)["ap:env"]: a for a in eas.get_all_level_actors() if "ap:env" in tagged(a)}
         ap_lighting.apply(args["lighting"], envs, report, owned=True)
     place_slots(man, meshes, eas, by_tag, args, report, mats)
+    place_landscape(man, eas, report)
     place_terrain(man, eas, report)
     place_library(man, lib_meshes, eas, report)
     cams = place_cameras(man, eas, by_tag, args, report)

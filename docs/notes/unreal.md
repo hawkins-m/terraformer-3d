@@ -44,8 +44,11 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   persist across save and reload, with label, tags, outliner folder and instances.
 - **No Python API creates a Landscape from a heightmap.** Only
   `landscape_import_heightmap_from_render_target` exists, into an existing landscape's
-  components. Terrain is therefore a Nanite mesh; the manifest carries the values for a
-  manual Landscape-mode import.
+  components (and it needs an RHI). A heightmap project's terrain is a Nanite mesh plus a manual
+  Landscape-mode import. A generated terrain gets a Landscape through the repo's editor plugin
+  `unreal/plugins/APLandscape` (`ALandscape::Import`, as Landscape mode does): `RunUAT.sh
+  BuildPlugin` builds it in ~30 s on 5.8.3 (the uplugin must not list Landscape as a plugin: it's an
+  engine module). `-nullrhi` commandlets create and save a 2017 x 2017 Landscape fine.
 - **Renaming a project's level (2026-10-22, project slug rename).** A map rename through AssetTools
   (`rename_assets` / `rename_asset`) stops at a modal "config INI may need Find/Replace" dialog that
   `-unattended` answers Cancel, so nothing is renamed. What worked headless: `duplicate_asset` the map

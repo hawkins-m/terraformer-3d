@@ -479,6 +479,26 @@ def simple_sea(spec, eas):
     return set_on
 
 
+def rivers(spec, eas):
+    """Rivers and canals (lowered into the ground) in the sea's material, MI_AP_RiverSimple: the same
+    waves and colours at a steady depth (a flat depth map), so they match the Simple sea."""
+    depth = import_texture(spec["river_depth"], "T_AP_RiverDepth", "data_clamp")
+    waves = import_texture(spec["waves"], "T_AP_WaveNormal", "normal")
+    mi = _instance(f"{MATS}/MI_AP_RiverSimple", sea_material(depth, waves))
+    mel.set_material_instance_texture_parameter_value(mi, "DepthTex", depth)
+    mel.update_material_instance(mi)
+    eal.save_loaded_asset(mi)
+    set_on = []
+    for a in eas.get_all_level_actors():
+        if ap_import.tagged(a).get("ap:id") in spec["rivers"]:
+            for ism in ap_import.ism_components(a).values():
+                for i in range(ism.get_num_materials()):
+                    ism.set_material(i, mi)
+                set_comp_tag(ism, OVERRIDE, True)
+                set_on.append(ism)
+    return set_on
+
+
 def ocean(spec, eas, existing, report):
     """The Water plugin's ocean at sea level, its spline kept small at the origin (under the city:
     the ocean fills everything outside it), extents over the whole terrain. Returns (actor, None) or
@@ -707,8 +727,13 @@ def apply(path, eas, report):
     w = d.get("water")
     sea_hidden = []
     if w:
-        mode = w["mode"]
-        if mode == "ocean":
+        mode = w["mode"] if w["slots"] else "simple"          # rivers only (inland): no ocean to make
+        if w.get("rivers"):
+            set_on += rivers(w, eas)
+            rep["rivers"] = len(w["rivers"])
+        if not w["slots"]:
+            rep["water"] = "rivers only (Simple)"
+        elif mode == "ocean":
             oc, why = ocean(w, eas, actors, rep)
             if oc is None:
                 rep["warnings"].append(f"ocean not made headless ({why}): Simple sea instead")
@@ -721,7 +746,7 @@ def apply(path, eas, report):
                             c.set_visibility(False, False)
                             set_comp_tag(c, HIDDEN, True)
                             sea_hidden.append(c.get_path_name())
-        if mode != "ocean":
+        if mode != "ocean" and w["slots"]:
             set_on += simple_sea(w, eas)
             rep["water"] = mode
             for k in ("ocean", "ocean_zone"):
