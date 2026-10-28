@@ -1407,7 +1407,39 @@ def _unique(xs: list) -> list:
     return list(dict.fromkeys(xs))
 
 
+def cmd_terrain_roll(a) -> None:
+    """ap terrain presets | roll PROJECT --preset NAME [--seed N] [--describe TEXT] [--replace-heightmap]"""
+    import numpy as np
+    from . import city_roll, terrain_gen
+    if a.action == "presets":
+        for p in terrain_gen.summary():
+            print(f"{p['name']:14s} {p['description']}")
+        return
+    if not a.project:
+        raise SystemExit("ap terrain roll PROJECT --preset NAME | --describe TEXT")
+    store = ProjectStore.open(a.project)
+    seed = a.seed if a.seed is not None else int(np.random.default_rng().integers(1, 2**31 - 1))
+    if getattr(a, "describe", None):
+        from . import terrain_describe
+        pick = terrain_describe.describe(a.describe, prefer=a.preset)
+        print(f"described as {pick['preset']} ({pick['source']}): {pick['summary']}")
+        settings = pick["settings"].model_copy(update={"seed": seed})
+    elif a.preset:
+        settings = terrain_gen.get(a.preset, seed)
+    else:
+        raise SystemExit("give --preset NAME (ap terrain presets) or --describe TEXT")
+    st = city_roll.set_terrain(store, settings, replace_heightmap=a.replace_heightmap)
+    print(f"terrain {settings.name}, terrain seed {seed}: {st['buildings']} buildings; "
+          f"plan {city_roll.rolls_path(store).parent / 'city_plan.png'}")
+    for w in st["warnings"]:
+        print("warning:", w)
+    print(f"reproduce it: ap terrain roll {a.project} --preset {settings.name} --seed {seed}"
+          if settings.name in terrain_gen.PRESETS and not getattr(a, "describe", None) else "")
+
+
 def cmd_terrain(a) -> None:
+    if a.action in ("roll", "presets"):
+        return cmd_terrain_roll(a)
     from . import terrain_build as tb
     from . import terrain_plan as tp
     store = ProjectStore.open(a.project)
@@ -2092,13 +2124,19 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--district", help="status: a district instead of a named area")
     p.set_defaults(fn=cmd_area)
 
-    p = sub.add_parser("terrain", help="world mode: terrain beyond the city, fitted to the locked shots")
-    p.add_argument("action", choices=["analyse", "build", "outer", "apply", "landscape", "ue"],
-                   help="analyse: locked shots' skylines; build: ranges from site/terrain_plan/proposal.json, sky fit, "
+    p = sub.add_parser("terrain", help="world mode: the generated terrain's preset (roll, presets), and the terrain "
+                                       "beyond the city fitted to the locked shots")
+    p.add_argument("action", choices=["roll", "presets", "analyse", "build", "outer", "apply", "landscape", "ue"],
+                   help="roll: a generated terrain from a preset or a description, the city kept; presets: list them; "
+                        "analyse: locked shots' skylines; build: ranges from site/terrain_plan/proposal.json, sky fit, "
                         "erosion; outer: only the outer ring (+ its GLB) from the far build; apply: point the layout "
                         "at it; landscape: Unreal tiles + outer ring GLB; ue: auto material + outer ring in the Unreal "
                         "project")
-    p.add_argument("project")
+    p.add_argument("project", nargs="?")
+    p.add_argument("--preset", help="roll: the terrain preset (ap terrain presets)")
+    p.add_argument("--seed", type=int, help="roll: the terrain's own seed (default: a random one)")
+    p.add_argument("--describe", help="roll: describe the terrain in words; mapped to a preset and its settings")
+    p.add_argument("--replace-heightmap", action="store_true", help="roll: replace a heightmap terrain with the generated one")
     p.set_defaults(fn=cmd_terrain)
 
     p = sub.add_parser("launcher", help="desktop launcher: a Terraformer entry in the applications menu that opens the UI")

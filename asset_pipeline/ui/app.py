@@ -311,6 +311,13 @@ class RollReq(BaseModel):
     keep_shape: bool = False      # keep the current outline and districts (new streets only)
 
 
+class TerrainReq(BaseModel):
+    preset: str | None = None          # a terrain preset (terrain_gen.PRESETS); with describe: the fallback
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
+    describe: str | None = Field(default=None, max_length=600)    # words, mapped to a preset and settings
+    replace_heightmap: bool = False
+
+
 class PresetReq(BaseModel):
     preset: str | None = None
     layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
@@ -1474,6 +1481,41 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _preset_check(req.preset)
         return jobs.submit("site.plan", slug, lambda: city_roll.set_preset(store, req.preset, req.layout_seed)["buildings"],
                            lane="cpu", tag={"roll": True}).public()
+
+    @app.post("/api/projects/{slug}/site/terrain")
+    def site_terrain(slug: str, req: TerrainReq):
+        """A generated terrain from a preset (or a description), the city's layout kept: a site.plan job."""
+        import numpy as np
+        from .. import city_roll, terrain_gen
+        store = _store(slug)
+        _roll_check(store)
+        if req.preset is not None and req.preset not in terrain_gen.PRESETS:
+            raise HTTPException(400, f"unknown terrain preset {req.preset!r} (presets: {', '.join(terrain_gen.PRESETS)})")
+        if not req.preset and not (req.describe or "").strip():
+            raise HTTPException(400, "give a terrain preset or a description")
+        try:
+            lay = sw_site.load_layout(store)
+            if lay.terrain.heightmap and not req.replace_heightmap:
+                raise HTTPException(409, f"the terrain is a heightmap ({lay.terrain.heightmap}): confirm to replace it")
+        except FileNotFoundError:
+            pass
+        seed = req.seed if req.seed is not None else int(np.random.default_rng().integers(1, 2**31 - 1))
+
+        def run():
+            from ..jobs import current_job
+            job = current_job()
+            log = (lambda m: setattr(job, "note", str(m)[:200])) if job else print
+            if (req.describe or "").strip():
+                from .. import terrain_describe
+                pick = terrain_describe.describe(req.describe, prefer=req.preset)
+                settings = pick["settings"]
+            else:
+                pick, settings = None, terrain_gen.get(req.preset)
+            st = city_roll.set_terrain(store, settings.model_copy(update={"seed": seed}), log=log,
+                                       replace_heightmap=req.replace_heightmap)
+            return {"terrain": settings.name, "seed": seed, "buildings": st["buildings"], "warnings": st["warnings"],
+                    **({"described": {k: pick[k] for k in ("preset", "source", "summary", "tweaks")}} if pick else {})}
+        return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True, "terrain": True}).public()
 
     @app.post("/api/projects/{slug}/site/roll/step")
     def site_roll_step(slug: str, req: StepReq):

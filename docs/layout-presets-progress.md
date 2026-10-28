@@ -337,7 +337,28 @@ marked done here.
   else `fit_nodes`). A heightmap is replaced only with `replace_heightmap`. `city_roll.roll` keeps
   the waterfront rules (the terrain) whenever the terrain has settings, as it does for a heightmap.
   Tests: `tests/test_terrain_gen.py`.
-- [ ] Phase 2: eight terrain presets, the Terrain picker, water presets lowering real water.
+- [x] **Phase 2: terrain presets and the picker** (committed). `terrain_gen.CATALOG` / `PRESETS` / `get` /
+  `summary`, each with a one-line description:
+  - flat-plain (inland, nearly level);
+  - coastal-plain (low, a 120 m beach);
+  - river-valley (a river between two ridges: the mountain ring with two passes along the river);
+  - hill-city (six knolls);
+  - mountain-bowl (a 380 m ring, one pass facing the sea);
+  - plateau (a raised table with broken sides);
+  - island (coast all);
+  - canyon (a river 60 m down in an inland plateau).
+  The Terrain picker, terrain seed and Apply terrain sit beside the Layout picker in the roll box
+  (city.js `paintTerrain`, `applyTerrain`). On a heightmap project it asks before replacing it.
+  `POST /site/terrain {preset, seed, describe, replace_heightmap}` is a site.plan job (409 on a
+  heightmap unless confirmed). `GET /site/roll` carries `terrain` (its name, seed, heightmap and the
+  presets). CLI: `ap terrain presets`, `ap terrain roll PROJECT --preset NAME [--seed N]
+  [--replace-heightmap]`.
+  Real water for the water layout presets:
+  - manhattan's channels and canal-city's canals: carved through `layout_water` (Phase 1);
+  - island-city's strait: already below the sea;
+  - harbour-port: new `docks` (3), dock basins cut below the sea beside each harbour district
+    (`city.dock_basins`, `cut_docks`).
+  Tests: `tests/test_terrain_presets.py`.
 - [ ] Phase 3: the plan respects the terrain (slopes, pads, routing, parks, walls on land).
 - [ ] Phase 4: Describe the terrain (VLM text mode, keyword fallback), `ap terrain roll`.
 - [ ] Phase 5: rerolls through Greybox and Shots (generated and heightmap), six previews.

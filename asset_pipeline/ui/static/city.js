@@ -384,6 +384,7 @@ function paintRoll() {
   if (d && document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.preset;
   if (d && document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.layout_seed;
   paintLayoutDesc();
+  paintTerrain();
   $("#city-layout-apply").disabled = busy || sel.value === "random";
   const keepBox = $("#city-roll-keep");
   if (d && !keepBox.children.length) {
@@ -424,6 +425,37 @@ function layoutChoice() {
   delete sel.dataset.dirty; delete $("#city-layout-seed").dataset.dirty;
   return out;
 }
+// --- Terrain (terrain_gen.py): its own presets and seed, apart from the layout -------------------
+function paintTerrain() {
+  const d = rollData && rollData.terrain, sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed");
+  if (!d) return;
+  if (!sel.options.length) {
+    sel.innerHTML = `<option value="">${d.heightmap ? "the project's heightmap" : "the project's own"}</option>`
+      + d.presets.map(p => `<option value="${esc(p.name)}" title="${esc(p.description)}">${esc(p.name)}</option>`).join("");
+  }
+  if (document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.name && d.presets.some(p => p.name === d.name) ? d.name : "";
+  if (document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.seed ?? "";
+  const p = d.presets.find(x => x.name === sel.value);
+  $("#city-terrain-desc").textContent = p ? p.description
+    : d.heightmap ? `The terrain is the heightmap ${d.heightmap}; a terrain preset replaces it (it asks first).` : "The project's own generated coast.";
+  $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length || !sel.value;
+}
+async function applyTerrain(extra) {
+  const sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed").value.trim(), d = (rollData && rollData.terrain) || {};
+  const body = {preset: sel.value || null, seed: ls === "" ? null : Number(ls), ...(extra || {})};
+  if (d.heightmap) {
+    const ok = await confirmDialog({title: "Replace the heightmap?", button: "Replace",
+      body: `<p>The terrain is the heightmap <code>${esc(d.heightmap)}</code> (a terrain build). A generated terrain replaces it; the city's layout stays.</p>`});
+    if (!ok) return;
+    body.replace_heightmap = true;
+  }
+  delete sel.dataset.dirty; delete $("#city-terrain-seed").dataset.dirty;
+  await siteAction("site/terrain", body);
+}
+$("#city-terrain-preset").onchange = e => { e.target.dataset.dirty = "1"; paintTerrain(); };
+$("#city-terrain-seed").oninput = e => { e.target.dataset.dirty = "1"; };
+$("#city-terrain-apply").onclick = () => applyTerrain();
+
 // The picked preset's one-line description under the picker
 function paintLayoutDesc() {
   const v = $("#city-layout-preset").value, p = rollData && (rollData.presets || []).find(x => x.name === v);

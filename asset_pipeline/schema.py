@@ -618,6 +618,7 @@ class LayoutPreset(BaseModel):
     terraces: bool = False                           # contour-terraced blocks on every slope
     max_slope: float | None = Field(default=None, gt=0)       # overrides the city's (steeper sites can build)
     piers: int = Field(default=3, ge=0, le=12)       # piers per harbour node
+    docks: int = Field(default=0, ge=0, le=8)        # dock basins cut into the shore beside each harbour district (real water)
     strip_water: bool = False                        # a strip outline: channels along its long sides, wherever there's land
     clear_overlaps: bool = False                     # drop buildings that overlap a road, water or another slot
     # highways: wide road slots, built as flat road strips; interchanges where they cross

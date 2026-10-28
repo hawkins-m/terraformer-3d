@@ -413,6 +413,46 @@ WATER_LIFT = 1.9               # a river's or canal's surface over its lowered b
 ISLAND_STRAIT_M = 300.0         # an island: the sea this wide all round it (the mainland beyond stays)
 
 
+DOCK_W, DOCK_LEN, DOCK_PITCH = 45.0, 160.0, 95.0
+
+
+def dock_basins(layout: SiteLayout) -> list[Polygon]:
+    """The preset's dock basins: `docks` rectangles cut from the shoreline inland beside each
+    harbour district (clear of its core), square to the coast."""
+    from .greybox import sea_axes, shore_at
+    c, t = layout.city, layout.terrain
+    u, v = sea_axes(t)
+    rot = math.degrees(math.atan2(u[1], u[0]))
+    out = []
+    for nd in c.nodes:
+        if nd.role != "harbour":
+            continue
+        lat0 = float(np.dot(nd.center, v))
+        for k in range(c.preset.docks):
+            side = 1 if k % 2 == 0 else -1
+            lat = lat0 + side * (nd.radius + 70 + (k // 2) * DOCK_PITCH)
+            s = float(shore_at(t, lat))
+            mid = (s - DOCK_LEN / 2 + 20) * u + lat * v          # from just past the shore, inland
+            out.append(_rect(float(mid[0]), float(mid[1]), DOCK_LEN, DOCK_W, rot))
+    return out
+
+
+def cut_docks(layout: SiteLayout, h: np.ndarray) -> np.ndarray:
+    """Lower the dock basins below the sea (real water, joined to the sea)."""
+    from .greybox import grid_coords
+    basins = dock_basins(layout)
+    if not basins:
+        return h
+    x, y = grid_coords(layout.terrain)
+    inside = np.zeros(h.shape, bool)
+    for q in basins:
+        x0, y0, x1, y1 = q.bounds
+        win = (x >= x0) & (x <= x1) & (y >= y0) & (y <= y1)
+        if win.any():
+            inside[win] |= shapely.contains_xy(q, x[win], y[win])
+    return np.where(inside, np.minimum(h, layout.sea_level - 4.0), h).astype(np.float32)
+
+
 def preset_terrain(layout: SiteLayout, heights: np.ndarray):
     """The preset's own ground: an island (land inside its shore, a strait of sea all round).
     Returns (heights, the island's signed distance or None); unchanged for other presets."""
@@ -422,6 +462,8 @@ def preset_terrain(layout: SiteLayout, heights: np.ndarray):
     if c is not None and layout_water(c, layout.terrain):      # the preset's canals, channels, river: lowered water
         from . import terrain_gen
         h, _ = terrain_gen.carve(h, layout.terrain, [w for _, _, w in layout_water(c, layout.terrain)], layout.sea_level)
+    if c is not None and c.preset.docks:                         # dock basins: the sea let into the shore
+        h = cut_docks(layout, h)
     if c is None or c.preset.outline != "island":
         return h, None
     t = layout.terrain

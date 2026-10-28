@@ -50,7 +50,7 @@ CATALOG: dict[str, tuple[str, LayoutPreset]] = {
                    P(streets="radial", outline="blob", river=True, falloff_scale=0.9, max_storeys=5,
                      clear_overlaps=True)),
     "harbour-port": ("A harbour port: dense waterfront, many piers, docks and warehouses beside the harbour.",
-                     P(streets="linear", outline="coastal", tall_at="waterfront", height_falloff_m=400, piers=7,
+                     P(streets="linear", outline="coastal", tall_at="waterfront", height_falloff_m=400, piers=7, docks=3,
                        industrial="harbour", industrial_m=300, clear_overlaps=True)),
     "island-city": ("An island city: a wobbly island with the sea all round, a shore promenade, piers out.",
                     P(streets="radial", outline="island", tall_at="centre", height_falloff_m=700, piers=5,

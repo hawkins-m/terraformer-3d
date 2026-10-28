@@ -287,3 +287,44 @@ def with_settings(t: TerrainSpec, s: TerrainSettings) -> TerrainSpec:
     t2 = t.model_copy(update={"settings": s, "heightmap": None, "far": None, "city_radius_m": 0.0})
     t2 = t2.model_copy(update={"z_range": z_range_for(make(t2))})
     return t2
+
+
+# --- terrain presets -------------------------------------------------------------------------
+
+_S = TerrainSettings
+# name: (one line for the Terrain picker, the settings)
+CATALOG: dict[str, tuple[str, TerrainSettings]] = {
+    "flat-plain": ("A flat inland plain: barely a rise, no sea.",
+                   _S(base="flat", relief_m=3, rise=0.004, coast="none")),
+    "coastal-plain": ("A low coastal plain: gentle ground rising slowly from a wide beach.",
+                      _S(base="rolling", relief_m=6, rise=0.008, beach_m=120)),
+    "river-valley": ("A river valley: a river through the city to the sea between two ridges.",
+                     _S(base="rolling", relief_m=18, rise=0.02, river=True, river_w_m=80, river_depth_m=5,
+                        mountains_m=190, mountains_at_m=2300, mountains_w_m=1100, mountain_gaps=2, gap_deg=50)),
+    "hill-city": ("A city of hills: steep knolls inside the city on rolling ground.",
+                  _S(base="rolling", relief_m=22, rise=0.02, hills=6, hill_m=70, hill_r_m=240)),
+    "mountain-bowl": ("A mountain bowl: a high ring of mountains round the city, one pass to the sea.",
+                      _S(base="rolling", relief_m=14, rise=0.015, mountains_m=380, mountains_at_m=2200,
+                         mountains_w_m=1000, mountain_gaps=1, gap_deg=45)),
+    "plateau": ("A plateau: the city on a raised table with steep, broken sides.",
+                _S(base="rugged", relief_m=8, rise=0.01, plateau_m=70, plateau_r_m=1300)),
+    "island": ("An island: sea all round, a beach, a few hills.",
+               _S(base="rolling", relief_m=12, rise=0.015, coast="all", island_r_m=2000, beach_m=80, hills=2, hill_m=40)),
+    "canyon": ("A canyon: a river cut deep into a high inland plateau.",
+               _S(base="rugged", relief_m=8, rise=0.0, coast="none", plateau_m=90, plateau_r_m=9000, river=True,
+                  river_w_m=50, river_depth_m=4, canyon_m=60, canyon_w_m=140)),
+}
+PRESETS: dict[str, TerrainSettings] = {n: s.model_copy(update={"name": n}) for n, (_, s) in CATALOG.items()}
+DESCRIPTIONS = {n: d for n, (d, _) in CATALOG.items()}
+
+
+def get(name: str, seed: int | None = None) -> TerrainSettings:
+    if name not in PRESETS:
+        raise ValueError(f"unknown terrain preset {name!r} (presets: {', '.join(PRESETS)})")
+    s = PRESETS[name].model_copy(deep=True)
+    return s.model_copy(update={"seed": int(seed)}) if seed is not None else s
+
+
+def summary() -> list[dict]:
+    """For the UI: each terrain preset's name and one-line description."""
+    return [{"name": n, "description": DESCRIPTIONS[n]} for n in PRESETS]
