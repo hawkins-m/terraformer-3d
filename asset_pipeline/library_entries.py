@@ -172,18 +172,97 @@ def sync_plan(store: ProjectStore, extra: list[str] = ()) -> None:
     dec = sw_library.decisions(store)
     old = s1_plan.load(store, PLAN)
     included = {a.id for a in old.assets if a.include} if old else set()
-    keep = set(extra)
+    keep, already = set(extra), set()
     for eid, d in dec.items():
         if eid.startswith("_"):
             continue
         ids = {eid} | {f"{eid}-{p}" for p in (d.get("pieces") or {})}
         if ids & included:
             keep.add(eid)
+            already.add(eid)
     ents = _all_entries(store)
+    # a new entry needs a decision the plan can hold (a good-source one needs its frame or crop); one the
+    # plan already includes stays whatever became of its frame (asset_plan keeps it without a look reference)
     keep = {k for k in keep if (dec.get(k) or {}).get("decision") not in (None, "exclude")
-            and not ((dec.get(k) or {}).get("decision") == "source" and not (ents.get(k) or {}).get("best"))}
+            and (k in already or sw_library.frame_ok(store, ents.get(k) or {"id": k}, dec.get(k)))}
     if keep or included:                 # the last included entry excluded: the plan keeps none
         sw_library.asset_plan(store, only=sorted(keep))
+
+
+def ensure_in_plan(store: ProjectStore, assets, strict: bool = True) -> list[str]:
+    """The one "ensure in plan" step: every decided, non-excluded library asset in `assets` is
+    included in the library plan (plans/library.json) before an action reads it. Star, Extract
+    reference views, Brief & build, Make 3D and Generate missing all call it. A no-op, nothing
+    written, when they are all included already. Returns the asset ids it added. An asset that can't
+    be planned (not an entry, undecided, excluded, a good-source decision nothing shows) raises
+    ValueError saying what to do, or with strict=False is skipped."""
+    want = list(dict.fromkeys(assets))
+    have = sw_library.included_assets(store)
+    missing = [a for a in want if a not in have]
+    if not missing:
+        return []
+    dec = sw_library.decisions(store)
+    ents = _all_entries(store)
+    entries, why = set(), {}
+    for a in missing:
+        e, own = _entry_of(store, a)
+        if e is None:
+            why[a] = f"{a} is not a library asset"
+            continue
+        d = dec.get(e["id"]) or {}
+        if not d.get("decision"):
+            why[a] = f"{a} is not decided yet (Library › Entries)"
+        elif d["decision"] == "exclude":
+            why[a] = f"{a} is excluded (Library › Entries)"
+        elif e.get("kind") == "vegetation":
+            why[a] = f"{a} is Unreal foliage, not a library asset"
+        elif not sw_library.frame_ok(store, e, d):
+            why[a] = f"{a} is marked good source but no shot frame shows it: decide Description or Reference"
+        else:
+            entries.add(e["id"])
+    if entries:
+        sync_plan(store, extra=sorted(entries))
+    now = sw_library.included_assets(store)
+    added = [a for a in missing if a in now]
+    for a in missing:
+        if a not in now and a not in why:
+            why[a] = f"{a} could not be added to the library plan"
+    if why and strict:
+        raise ValueError("; ".join(why[a] for a in missing if a in why))
+    return added
+
+
+def sheet_asset(path: str) -> str | None:
+    """The library asset a sheet path belongs to (refs/library/<asset>/sheet_NNN.png), else None."""
+    parts = Path(str(path)).parts
+    return parts[2] if len(parts) == 4 and parts[0] == "refs" and parts[1] == PLAN and parts[3].startswith("sheet_") else None
+
+
+def repair_plan(store: ProjectStore, dry_run: bool = False) -> dict:
+    """Put every decided, non-excluded library asset that has a sheet back into the library plan
+    (assets dropped by an older plan rewrite). Returns {added: [{asset, entry, decision, sheets,
+    ...}], skipped: [{asset, why}], included}; dry_run writes nothing."""
+    from . import areas
+    have = sw_library.included_assets(store)
+    todo, skipped = [], []
+    for r in areas.status(store, everywhere=True):
+        if not r["sheets"] or r["decision"] in (None, "exclude") or r["asset"] in have:
+            continue
+        e = _all_entries(store).get(r["entry"]) or {"id": r["entry"]}
+        if not sw_library.frame_ok(store, e, sw_library.decisions(store).get(r["entry"])):
+            skipped.append({"asset": r["asset"], "why": "good source with no frame or crop: decide it again"})
+            continue
+        todo.append({"asset": r["asset"], "entry": r["entry"], "decision": r["decision"], "sheets": r["sheets"],
+                     "built": bool(r["built"] or r["trellis"]), "approved": r["status"] == "approved"})
+    if todo and not dry_run:
+        ensure_in_plan(store, [t["asset"] for t in todo], strict=False)
+        now = sw_library.included_assets(store)
+        for t in [t for t in todo if t["asset"] not in now]:
+            skipped.append({"asset": t["asset"], "why": "could not be added to the plan"})
+        todo = [t for t in todo if t["asset"] in now]
+    if todo and not dry_run:
+        store.log_run({"stage": "library.repair_plan", "added": [t["asset"] for t in todo]})
+    return {"added": todo, "skipped": skipped, "included": len(sw_library.included_assets(store)), "dry_run": dry_run}
 
 
 # --- API ---------------------------------------------------------------------------------

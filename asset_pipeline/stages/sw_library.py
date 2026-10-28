@@ -695,12 +695,33 @@ PLAN_NAME = "library"
 CATEGORY = {"building": "building", "structure": "structure", "prop": "prop", "vegetation": "vegetation"}
 
 
-def asset_plan(store: ProjectStore, only: list[str] | None = None):
+def crop_path(store: ProjectStore, eid: str) -> Path:
+    """The clean crop a good-source decision uses as its look reference."""
+    return store.root / "site" / LIBRARY_DIR / "refs" / f"{eid}.jpg"
+
+
+def frame_ok(store: ProjectStore, e: dict, d: dict | None) -> bool:
+    """Can this decision be planned? Only a good-source decision needs a frame: a current one
+    (`best`), or for a copy or an entry whose frame is gone, the crop it was decided from."""
+    if (d or {}).get("decision") != "source":
+        return True
+    return bool(e.get("best") or e.get("duplicate_of") or crop_path(store, e["id"]).is_file())
+
+
+def included_assets(store: ProjectStore) -> set[str]:
+    """The asset ids the saved library plan includes."""
+    from . import s1_plan
+    plan = s1_plan.load(store, PLAN_NAME)
+    return {a.id for a in plan.assets if a.include} if plan else set()
+
+
+def asset_plan(store: ProjectStore, only: list[str] | None = None, keep_included: bool = True):
     """The decided entries as an AssetPlan named `library` (plans/library.json), so stages
     2-6 run on them unchanged: source -> the clean crop as look reference, reference -> the
     chosen frame, description -> none. Undecided entries stay greybox massing; excluded and
-    vegetation (Unreal foliage) aren't in it. `only`: just these entries are included (a
-    pilot); the others are listed but not generated."""
+    vegetation (Unreal foliage) aren't in it. `only`: these entries are included; the assets the
+    saved plan already includes stay included (keep_included), so a pilot or an area's batch never
+    drops the others. Excluding or undeciding an entry is what takes it out."""
     from ..schema import AssetPlan
     from . import s1_plan
     data = load(store)
@@ -715,15 +736,17 @@ def asset_plan(store: ProjectStore, only: list[str] | None = None):
     if undecided:
         raise ValueError(f"not decided (or excluded): {undecided}")
     plan = AssetPlan(scene=f"site/{library_path(store).name}", summary="world-mode asset library (sw_library)",
-                     assets=library_assets(store, only), llm="")
+                     assets=library_assets(store, only, keep=included_assets(store) if keep_included else None), llm="")
     return s1_plan.save(store, PLAN_NAME, plan)
 
 
-def library_assets(store: ProjectStore, only: list[str] | None = None, skip_unplannable: bool = False) -> list:
+def library_assets(store: ProjectStore, only: list[str] | None = None, skip_unplannable: bool = False,
+                   keep: set[str] | None = None) -> list:
     """The PlanAssets of every decided entry (a kit decision: one per module), `include` set for
-    the entries in `only` (None: all). Pure: asset_plan saves them. A source decision with no
-    current frame can't be planned: it raises if it is to be included, else (or with
-    skip_unplannable) it is left out, as library_entries.sync_plan leaves it."""
+    the entries in `only` (None: all) and the asset ids in `keep`. Pure: asset_plan saves them. A
+    good-source decision with no frame (frame_ok) can't be planned from its decision: it raises if
+    it is to be included, else (or with skip_unplannable) it is left out. One in `keep` (already
+    included, with sheets) is planned without a look reference instead of being dropped."""
     from ..schema import Dimensions, PlanAsset
     data = load(store)
     if data is None:
@@ -735,7 +758,7 @@ def library_assets(store: ProjectStore, only: list[str] | None = None, skip_unpl
         e = entries.get(eid)
         if eid.startswith("_") or e is None or d.get("decision") in (None, "exclude") or e.get("kind") == "vegetation":
             continue
-        inc = only is None or eid in only
+        inc = only is None or eid in only or eid in (keep or ())
         if d["decision"] == "kit":
             # one asset per module, each sheeted alone (trim matches through the shared look
             # ref). Flux draws a small module (a two-column stoa bay) as asked, but a multi-storey
@@ -746,20 +769,23 @@ def library_assets(store: ProjectStore, only: list[str] | None = None, skip_unpl
                     id=f"{eid}-{name}", name=f"{entry_name(e, d)} {name}", noun=pc.get("noun") or "building",
                     category="structure", description=pc["description"], count=1,
                     dimensions=Dimensions(width=w, depth=dp, height=h), placement=f"kit module of {eid}",
-                    include=inc, refs=[d["frame"]] if d.get("frame") else [],
+                    include=inc or f"{eid}-{name}" in (keep or ()), refs=[d["frame"]] if d.get("frame") else [],
                     ref_strength=ref_strength("kit", e["tier"]), route=d.get("route") or "procedural"))
             continue
         refs = {"source": [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"], "reference": [d.get("frame")],
                 "description": []}[d["decision"]]
-        if d["decision"] == "source" and not e.get("best") and e.get("duplicate_of"):
-            refs = [f"site/{LIBRARY_DIR}/refs/{eid}.jpg"]          # a duplicate made before 2026-10-25: its copied crop
-        elif d["decision"] == "source" and not e.get("best"):
-            if skip_unplannable or not inc:           # one that isn't being included can't hold up the rest
+        if d["decision"] == "source" and not e.get("best"):
+            if e.get("duplicate_of") or crop_path(store, eid).is_file():
+                pass                          # a copy (made before 2026-10-25) or a gone frame: the crop it was decided from
+            elif eid in (keep or ()):
+                refs = []                     # already included, with sheets: kept, without a look reference
+            elif skip_unplannable or not inc:     # one that isn't being included can't hold up the rest
                 continue
-            raise ValueError(f"{eid}: marked good source but no current frame shows it")
+            else:
+                raise ValueError(f"{eid}: marked good source but no current frame shows it")
         w, dp, h = e.get("size_m") or [1.0, 1.0, 1.0]
         assets.append(PlanAsset(
-            id=eid, name=entry_name(e, d), noun=e["part"].replace("_", " "),
+            id=eid, name=entry_name(e, d), noun=(e.get("part") or eid).replace("_", " "),
             category=CATEGORY.get(e["kind"], "structure"),
             description=entry_description(e, d),
             count=max(1, e["instances"]), dimensions=Dimensions(width=w, depth=dp, height=h),

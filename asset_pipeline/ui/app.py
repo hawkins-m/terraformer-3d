@@ -441,7 +441,7 @@ def _images(store: ProjectStore, sub: str) -> list[str]:
 
 def _uncut(store: ProjectStore, sheet: str) -> bool:
     try:
-        unit = s3_views._unit_for_sheet(store, sheet)
+        unit = s3_views._unit_for_sheet(store, sheet, ensure=False)      # a listing: no writes
     except ValueError:
         return False
     if unit.kind == "material":
@@ -863,6 +863,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def star(slug: str, req: StarReq):
         store = _store(slug)
         try:
+            if req.starred:        # a decided asset the plan dropped comes back before it is starred
+                from .. import library_entries
+                library_entries.ensure_in_plan(store, [a for a in [library_entries.sheet_asset(req.path)] if a], strict=False)
             return {"key": review.set_star(store, req.path, req.starred), "starred": req.starred}
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(400, str(e))

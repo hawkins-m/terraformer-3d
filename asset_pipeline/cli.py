@@ -304,6 +304,9 @@ def cmd_style_star(a) -> None:
     from . import review
     store = ProjectStore.open(a.project)
     for p in a.paths:
+        if not a.unstar:
+            from . import library_entries
+            library_entries.ensure_in_plan(store, [x for x in [library_entries.sheet_asset(review.rel(store, p))] if x], strict=False)
         print(("unstarred " if a.unstar else "starred ") + review.set_star(store, p, not a.unstar))
 
 
@@ -1155,6 +1158,20 @@ def cmd_library_pending(a) -> None:
         print(f"{r['frame_share'] * 100:6.2f}%  {r['slot']}: {'; '.join(r['state'])}")
 
 
+def cmd_library_repair_plan(a) -> None:
+    from . import library_entries
+    store = ProjectStore.open(a.project)
+    r = library_entries.repair_plan(store, dry_run=a.dry_run)
+    verb = "would add" if a.dry_run else "added"
+    for t in r["added"]:
+        flags = ", ".join(x for x in ("built" if t["built"] else "", "approved" if t["approved"] else "") if x)
+        print(f"{verb} {t['asset']}: {t['decision']}, {t['sheets']} sheet(s)" + (f", {flags}" if flags else ""))
+    for t in r["skipped"]:
+        print(f"skipped {t['asset']}: {t['why']}")
+    print(f"{verb} {len(r['added'])} asset(s)" + (f", skipped {len(r['skipped'])}" if r["skipped"] else "")
+          + f"; {r['included']} asset(s) are in plans/library.json" + (" now" if not a.dry_run else ""))
+
+
 def cmd_library_sheets(a) -> None:
     from . import areas
     from .stages import s2_refs, sw_library
@@ -1172,9 +1189,14 @@ def cmd_library_sheets(a) -> None:
             raise SystemExit("nothing to do in this area")
     if not a.plan_only and not _comfy_up():
         raise SystemExit(COMFY_DOWN.format(url=config.backends()["comfyui"]["url"]))
-    plan = sw_library.asset_plan(store, only=a.only)
+    plan = sw_library.asset_plan(store, only=a.only)        # adds these; every asset already included stays included
     inc = [x for x in plan.assets if x.include]
     print(f"plans/library.json: {len(plan.assets)} decided assets, {len(inc)} included")
+    only_assets = None
+    if a.only:                                       # --only / an area: sheets for these entries' assets only
+        from . import library_entries
+        only_assets = {x for e in a.only for x in library_entries.asset_ids(store, e)}
+        inc = [x for x in inc if x.id in only_assets]
     for x in inc:
         print(f"  {x.id}: {x.dimensions.width:g} x {x.dimensions.depth:g} x {x.dimensions.height:g} m, "
               f"refs {x.refs or '-'} at {x.ref_strength:g}")
@@ -1184,7 +1206,8 @@ def cmd_library_sheets(a) -> None:
         raise SystemExit("--guidance steers one asset's reroll: give it with --unit ASSET")
     todo = [u for u in s2_refs.units(store, sw_library.PLAN_NAME) if (not a.unit or u.key in a.unit)
             and u.key in {x.id for x in inc} and (a.more or a.unit or not s2_refs.sheets(store, u))
-            and (need_assets is None or a.more or a.unit or u.key in need_assets)]
+            and (need_assets is None or a.more or a.unit or u.key in need_assets)
+            and (only_assets is None or a.unit or u.key in only_assets)]
     for u in todo:
         try:
             out = s2_refs.generate(store, u, n=a.n, view=a.view, guidance=a.guidance)
@@ -2020,7 +2043,13 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--shot", required=True)
     p.add_argument("--no-draft", action="store_true", help="skip the vision model's drafts")
     p.set_defaults(fn=cmd_library_pending)
-    p = libsub.add_parser("sheets", help="decided entries -> plans/library.json, then stage 2 sheets")
+    p = libsub.add_parser("repair-plan", help="put every decided, non-excluded asset that has a sheet back into "
+                                              "plans/library.json (assets an older plan rewrite dropped)")
+    p.add_argument("project")
+    p.add_argument("--dry-run", action="store_true", help="list what it would add, change nothing")
+    p.set_defaults(fn=cmd_library_repair_plan)
+    p = libsub.add_parser("sheets", help="decided entries -> plans/library.json (added to it, never dropped from it), "
+                                         "then stage 2 sheets")
     p.add_argument("project")
     p.add_argument("--area", help="only this area's decided, unapproved entries (ap area define)")
     p.add_argument("--district", help="only this district's decided, unapproved entries")

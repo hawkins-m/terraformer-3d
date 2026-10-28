@@ -107,6 +107,9 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
         gpu = gpu_policy.settings()["gpus"]["gpu0"]
     if mode not in MODES:
         raise ValueError(f"mode must be one of {', '.join(MODES)}")
+    if plan == "library":                 # a decided asset the plan dropped comes back first (one that can't: runs as before)
+        from .. import library_entries
+        library_entries.ensure_in_plan(store, [asset_id], strict=False)
     key = review.rel(store, view) if view else review.chosen(store, plan, asset_id)
     if not key:
         raise ValueError(f"{plan}/{asset_id}: choose a view first")

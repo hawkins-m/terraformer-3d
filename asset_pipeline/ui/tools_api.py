@@ -361,6 +361,12 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     def library_brief_build(slug: str, asset: str, req: BriefBuildReq):
         """The brief (from a sheet, as `ap library brief`) when there is none, then the build."""
         store = store_of(slug)
+        from .. import library_entries
+        try:
+            library_entries.ensure_in_plan(store, [asset])        # a decided asset the plan dropped comes back first
+        except (ValueError, KeyError, FileNotFoundError) as e:
+            if not kit_proc.spec_path(store, asset).is_file():     # one with its brief can still be rebuilt
+                raise HTTPException(400, str(e).strip('"'))
         have = kit_proc.spec_path(store, asset).is_file()
         if not have or req.force_brief:
             data = sw_library.load(store)

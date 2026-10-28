@@ -319,12 +319,10 @@ def missing_units(store: ProjectStore, plan: str | None = None) -> list[Unit]:
 
 
 def include_pending(store: ProjectStore, todo: list[Unit]) -> None:
-    """Include the pending units' entries in the library plan (library_entries.sync_plan: the
-    assets already included stay included), so views and 3D see them once they have sheets."""
-    from .. import areas, library_entries
-    keys = {u.key for u in todo if u.pending}
-    if keys:
-        library_entries.sync_plan(store, extra=sorted({r["entry"] for r in areas.sheet_rows(store) if r["asset"] in keys}))
+    """Include the pending units' assets in the library plan (library_entries.ensure_in_plan, the
+    shared step), so views and 3D see them once they have sheets."""
+    from .. import library_entries
+    library_entries.ensure_in_plan(store, [u.key for u in todo if u.pending and u.plan == "library"], strict=False)
 
 
 def generate_missing(store: ProjectStore, n: int = 2, plan: str | None = None,

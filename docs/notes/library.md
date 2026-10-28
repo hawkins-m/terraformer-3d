@@ -437,3 +437,27 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
   with no frame no longer stops a plan that isn't including it.
 - Tests: `tests/test_sheets_needed.py` (one synthetic asset per case, the batch, the tab, the library
   payload and the strip's own `libStepOf` run in node all counted against one list).
+
+## The library plan keeps decided assets (2026-10-27)
+- **What dropped them.** `sw_library.asset_plan(only=...)` marked only the listed entries included, so
+  `ap library sheets --only X` or `--area A` (which passed just the entries needing sheets, and after
+  f88cfd7 none of the ones that already had sheets) un-included every other asset: its sheets stayed on
+  disk, but Extract reference views failed ("no included asset or kit ... in plan library any more")
+  and it left Generate 3D Model & Review. `sync_plan` also dropped a good-source asset whose frame was
+  gone (a pre-2026-10-25 copy, e.g. a copy of canopy-table) that `asset_plan` would plan, on every
+  decide, Generate missing and sheets batch. Re-plan, an area change and the sheets verdict never touched
+  the plan's included set.
+- **Now.** `asset_plan` keeps the saved plan's included assets included (`keep_included`, default);
+  only excluding or undeciding takes an asset out. One rule for "can this decision be planned"
+  (`sw_library.frame_ok`: a good-source decision needs a frame, or its crop) in `asset_plan`, `sync_plan`
+  and the sheets verdict. An already-included good-source asset with no frame is kept without a look
+  reference.
+- **One step.** `library_entries.ensure_in_plan(store, assets, strict=True)` includes any decided,
+  non-excluded asset (a kit module brings its whole kit) before the action reads it, writes nothing when
+  all are in, and says why for one it can't (undecided, excluded, foliage, no frame). Callers: star
+  (API and `ap style star`), Extract reference views (`s3_views._unit_for_sheet`; a listing passes
+  `ensure=False` and sees pending units, no writes), Brief & build, Make 3D (`s5_3d.run`, non-fatal),
+  Generate missing and a unit's more (`s2_refs.include_pending`).
+- **`ap library repair-plan PROJECT [--dry-run]`** adds every decided, non-excluded asset that has a sheet
+  back into the plan and prints each (decision, sheet count, built / approved), with `--dry-run` listing
+  without writing. Run it once on a project that lost assets. Tests: `tests/test_ensure_in_plan.py`.

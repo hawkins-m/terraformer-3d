@@ -37,7 +37,10 @@ VIEWS = "views"
 ASKED = ("front", "side", "back")
 
 
-def _unit_for_sheet(store: ProjectStore, sheet_key: str) -> s2_refs.Unit:
+def _unit_for_sheet(store: ProjectStore, sheet_key: str, ensure: bool = True) -> s2_refs.Unit:
+    """The unit a sheet belongs to. A library asset that is decided but not in the plan (a plan rewrite
+    dropped it) is added first (library_entries.ensure_in_plan); ensure=False (a listing) finds it as a
+    pending unit instead and writes nothing."""
     parts = Path(sheet_key).parts
     if len(parts) != 4 or parts[0] != s2_refs.REFS:
         raise ValueError(f"not a reference sheet: {sheet_key}")
@@ -45,6 +48,17 @@ def _unit_for_sheet(store: ProjectStore, sheet_key: str) -> s2_refs.Unit:
     for u in s2_refs.units(store, plan):
         if u.key == key:
             return u
+    if plan == "library":
+        if ensure:
+            from .. import library_entries
+            library_entries.ensure_in_plan(store, [key])
+            for u in s2_refs.units(store, plan):
+                if u.key == key:
+                    return u
+        else:
+            for u in s2_refs.units(store, plan, pending=True):
+                if u.key == key:
+                    return u
     raise ValueError(f"{sheet_key}: no included asset or kit {key!r} in plan {plan} any more")
 
 

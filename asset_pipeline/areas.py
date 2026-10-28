@@ -178,7 +178,7 @@ def status(store: ProjectStore, area: str | None = None, district: str | None = 
                    # a copy made as a variant of a decided original rides on the original's sheet
                    "copy_of": copies.get(eid) if (dec.get(copies.get(eid)) or {}).get("decision") not in (None, "exclude") else None,
                    # a good-source decision no shot frame shows can't be planned (sync_plan leaves it out)
-                   "no_frame": d.get("decision") == "source" and not e.get("best")}
+                   "no_frame": not sw_library.frame_ok(store, e, d)}
             row["next"] = next_step(store, row, area, district)
             rows.append(row)
     return rows
