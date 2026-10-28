@@ -89,6 +89,31 @@ FLUX frame generation, the city planner and the first browser UI. Added during i
 - **Open-weights scope**: MIT license, paid SDKs moved to an optional extra that refuses to run
   by default, experimental paths marked and kept out of the defaults; the RUNBOOK and this README.
 
+## Layouts and terrain
+
+Added from 2026-10-27, mostly in the Layout tab's roll box and `ap ue build`:
+
+- **City layout presets**: 20 overall city shapes (classic, grid, manhattan, walled-castle, star-fortress,
+  island-city, hill-town...) in the Layout picker; `ap site preset`.
+- **Random preset and Keep current outline**: a roll can pick a preset per seed, or keep the current outline
+  and districts while the rest rerolls.
+- **Terrain presets**: 8 generated terrains (flat plain, coastal plain, river valley, hill city, mountain bowl,
+  plateau, island, canyon) with their own seed; rivers, canals and docks are lowered into the ground; the plan
+  avoids water and steep ground; `ap terrain roll --preset`.
+- **Describe the terrain**: text to a preset plus tweaks with the local vision model, else keywords;
+  `ap terrain roll --describe`.
+- **Unreal Landscape**: a generated terrain becomes `AP_Landscape` with the auto material, made headless by the
+  repo's APLandscape editor plugin; heightmap projects keep their own Landscape.
+- **Run kit role**: a module repeated along a thin slot, following its curve (a stoa, a colonnade).
+- **Use unplaced assets**: built assets the plan has no slot for take a share of fitting places at build time
+  (`ap ue build --use-unplaced`).
+- **Stretch cap**: no placed model stretches past 1.4:1; it becomes a run of copies, a same-family swap, or a
+  capped fit, listed in the build report.
+- **Stone paving**: CC0 slabs, cobbles and flagstones on streets, lanes and plazas, world-aligned with macro
+  variation (part of Ground textures).
+- **Library commands**: `ap library status` (where each asset waits), `repair-plan` (decided assets back in
+  the plan), `stand-in` (an excluded entry's buildings take another entry's model).
+
 ## Requirements
 
 - Linux (verified on Ubuntu 26.04). Windows through WSL2 with an NVIDIA GPU is **beta**
@@ -547,6 +572,11 @@ workspace for artists rather than a web-app look.
 ## Known issues
 
 - Clean up can produce wrong scale or broken texture bakes; it is optional, check results before using them.
+- The generated-terrain Landscape export (APLandscape plugin) builds for Linux engines only for now.
+- The Water plugin's ocean can't run in the headless build: the build uses the Simple sea instead; place an
+  ocean by hand in the editor.
+- Describe the terrain falls back to keyword matching when the local vision model isn't running.
+- The utopia layout preset keeps its old overlaps (the generator as it was before presets).
 
 ## Roadmap
 
