@@ -386,4 +386,38 @@ marked done here.
   - API: `POST /site/terrain/describe {text, preset}`, and `POST /site/terrain` takes `settings`.
   - CLI: `ap terrain roll PROJECT --describe TEXT [--seed N]`.
   Tests: `tests/test_terrain_describe.py`, with a fake model for the model path.
-- [ ] Phase 5: rerolls through Greybox and Shots (generated and heightmap), six previews.
+- [x] **Phase 5: through Greybox and Shots, previews** (committed).
+  - `tests/test_terrain_pipeline.py` (real Blender) rolls a starter city on a generated river-valley
+    terrain (classic) and on a heightmap (walled-castle). Each goes through the greybox build and one
+    medium shot's Shots render (depth pass checked).
+  - Live on a second app instance (scratch AP_ROOT):
+    - flat-test (generated): river-valley terrain, classic roll, Greybox build, two shots rendered;
+    - the scratch copy (heightmap, kept as is, no settings added): a classic roll, Greybox build, two
+      shots rendered.
+    The scratch project's site/ and shots/ were restored afterwards.
+  - Fixes found on the way: an island terrain makes island-city use the terrain's own shore
+    (`Outline.terrain`, `ISLAND_INSET_M`) with no second strait. The bounds grow to the whole island.
+    Streets of a dropped block over water go too.
+  - Previews (city plan over terrain heights, real rolls on flat-test, terrain seed 5, city seed 11)
+    in the scratch project's `site/preset_previews/`:
+    - terrain-classic-on-river-valley.png
+    - terrain-walled-castle-on-hill-city.png
+    - terrain-manhattan-on-coastal-plain.png
+    - terrain-utopia-unchanged.png (utopia on the project's own legacy terrain; that project still had a
+      wall from an earlier roll, which utopia keeps)
+    - terrain-island-city-on-island.png
+    - terrain-suburbia-on-mountain-bowl.png
+
+### Next (terrain)
+
+- The local model path is tested with a fake model only; live it fell back to keywords (no server running).
+- A recipe district marked "coast" has no coast on an inland terrain and is left out (classic's
+  harbour on flat-plain or canyon). Island-city's harbour on an island terrain is the same.
+- Lowered rivers are carved before the district pads, so a pad laid over a river fills it (the
+  districts avoid water, but a pad's blend ring can reach a bank).
+- A terrain change re-places a recipe's districts with the same roll seed, but on new ground the
+  bounds may grow (towns), so a later terrain change can move them again.
+- The mountain ring, plateau and island centre on the bounds' middle when the settings' centre is
+  (0, 0). Set `centre` in the settings to move them.
+- The Greybox build bakes the lowered river into the terrain mesh. Unreal gets the river ribbons as
+  water-tinted slots, not a water body.

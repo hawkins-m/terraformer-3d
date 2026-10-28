@@ -212,6 +212,13 @@ def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteL
     no_shore = ts is not None and ts.coast != "side"
     if no_shore:                   # an island or inland terrain: no shoreline to measure from; near its centre
         target = np.array(ts.centre, float) + rng.uniform(-0.08, 0.08, 2) * Rb
+        if ts.coast == "all":      # an island terrain: the bounds take the whole island in
+            r_ = 1.15 * ts.island_r_m
+            x0, y0 = max(min(x0, ts.centre[0] - r_), -half), max(min(y0, ts.centre[1] - r_), -half)
+            x1, y1 = min(max(x1, ts.centre[0] + r_), half), min(max(y1, ts.centre[1] + r_), half)
+            c.bounds = (round(x0), round(y0), round(x1), round(y1))
+            if pr.outline == "island":                       # the city takes the terrain's island, out to its shore
+                pr.outline_m = round(0.9 * ts.island_r_m, 1)
     d0 = rec.districts[0]
     r0 = d0.r * k
     if rec.inland < 0 and not no_shore:   # an island: offshore, its own ground made round the centre; the bounds take it in

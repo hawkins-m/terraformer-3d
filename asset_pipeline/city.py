@@ -315,8 +315,16 @@ class Outline:
         rng = layout_rng(c, "outline")
         # a blob: the circle's radius wobbles with three low harmonics
         self.harm = [(k, rng.uniform(0.04, 0.11), rng.uniform(0, 2 * math.pi)) for k in (2, 3, 5)]
+        t = getattr(f, "t", None)
+        # an island preset on an island terrain: the terrain's own shore, drawn in a little
+        self.terrain = t if self.kind == "island" and t is not None and t.settings is not None and t.settings.coast == "all" else None
+        if self.terrain is not None:
+            self.c = np.array(t.settings.centre, float)
 
     def radius_at(self, a):
+        if self.terrain is not None:
+            from . import terrain_gen
+            return terrain_gen.island_radius(self.terrain, np.asarray(a, float)) - ISLAND_INSET_M
         r = np.ones_like(np.asarray(a, float))
         if self.kind in ("blob", "island"):
             for k, amp, ph in self.harm:
@@ -411,7 +419,8 @@ def pads(layout: SiteLayout, heights: np.ndarray) -> list[tuple[float, float, fl
 
 
 WATER_LIFT = 1.9               # a river's or canal's surface over its lowered bed (terrain_gen.WATER_DEPTH_M - 0.1)
-ISLAND_STRAIT_M = 300.0         # an island: the sea this wide all round it (the mainland beyond stays)
+ISLAND_STRAIT_M = 300.0
+ISLAND_INSET_M = 60.0           # an island preset on an island terrain: its outline this far inside the shore         # an island: the sea this wide all round it (the mainland beyond stays)
 
 
 DOCK_W, DOCK_LEN, DOCK_PITCH = 45.0, 160.0, 95.0
@@ -468,6 +477,8 @@ def preset_terrain(layout: SiteLayout, heights: np.ndarray):
     if c is None or c.preset.outline != "island":
         return h, None
     t = layout.terrain
+    if t.settings is not None and t.settings.coast == "all":     # an island terrain: the sea is round it already
+        return h, None
     x, y = grid_coords(t)
     u, _ = sea_axes(t)
     o = Outline(c, type("F", (), {"u": u})())
@@ -2279,6 +2290,8 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     fit = fits_terrain(layout)
     if fit:                    # a block over water (a river, the sea round an island, a dock) is not built on
         P.blocks = [b for b in P.blocks if bool(f.land(*b.representative_point().coords[0]))]
+        P.ways = [w for w in P.ways if w.kind not in ("street", "stair", "lane")
+                  or bool(f.ground(*w.line.interpolate(0.5, normalized=True).coords[0]))]   # nor its streets
 
     # markets: avenue crossings at middling density, spread out; and each market node
     avs = [w for w in P.ways if w.kind in ("avenue", "arterial")]

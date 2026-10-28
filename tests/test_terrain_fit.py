@@ -96,3 +96,16 @@ def test_walls_and_moat_stay_on_land(store):
             assert bool(f.land(w.x, w.y))
     assert all(bool(f.land(*q.representative_point().coords[0])) for q in P.moat)
     assert all(bool(f.land(*nd.center)) for nd in L.city.nodes)
+
+
+def test_island_city_on_an_island_terrain_takes_the_terrains_island(store):
+    L, h, P, f = on(store, "island", "island-city")
+    ts = L.terrain.settings
+    assert ts.coast == "all"
+    o = f.outline
+    assert o.terrain is not None and np.allclose(o.c, ts.centre)           # the terrain's own shore, not a second island
+    sea_ways = [w for w in P.ways if not np.all(f.ground(*np.asarray(w.line.segmentize(40).coords).T))
+                and w.kind not in ("river", "canal")]
+    assert not [w for w in sea_ways if w.kind in ("promenade", "street", "avenue", "ring")]
+    x0, y0, x1, y1 = L.city.bounds
+    assert x1 - x0 >= 2 * ts.island_r_m and y1 - y0 >= 2 * ts.island_r_m      # the bounds take the island in
