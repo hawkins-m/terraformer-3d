@@ -152,12 +152,45 @@ def explain(store: ProjectStore, use_active: bool = False) -> dict:
     buildings = _building_entries(store) if has_gb else set()
     ok, good = gate(store, use_active), approved_set(store)
     dec = sw_library.decisions(store)
+    rel = _relations(store, dec)
     rows = []
     for eid, ent in sorted(le._all_entries(store).items()):
         r = _row(store, eid, ent, eid in props, eid in buildings, has_gb, ok(eid), eid in good, use_active,
                  (dec.get(eid) or {}).get("decision") == "exclude", versions, s6_cleanup)
+        if has_gb and r["role"] == "none":            # why no slot, building or prop piece uses it, and whether it shows anyway
+            r["outside_reason"], r["appears"] = outside_reason(eid, ent, dec.get(eid), rel)
+            if not r["excluded"] and not r["placed"]:
+                r["stand_in"] = f"not in the city layout ({r['outside_reason']})"
+                r["line"] = line(r)
         rows.append(r)
     return {"use_active": use_active, "greybox": has_gb, "assets": rows, "counts": counts(rows)}
+
+
+def _relations(store, dec: dict) -> dict:
+    """{variant: original} (variant sets and duplicates used as variants) and {child: parent} (attached pieces)."""
+    from . import variants
+    var = {m: base for base, vs in variants.sets(store).items() for m in (vs.get("members") or {}) if m != base}
+    var |= variants.duplicates_as_variants(store)
+    att = {c["entry"]: p for p, d in dec.items() if not p.startswith("_")
+           for c in (d or {}).get("children") or [] if c.get("entry")}
+    return {"variant": var, "attached": att}
+
+
+def outside_reason(eid: str, ent: dict, decision: dict | None, rel: dict) -> tuple[str, bool]:
+    """Why an entry has no slot, building or prop piece of its own, and whether it appears in the city anyway:
+    (reason, appears). A kit's modules, attached pieces and variants appear (on the buildings, with the
+    parent, in the original's places); only an entry with no share and no slots never does."""
+    d = (decision or {}).get("decision")
+    if d == "exclude":
+        return "excluded", False
+    if d == "kit":
+        return "a facade kit: its modules stand on buildings", True
+    if rel["attached"].get(eid):
+        return f"attached to {rel['attached'][eid]}", True
+    if rel["variant"].get(eid):
+        return f"variant of {rel['variant'][eid]}", True
+    what = "building type" if ent.get("kind") == "building" else f"{ent.get('kind') or 'entry'}"
+    return f"{what} with no share or slots", False
 
 
 def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, excluded, versions, s6_cleanup) -> dict:
@@ -197,7 +230,7 @@ def _row(store, eid, ent, prop, building, has_gb, ok, is_approved, use_active, e
     elif not has_gb:
         out["stand_in"] = "no greybox yet"
     elif not (prop or building):
-        out["stand_in"] = "excluded" if excluded else "not in the city layout (no slot, building or prop piece uses it)"
+        out["stand_in"] = "excluded" if excluded else "not in the city layout (no slot, building or prop piece uses it)"   # explain() adds the reason
     elif excluded and model is None:
         out["stand_in"] = "excluded"
     elif model is None:

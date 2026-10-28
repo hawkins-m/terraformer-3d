@@ -254,34 +254,11 @@ const LIB_STEPS = [
   {id: "build", name: "Build", go: ["views", null], tip: "Assets with a starred sheet and no 3D model yet (Generate 3D Model & Review: Make 3D or Reroll)."},
   {id: "approve", name: "Approve", go: ["views", null], tip: "Built assets not approved yet (Generate 3D Model & Review › Approve)."},
 ];
-// {asset id: the step it waits at, or null (excluded, vegetation, approved)}
-// Whether an asset needs a sheet is the server's call (libraryData.sheets, areas.sheet_skip): the same
-// list the sheets batch and the Reference sheets tab use, so 2 Sheets, Make sheets for all and No sheets
-// yet always agree. Assets with no sheet that don't need one (a procedural brief stands in, a copy rides
-// on its original, a good-source decision no frame shows) wait at Build, or nowhere.
+// {asset id: the step it waits at, or null (excluded, vegetation, approved, not in the city layout)}
+// The server's call (libraryData.status.steps, areas.library_status): the same definition the sheets batch,
+// the Reference sheets tab, Generate 3D Model & Review and `ap library status` use, so they always agree.
 function libStepOf() {
-  const out = {};
-  const decs = (libraryData && libraryData.decisions) || {}, stars = (data && data.stars) || {};
-  const sh = (libraryData && libraryData.sheets) || {}, need = new Set(sh.needed || []), skip = sh.skip || {};
-  const sheets = {};
-  for (const u of refs || []) if (u.plan === "library") sheets[u.key] = u.sheets || [];
-  const rows = {};
-  for (const a of (reviewData && reviewData.assets) || []) if (a.plan === "library") rows[a.asset.id] = a;
-  for (const e of libEntries()) {
-    if (e.kind === "vegetation") continue;
-    const d = libDecision(e);
-    if (!d) { out[e.id] = "decide"; continue; }
-    if (d === "exclude") { out[e.id] = null; continue; }
-    const ids = d === "kit" ? Object.keys((decs[e.id] || {}).pieces || {}).map(p => `${e.id}-${p}`) : [e.id];
-    for (const id of ids) {
-      const r = rows[id], built = !!(r && (r.results.length || r.current)), mine = sheets[id] || [];
-      out[id] = need.has(id) ? "sheets"
-        : built ? (r.review !== "approved" ? "approve" : null)
-        : !mine.length ? (skip[id] === "brief" || skip[id] === "built" ? "build" : null)
-        : !mine.some(k => stars[k]) ? "star" : "build";
-    }
-  }
-  return out;
+  return (libraryData && libraryData.status && libraryData.status.steps) || {};
 }
 function libSteps() {
   const out = Object.fromEntries(LIB_STEPS.map(s => [s.id, 0]));
@@ -317,7 +294,7 @@ function libStepGo(id) {
     const f = $("#lib-filter"); f.value = "todo"; f.dispatchEvent(new Event("change"));
   }
   if (s.id === "sheets" || s.id === "star") refsFilterSet(s.id === "sheets" ? "missing" : "star");
-  if (s.id === "build" || s.id === "approve") viewsFilterSet(s.id === "approve" ? "approve" : "all");
+  if (s.id === "build" || s.id === "approve") viewsFilterSet(s.id);
   libOfferShow(s.id === "sheets" || s.id === "build" ? s.id : null);
 }
 
@@ -357,9 +334,9 @@ function libOfferRender() {
     let html = `<span class="lo-what">${LIB_STEPS.findIndex(x => x.id === step) + 1} ${LIB_STEPS.find(x => x.id === step).name}:</span> ${libOfferKinds(step).map(btn).join(" ")}`;
     if (step === "build") {
       viewsStepMap = null;
-      const needView = reviewData ? reviewData.assets.filter(VIEWS_FILTERS.view[1]).length : 0;
+      const needView = reviewData ? reviewData.assets.filter(VIEWS_FILTERS.view[1]).length : 0;   // viewsFilterSet puts the assets in the plan first
       const pending = reviewData ? reviewData.pending_sheets.length : 0;
-      if (pending) html += ` <button type="button" class="small" data-offer-extract title="Cut the views out of newly starred sheets (SAM 3.1); then pick one per asset">Extract views from ${pending} new starred sheet${pending === 1 ? "" : "s"}</button>`;
+      if (pending) html += ` <button type="button" class="small" data-offer-extract title="Cut the views out of newly starred sheets (SAM 3.1); then pick one per asset">Extract views from ${pending} new starred sheet${pending === 1 ? "" : "s"}</button>`;   // the tab's own count (reviewData.pending_sheets)
       if (needView) html += ` <button type="button" class="link" data-offer-views title="Generate 3D Model & Review, showing the TRELLIS assets with no view picked yet">${needView} need a view picked</button>`;
     }
     html += ` <button type="button" class="wclose" data-offer-close aria-label="Hide this bar">x</button>`;

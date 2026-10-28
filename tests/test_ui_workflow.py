@@ -103,15 +103,18 @@ def test_workflow_states_come_from_project_state_not_single_files():
 
     # library: a lock the plan never considered is out of date; one it considered and dropped is not
     plan = {"entries": [{"id": "e1"}], "unseen": [], "candidates": [], "sources": {}}
-    lib = {"plan": plan, "decisions": {"e1": {"decision": "description"}}, "sheets": {"needed": ["e1"], "skip": {}}}
+    lib = {"plan": plan, "decisions": {"e1": {"decision": "description"}}, "sheets": {"needed": ["e1"], "skip": {}},
+           "status": {"steps": {"e1": "sheets"}}}                     # the server's step per asset (areas.library_status)
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "stale"
     plan["candidates"] = [{"frame": "frames/a/b/f.png", "ok": False}]
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "ready"     # e1 has no sheets
     # a sheet but none starred: no chosen reference yet, so not complete (the old bug)
     lib["sheets"] = {"needed": [], "skip": {"e1": "sheets"}}              # the server: e1 has a sheet now
+    lib["status"] = {"steps": {"e1": "star"}}
     assert _wf(siteData=built, framesData=frames, libraryData=lib,
                refs=[{"plan": "library", "key": "e1", "sheets": ["s"]}])["library"] == ("input", False)
     lib["decisions"] = {}
+    lib["status"] = {"steps": {"e1": "decide"}}
     assert _wf(siteData=built, framesData=frames, libraryData=lib)["library"][0] == "input"
 
     # unreal: exported but stale export is out of date even with a project
@@ -138,7 +141,13 @@ def _lib(rows=(), stars=None, sheets=SHEETS, **kw):
     review = {"assets": list(rows), "pending_sheets": [], "starred_sheets": len(STARS if stars is None else stars)}
     have = {u["key"] for u in sheets}
     need = [e for e in ("e1", "e2") if e not in have]                     # what the server's verdict would list
-    return _wf(data=data, siteData=BUILT, framesData=FRAMES, libraryData={"plan": PLAN, "decisions": DEC,
+    by = {r["asset"]["id"]: r for r in rows}
+    steps = {}                                                            # what the server's step per asset would be
+    for e in ("e1", "e2"):
+        r = by.get(e)
+        steps[e] = ("sheets" if e in need else ("approve" if r["review"] != "approved" else None) if r and r["results"]
+                    else "star" if not (STARS if stars is None else stars).get(f"refs/library/{e}/sheet_000.png") else "build")
+    return _wf(data=data, siteData=BUILT, framesData=FRAMES, libraryData={"plan": PLAN, "decisions": DEC, "status": {"steps": steps},
                                                                           "sheets": {"needed": need, "skip": {}}}, refs=sheets,
                reviewData=review, expr="workflow().map(s => [s.id, s.status, s.next.ok, s.label])", **kw)
 

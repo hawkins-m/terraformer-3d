@@ -140,7 +140,11 @@ function renderReadiness() {
     `<b>${c.stand_ins}</b> stand-in${c.stand_ins === 1 ? "" : "s"}`,
     nb.placement_checked ? `<b>${c.placement_issues}</b> with placement-check issues` : "placement not checked yet (no build)"].join(" · ")
     + (off ? ` <span class="hint" style="margin:0">(${n(off, "other asset")} not in the city layout)</span>` : "");
-  if (!rows.length) { box.innerHTML = `<p class="hint">No library asset stands in the city layout yet.</p>`; return; }
+  // every asset counted there, with its reason (next_build.outside_reason): some still appear in the city, some never do
+  const offRows = nb.assets.filter(r => r.role === "none");
+  const offHtml = offRows.length ? `<details class="ue-off"><summary>${n(offRows.length, "asset")} not in the city layout</summary><ul>${offRows.map(r =>
+    `<li><a href="#" class="jump-link" data-jump="views" data-asset="${esc(r.entry)}">${esc(assetName(r.entry, r.name))}</a>: ${esc(r.outside_reason || r.stand_in || "")} <span class="hint" style="margin:0">(${r.appears ? "appears in the city" : "never appears"})</span></li>`).join("")}</ul></details>` : "";
+  if (!rows.length) { box.innerHTML = `<p class="hint">No library asset stands in the city layout yet.</p>${offHtml}`; return; }
   const cleanup = r => r.version == null && r.model == null ? "–"
     : r.model === "procedural" ? "procedural build" : r.model === "cleaned" ? `cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"} (your choice)`
     : r.cleanup_available ? "raw (a cleaned version exists, not chosen)" : "not cleaned (optional)";
@@ -151,7 +155,7 @@ function renderReadiness() {
       <td title="${esc(r.why || "")}">${r.placed ? (r.version != null ? `v${r.version}` : "build on disk") : "–"}</td>
       <td>${r.approved ? "yes" : "no"}</td><td>${esc(cleanup(r))}</td>
       <td>${r.placed ? "" : esc(r.stand_in || "")}</td>
-      <td class="${issues(r) ? "error" : ""}">${nb.placement_checked ? esc(issues(r) || "none") : "–"}</td></tr>`).join("")}</tbody></table>`;
+      <td class="${issues(r) ? "error" : ""}">${nb.placement_checked ? esc(issues(r) || "none") : "–"}</td></tr>`).join("")}</tbody></table>${offHtml}`;
 }
 $("#ue-export").onclick = () => ueExport();
 $("#ue-init").onclick = () => ACTIONS.ueInit.run();

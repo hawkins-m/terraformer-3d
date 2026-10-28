@@ -461,3 +461,17 @@ The asset library: plan, procedural vs TRELLIS, materials, build guidance, file 
 - **`ap library repair-plan PROJECT [--dry-run]`** adds every decided, non-excluded asset that has a sheet
   back into the plan and prints each (decision, sheet count, built / approved), with `--dry-run` listing
   without writing. Run it once on a project that lost assets. Tests: `tests/test_ensure_in_plan.py`.
+
+## Where an asset waits: one definition (areas.library_status)
+The Library step strip (1 Decide … 5 Approve), its banner, Generate 3D Model & Review (list, Show filter,
+status line, Extract button) and `ap library status PROJECT` all read `areas.library_status`
+(GET /library `status`): `steps` per asset, `needs_views`, `needs_model` (step Build),
+`awaiting_approval` (step Approve), `outside` and `counts`. Sheets is `areas.sheet_skip`. An asset the next city
+build doesn't place (`next_build.explain` role none: "not in the city layout") waits at neither Build nor Approve
+and its sheets aren't in the Extract count. A step chip filters its tab to exactly those assets (Generate 3D Model &
+Review: `POST /library/ensure` -> `library_entries.ensure_in_plan` first, for counted assets the plan dropped);
+an empty filter says "Nothing to do". tests/test_library_status.py.
+Not in the city layout, with reasons (`next_build.outside_reason`, `areas.library_status` `not_in_layout`, the Ready for
+Unreal list, `ap library status`): kit module of X, attached to X and variant of X still appear in the city, so
+they stay in the counts; a building type (or prop) with no share or slots never appears and is left out of Build and
+Approve (`outside`).

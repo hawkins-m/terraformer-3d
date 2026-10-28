@@ -61,7 +61,7 @@ function renderRefs() {
       activeJobs("refs.generate", {plan: u.plan, unit: u.key}).map(j => j.status)]),
     build: refsUnit,
   });
-  if (refs.length && !shownR.length) list.innerHTML = `<p class="hint">None: ${esc(REFS_FILTERS[refsFilter][0].toLowerCase())}. Pick another Show filter.</p>`;
+  if (refs.length && !shownR.length) list.innerHTML = `<p class="hint"><b>Nothing to do</b>: ${esc(REFS_FILTERS[refsFilter][0].toLowerCase())} is empty. Pick another Show filter.</p>`;
   if (focused) {                       // keep typing where you were through a re-render
     const inp = [...list.querySelectorAll("input.guidance")].find(x => x.dataset.unit === focused.key);
     if (inp && !inp.disabled) { inp.focus(); inp.setSelectionRange(focused.a, focused.b); }

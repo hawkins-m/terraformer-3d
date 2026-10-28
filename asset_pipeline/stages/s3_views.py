@@ -260,10 +260,12 @@ def cut(store: ProjectStore, sheet: str, client: ComfyClient | None = None, whol
     return views
 
 
-def cut_starred(store: ProjectStore, log=print) -> int:
-    """Cut every starred sheet that has no views yet. Returns the number of views made."""
+def cut_starred(store: ProjectStore, log=print, only: list[str] | None = None) -> int:
+    """Cut every starred sheet that has no views yet (only: just these). Returns the number of views made."""
     n = 0
     for key in review.starred(store, s2_refs.REFS + "/"):
+        if only is not None and key not in only:
+            continue
         try:
             unit = _unit_for_sheet(store, key)
         except ValueError as e:

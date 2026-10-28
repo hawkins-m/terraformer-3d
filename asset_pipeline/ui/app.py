@@ -135,6 +135,10 @@ class LibraryDecisionReq(BaseModel):
     frame: str | None = None              # reference: the look-reference frame
 
 
+class EnsureReq(BaseModel):
+    assets: list[str]
+
+
 class LibraryDecisionsReq(BaseModel):     # one decision for many entries (Asset review's batch actions)
     entries: list[str]
     decision: Literal["source", "description", "exclude"] | None = None
@@ -1070,12 +1074,20 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return False
         return bool((read_json(kit_proc.spec_path(store, asset), default=None) or {}).get("sheet"))
 
+    def _pending_sheets(store) -> list[str]:
+        """The new starred sheets Extract reference views would cut: those of other plans, and a library
+        asset's only while it needs views by the shared definition (areas.library_status)."""
+        from .. import areas
+        need = set(areas.library_status(store)["needs_views"])
+        return [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)
+                and (Path(k).parts[1] != sw_library.PLAN_NAME or Path(k).parts[2] in need)]
+
     @app.get("/api/projects/{slug}/review")
     def review_state(slug: str):
         from .. import library_review
         store = _store(slug)
         stars = review.load(store)["stars"]
-        pending = [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)]
+        pending = _pending_sheets(store)
         assets = []
         for name in s1_plan.plan_names(store):
             p = s1_plan.load(store, name)
@@ -1114,9 +1126,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             fn = lambda: len(s3_views.cut(store, req.sheet))  # noqa: E731
             tag = {"sheet": req.sheet}
         else:
-            fn = lambda: s3_views.cut_starred(store, log=lambda m: None)  # noqa: E731
-            tag = {"starred": True,
-                   "sheets": [k for k in review.starred(store, s2_refs.REFS + "/") if _uncut(store, k)]}
+            sheets = _pending_sheets(store)
+            fn = lambda: s3_views.cut_starred(store, log=lambda m: None, only=sheets)  # noqa: E731
+            tag = {"starred": True, "sheets": sheets}
         return jobs.submit("views.cut", slug, fn, lane="comfy", tag=tag).public()
 
     @app.post("/api/projects/{slug}/views/recut")
@@ -1569,11 +1581,20 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                 # Library step strip's 2 Sheets, the sheets batch and the Reference sheets tab all count
                 "sheets": {"needed": sorted(a for a, why in sheet_state.items() if why is None),
                            "skip": {a: why for a, why in sheet_state.items() if why}},
+                # where every asset waits, and the lists behind the strip, banner and tab (areas.library_status)
+                "status": areas.library_status(store) if data else None,
                 "areas": _area_members(store) if data else {},
                 # duplicates used as variants: {variant: original}, and each original's placement split
                 "variant_of": variants.duplicates_as_variants(store) if data else {},
                 "splits": variants.splits(store) if data else {},
                 "has_greybox": (sw_site.site_dir(store) / "greybox.json").is_file()}
+
+    @app.post("/api/projects/{slug}/library/ensure")
+    def library_ensure(slug: str, req: EnsureReq):
+        """Put these decided assets into the library plan (library_entries.ensure_in_plan), so the
+        Generate 3D Model & Review list can show what the strip counts. Ones that can't be planned are skipped."""
+        store = _store(slug)
+        return {"added": library_entries.ensure_in_plan(store, req.assets, strict=False)}
 
     def _area_members(store) -> dict:
         """{area: its entries} for the Show filter (areas.members; an area that can't be read yet is empty)."""

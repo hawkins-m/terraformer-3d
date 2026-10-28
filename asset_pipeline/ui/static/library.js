@@ -75,7 +75,7 @@ const LIB_ROUTES = {procedural: "procedural", trellis: "TRELLIS"};
 const libRoute = e => (libraryData.decisions[e.id] || {}).route || e.route_auto || null;
 const libDecision = e => (libraryData.decisions[e.id] || {}).decision || null;
 const LIB_FILTERS = {
-  all: ["All assets", () => true], todo: ["Not decided", e => !libDecision(e)],
+  all: ["All assets", () => true], todo: ["Not decided", e => (typeof libStepOf === "function" ? libStepOf()[e.id] === "decide" : !libDecision(e))],   // the strip's 1 Decide
   flagged: ["Flagged crops", e => !e.unseen && e.flags.some(f => !f.startsWith("approximate"))],
   seen: ["With a crop", e => !e.unseen], unseen: ["Without a crop", e => e.unseen], source: ["Frame crop", e => libDecision(e) === "source"],
   description: ["Description only", e => libDecision(e) === "description"],
@@ -166,7 +166,7 @@ function renderLibrary() {
       (typeof lrAssetsOf === "function" && lr.briefs ? lrAssetsOf(e.id) : []).map(a => ((lr.list && lr.list.assets.find(x => x.asset === a)) || {}).status)]),
     build: libCard,
   });
-  if (!shown.length) box.innerHTML = `<p class="hint">No assets match: pick another Show filter.</p>`;
+  if (!shown.length) box.innerHTML = `<p class="hint">${cur === "all" ? "No assets match: pick another Show filter." : `<b>Nothing to do</b>: ${esc(filters[cur][0].toLowerCase())} is empty.`}</p>`;
   libBatchBar(all, shown);
   if (typeof renderLibSteps === "function") renderLibSteps();
 }

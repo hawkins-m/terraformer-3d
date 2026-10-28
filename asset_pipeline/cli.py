@@ -1172,6 +1172,27 @@ def cmd_library_repair_plan(a) -> None:
           + f"; {r['included']} asset(s) are in plans/library.json" + (" now" if not a.dry_run else ""))
 
 
+def cmd_library_status(a) -> None:
+    from . import areas
+    from .stages import sw_library
+    store = ProjectStore.open(a.project)
+    st = areas.library_status(store)
+    if not st["steps"]:
+        raise SystemExit("no library yet (ap library plan)")
+    names = sw_library.asset_names(store)
+    nm = lambda ids: ", ".join(f"{names[i]} ({i})" if names.get(i, i) != i else i for i in ids) or "-"   # noqa: E731
+    for i, s in enumerate(areas.STEPS, 1):
+        ids = sorted(x for x, v in st["steps"].items() if v == s)
+        print(f"{i} {areas.STEP_LABELS[s]}: {len(ids)}\n   {nm(ids)}")
+    c = st["counts"]
+    print(f"Needs views (a starred sheet nothing was cut from): {c['needs_views']}\n   {nm(st['needs_views'])}")
+    lay = st["not_in_layout"]
+    print(f"Not in the city layout: {len(lay)} ({sum(1 for v in lay.values() if not v['appears'])} never appear, left out of Build and Approve)")
+    for a, v in sorted(lay.items()):
+        print(f"   {nm([a])}: {v['reason']} ({'appears in the city' if v['appears'] else 'never appears'})")
+    print(f"{c['with_views']} of {c['assets']} placed assets have views, {c['with_model']} have a 3D model")
+
+
 def cmd_library_sheets(a) -> None:
     from . import areas
     from .stages import s2_refs, sw_library
@@ -2048,6 +2069,10 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project")
     p.add_argument("--dry-run", action="store_true", help="list what it would add, change nothing")
     p.set_defaults(fn=cmd_library_repair_plan)
+    p = libsub.add_parser("status", help="where every asset waits (Decide, Sheets, Star, Build, Approve), with the "
+                                         "asset names: the numbers the UI's step strip and Generate 3D Model & Review show")
+    p.add_argument("project")
+    p.set_defaults(fn=cmd_library_status)
     p = libsub.add_parser("sheets", help="decided entries -> plans/library.json (added to it, never dropped from it), "
                                          "then stage 2 sheets")
     p.add_argument("project")

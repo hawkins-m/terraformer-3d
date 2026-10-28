@@ -237,6 +237,96 @@ def sheet_states(store: ProjectStore) -> dict[str, str | None]:
         return {}
 
 
+STEPS = ("decide", "sheets", "star", "build", "approve")
+STEP_LABELS = {"decide": "Decide: not decided yet", "sheets": "Sheets: need reference sheets",
+               "star": "Choose Reference: sheets, none starred", "build": "Build: need a 3D model",
+               "approve": "Approve: awaiting approval"}
+
+
+def not_in_layout(store: ProjectStore) -> dict[str, dict]:
+    """{entry: {reason, appears}} for the entries with no slot, building or prop piece of their own
+    (next_build.explain), excluded ones included. appears: a kit's modules, attached pieces and variants still
+    show in the city; a building type with no share or slots never does. {} before the greybox exists."""
+    from . import next_build
+    ex = next_build.explain(store)
+    return {r["entry"]: {"reason": r["outside_reason"], "appears": r["appears"]}
+            for r in ex["assets"] if ex["greybox"] and r["role"] == "none"}
+
+
+def unplaced_entries(store: ProjectStore) -> set[str]:
+    """The entries the next city build never places: not_in_layout and not appearing some other way. Empty
+    before the greybox exists: then nothing is known to be left out."""
+    return {e for e, v in not_in_layout(store).items() if not v["appears"]}
+
+
+def library_status(store: ProjectStore) -> dict:
+    """The one definition of where every library asset waits, for the Library step strip, its banner,
+    the Generate 3D Model & Review tab and its status line, and `ap library status`:
+      steps    {asset: decide | sheets | star | build | approve | None}; sheets is areas.sheet_skip, and
+               an asset the next city build doesn't place (outside) waits at neither build nor approve;
+      needs_views, needs_model, awaiting_approval: asset lists (needs_model = step build, awaiting_approval
+               = step approve, needs_views = at build with a starred sheet nothing was cut from);
+      outside  {asset: why} left out of those counts (never appear in the city);
+      not_in_layout  {asset: {reason, appears}}: every asset with no slot of its own, appearing ones included;
+      counts   the lists' lengths, plus assets (the decided, built-or-to-be-built ones that are placed),
+               with_views and with_model among them.
+    {} lists before the library plan exists. Vegetation is Unreal foliage and never waits."""
+    from . import review, versions
+    from .stages import s3_views, sw_library
+    empty = {"steps": {}, "needs_views": [], "needs_model": [], "awaiting_approval": [], "outside": {}, "not_in_layout": {},
+             "counts": dict.fromkeys(("assets", "with_views", "with_model", "needs_views", "needs_model", "awaiting_approval"), 0)}
+    try:
+        rows = status(store, everywhere=True)
+    except FileNotFoundError:
+        return empty
+    layout = not_in_layout(store)
+    unplaced = {e for e, v in layout.items() if not v["appears"]}
+    starred = {}
+    for k in review.starred(store, "refs/library/"):
+        parts = Path(k).parts
+        if len(parts) == 4:
+            starred.setdefault(parts[2], []).append(k)
+    steps, outside, listed, needs_views, pop, with_views, with_model = {}, {}, {}, [], [], 0, 0
+    for r in rows:
+        a = r["asset"]
+        model = bool(r["built"] or r["trellis"] or (versions.has_bank(store, a) and versions.current(store, a) is not None))
+        skip = sheet_skip(r)
+        if not r["decision"]:
+            step = "decide"
+        elif r["decision"] == "exclude" or r["status"] == "approved":
+            step = None
+        elif skip is None:
+            step = "sheets"
+        elif model:
+            step = "approve"
+        elif not r["sheets"]:
+            step = "build" if skip == "brief" else None
+        else:
+            step = "build" if starred.get(a) else "star"
+        lay = layout.get(r["entry"])
+        if lay:                                         # listed with its reason; only one that never appears is left out
+            why = f"kit module of {r['entry']}" if a != r["entry"] and r["decision"] == "kit" else lay["reason"]
+            listed[a] = {"reason": why, "appears": lay["appears"]}
+        if step in ("build", "approve") and r["entry"] in unplaced:
+            step, outside[a] = None, listed[a]["reason"]
+        elif r["decision"] and r["decision"] != "exclude" and r["entry"] in unplaced:
+            outside[a] = listed[a]["reason"]
+        steps[a] = step
+        if r["decision"] and r["decision"] != "exclude" and a not in outside:
+            pop.append(a)
+            with_views += bool(s3_views.views(store, sw_library.PLAN_NAME, a))
+            with_model += model
+        if step == "build":
+            cut = {v["sheet"] for v in s3_views.views(store, sw_library.PLAN_NAME, a)}
+            if any(k not in cut for k in starred.get(a, [])):
+                needs_views.append(a)
+    lists = {"needs_model": sorted(a for a, s in steps.items() if s == "build"),
+             "awaiting_approval": sorted(a for a, s in steps.items() if s == "approve")}
+    return {"steps": steps, "needs_views": sorted(needs_views), **lists, "outside": outside, "not_in_layout": listed,
+            "counts": {"assets": len(pop), "with_views": with_views, "with_model": with_model,
+                       "needs_views": len(needs_views), **{k: len(v) for k, v in lists.items()}}}
+
+
 def next_step(store: ProjectStore, r: dict, area: str | None, district: str | None) -> str:
     sel = f"--area {area}" if area else f"--district {district}" if district else "--area NAME"
     p = store.root.name

@@ -34,16 +34,34 @@ function rowNote(a) {
   return {key: j.id, cls: "", html: lines.join("<br>"), title: r.message || ""};
 }
 
-// Show filter (the Library step strip sets it: 4 Build -> view, 5 Approve -> approve), by the strip's
-// own step per asset (workflow.js libStepOf) so the counts match it. Needs a view: waiting at Build,
-// a TRELLIS asset, no view chosen yet.
+// Show filter (the Library step strip sets it: 4 Build -> build, 5 Approve -> approve), by the server's
+// step per asset (libraryData.status, areas.library_status) so the counts match the strip. Needs a view
+// picked: waiting at Build, a TRELLIS asset, no view chosen yet. Other plans' assets count by their results.
 let viewsStepMap = null;              // per render
 const viewsStep = a => a.plan === "library" && (viewsStepMap || (viewsStepMap = libStepOf()))[a.asset.id];
 const VIEWS_FILTERS = {all: ["All assets", () => true],
+  build: ["Needs a 3D model", a => a.plan === "library" ? viewsStep(a) === "build" : !a.results.length],
   view: ["Needs a view picked", a => viewsStep(a) === "build" && !a.procedural && !a.chosen],
-  approve: ["Built, not approved", a => viewsStep(a) === "approve"]};
+  approve: ["Awaiting approval", a => viewsStep(a) === "approve"]};
+// the status lists behind the options' counts (the plan may not hold every asset yet)
+const VIEWS_STATUS = {build: "needs_model", approve: "awaiting_approval"};
 let viewsFilter = "all";
-function viewsFilterSet(k) { viewsFilter = VIEWS_FILTERS[k] ? k : "all"; renderReview(); }
+// Library assets the strip counts but the plan dropped are put back first (library_entries.ensure_in_plan), so the list shows them
+async function viewsFilterSet(k) {
+  viewsFilter = VIEWS_FILTERS[k] ? k : "all";
+  const st = libraryData && libraryData.status, ids = (st && VIEWS_STATUS[viewsFilter] && st[VIEWS_STATUS[viewsFilter]]) || [];
+  const inPlan = new Set((reviewData ? reviewData.assets : []).map(a => a.asset.id)), missing = ids.filter(x => !inPlan.has(x));
+  if (missing.length) {
+    try { await api(`/api/projects/${slug}/library/ensure`, {assets: missing}); await load(); } catch (err) { console.warn(err); }
+  }
+  renderReview();
+}
+
+const viewsCount = (k, fn) => {
+  const st = libraryData && libraryData.status;
+  return st && VIEWS_STATUS[k] ? st.counts[VIEWS_STATUS[k]] + reviewData.assets.filter(a => a.plan !== "library").filter(fn).length
+    : reviewData.assets.filter(fn).length;
+};
 
 function renderReview() {
   if (!reviewData) return;
@@ -52,11 +70,15 @@ function renderReview() {
   $("#cut-views").disabled = !pending || !!cutJobs.length;
   $("#cut-views").textContent = cutJobs.length ? "Extracting…" : `Extract reference views (${pending} new sheet${pending === 1 ? "" : "s"})`;
   setStop("#cut-stop", cutJobs);
-  const withViews = reviewData.assets.filter(a => a.views.length).length;
-  const built = reviewData.assets.filter(a => a.results.length).length;
-  const pre = (!reviewData.assets.length || (!reviewData.starred_sheets && !withViews && !built)) && libraryPrereq(true);
+  // library assets: the server's counts (areas.library_status), the same population as the strip; other plans: their own
+  const ls = libraryData && libraryData.plan && libraryData.status, c = ls ? ls.counts : {assets: 0, with_views: 0, with_model: 0};
+  const other = reviewData.assets.filter(a => a.plan !== "library");
+  const total = c.assets + other.length;
+  const withViews = c.with_views + other.filter(a => a.views.length).length;
+  const built = c.with_model + other.filter(a => a.results.length).length;
+  const pre = (!total || (!reviewData.starred_sheets && !withViews && !built)) && libraryPrereq(true);
   const sumText = pre ? prereqHtml(pre)
-    : `${reviewData.starred_sheets} starred sheet(s); ${withViews} of ${reviewData.assets.length} assets have views, ${built} have a 3D model.`;
+    : `${reviewData.starred_sheets} starred sheet(s); ${withViews} of ${total} assets have views, ${built} have a 3D model${ls ? `; ${c.needs_model} need one, ${c.awaiting_approval} await approval` : ""}.`;
   if ($("#review-summary").dataset.sig !== sumText) {
     $("#review-summary").dataset.sig = sumText;
     if (pre) { $("#review-summary").innerHTML = sumText; wireGo($("#review-summary")); } else $("#review-summary").textContent = sumText;
@@ -64,7 +86,7 @@ function renderReview() {
 
   viewsStepMap = null;
   const vf = $("#views-filter"), vfHtml = Object.entries(VIEWS_FILTERS).map(([k, [label, fn]]) =>
-    `<option value="${k}"${k === viewsFilter ? " selected" : ""}>${esc(label)} (${reviewData.assets.filter(fn).length})</option>`).join("");
+    `<option value="${k}"${k === viewsFilter ? " selected" : ""}>${esc(label)} (${viewsCount(k, fn)})</option>`).join("");
   if (vf.dataset.sig !== vfHtml) { vf.dataset.sig = vfHtml; vf.innerHTML = vfHtml; }
   const shownV = reviewData.assets.filter(VIEWS_FILTERS[viewsFilter][1]);
   // keyed: only rows whose data changed are rebuilt, keeping their loaded images (keyed.js)
@@ -80,7 +102,12 @@ function renderReview() {
     build: assetReview,
   });
   if (reviewData.assets.length && !shownV.length)
-    $("#review-list").innerHTML = `<p class="hint">None: ${esc(VIEWS_FILTERS[viewsFilter][0].toLowerCase())}. Pick another Show filter.</p>`;
+    $("#review-list").innerHTML = viewsFilter === "all" ? `<p class="hint">None.</p>`
+      : `<p class="hint"><b>Nothing to do</b>: ${esc(VIEWS_FILTERS[viewsFilter][0].toLowerCase())} is empty. Pick another Show filter.</p>`;
+  // name what the filter shows, as the strip counts it
+  const vs = $("#views-shown");
+  vs.hidden = viewsFilter === "all" || !shownV.length;
+  vs.textContent = vs.hidden ? "" : `${VIEWS_FILTERS[viewsFilter][0]} (${shownV.length}): ${shownV.map(a => assetName(a.asset.id, a.asset.name)).join(", ")}`;
 }
 $("#views-filter").onchange = e => viewsFilterSet(e.target.value);
 

@@ -114,7 +114,7 @@ def test_batch_decide_in_the_browser(tmp_path, monkeypatch):
     assert out["desc_crops"] == "Description only for all shown (5)…"           # tree-a (vegetation) never counts
     assert sorted(out["listed"]) == ["bare a", "bare b", "bare c"] and "2 with a frame crop" in out["note"]
     assert out["missing1"] == "Generate missing (4)"                             # Reference sheets follow
-    assert out["shown_after"] == ["crop-a", "crop-b", "tree-a"]
+    assert out["shown_after"] == ["crop-a", "crop-b"]                             # Not decided = the strip's 1 Decide: no vegetation
     assert out["ticked"] == "2 ticked" and out["listed2"] == 2
     d = out["decisions"]
     assert d["crop-a"] == d["crop-b"] == "exclude" and d["bare-a"] == "description" and "tree-a" not in d
