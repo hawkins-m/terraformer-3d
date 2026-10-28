@@ -372,5 +372,18 @@ marked done here.
   - avenues already steer to gentle grades and now bridge rivers (`Fields.ground`);
   - the moat keeps only the pieces on dry land, and wall bays and gates already skip water.
   Tests: `tests/test_terrain_fit.py`.
-- [ ] Phase 4: Describe the terrain (VLM text mode, keyword fallback), `ap terrain roll`.
+- [x] **Phase 4: Describe the terrain** (committed). `terrain_describe.describe(text, prefer)` returns
+  `{preset, tweaks, settings, source, summary}`:
+  - When the local model's server is already running (`vlm.state()`; never started for this, never a
+    paid provider), its text mode `json_text(SYSTEM, prompt, [], SCHEMA)` picks a preset from the
+    enum and tweaks from `TWEAKABLE`, under the GPU 0 lane.
+  - An answer that doesn't validate, or no server, goes to keyword matching: `PRESET_WORDS` (most
+    specific first) and regex `TWEAKS`. With no matching word it uses the picker's preset, else
+    coastal-plain.
+  - UI: a "Describe the terrain" box with a Describe button under the Terrain picker. It shows
+    "Chosen: … (the local model / keyword matching)" and sets the picker; Apply terrain then sends
+    exactly those settings.
+  - API: `POST /site/terrain/describe {text, preset}`, and `POST /site/terrain` takes `settings`.
+  - CLI: `ap terrain roll PROJECT --describe TEXT [--seed N]`.
+  Tests: `tests/test_terrain_describe.py`, with a fake model for the model path.
 - [ ] Phase 5: rerolls through Greybox and Shots (generated and heightmap), six previews.

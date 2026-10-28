@@ -165,6 +165,11 @@
             <button type="button" id="city-terrain-apply" class="small" title="Make this terrain and re-plan the city on it; the layout, its seeds and rules stay">Apply terrain</button>
           </div>
           <p class="hint" id="city-terrain-desc" style="margin:0 0 6px"></p>
+          <div class="row">
+            <label style="flex:1" title="A few words about the ground: mapped to a terrain preset and its settings (the local model when it's running, else keywords)">Describe the terrain: <input type="text" id="city-terrain-describe" maxlength="600" style="width:60%" placeholder="e.g. a river valley between rugged mountains"></label>
+            <button type="button" id="city-terrain-describe-go" class="small" title="Show what the description maps to; Apply terrain then makes it">Describe</button>
+          </div>
+          <p class="hint" id="city-terrain-chosen" role="status" style="margin:0 0 6px"></p>
           <div class="row"><label class="check" title="A roll leaves the outline, wall, districts, landmarks and towns as they are and only rolls new streets"><input type="checkbox" id="city-roll-keep-shape"> Keep current outline and districts</label></div>
           <div class="row city-roll-keep" id="city-roll-keep" role="group" aria-label="Keep these rule groups when rolling"></div>
           <div class="row">

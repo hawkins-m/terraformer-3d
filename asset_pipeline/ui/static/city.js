@@ -440,9 +440,28 @@ function paintTerrain() {
     : d.heightmap ? `The terrain is the heightmap ${d.heightmap}; a terrain preset replaces it (it asks first).` : "The project's own generated coast.";
   $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length || !sel.value;
 }
+// what Describe chose (its exact settings): Apply terrain makes that, until the picker is changed by hand
+let terrainPick = null;
+async function describeTerrain() {
+  const text = $("#city-terrain-describe").value.trim(), out = $("#city-terrain-chosen");
+  if (!text) { out.textContent = "Describe the terrain in a few words first."; return; }
+  out.textContent = "Reading the description…";
+  try {
+    const r = await api(`/api/projects/${slug}/site/terrain/describe`, {text, preset: $("#city-terrain-preset").value || null});
+    terrainPick = r;
+    const sel = $("#city-terrain-preset");
+    sel.value = r.preset; delete sel.dataset.dirty;
+    out.textContent = `Chosen: ${r.summary} (${r.source === "vlm" ? "the local model" : "keyword matching: the local model isn't running"}). Apply terrain to make it.`;
+    paintTerrain();
+    $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length;
+  } catch (err) { out.textContent = errorText(err); }
+}
+$("#city-terrain-describe-go").onclick = () => describeTerrain();
+$("#city-terrain-describe").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); describeTerrain(); } };
 async function applyTerrain(extra) {
   const sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed").value.trim(), d = (rollData && rollData.terrain) || {};
   const body = {preset: sel.value || null, seed: ls === "" ? null : Number(ls), ...(extra || {})};
+  if (terrainPick && terrainPick.preset === sel.value) body.settings = terrainPick.settings;   // exactly what Describe showed
   if (d.heightmap) {
     const ok = await confirmDialog({title: "Replace the heightmap?", button: "Replace",
       body: `<p>The terrain is the heightmap <code>${esc(d.heightmap)}</code> (a terrain build). A generated terrain replaces it; the city's layout stays.</p>`});
@@ -452,7 +471,7 @@ async function applyTerrain(extra) {
   delete sel.dataset.dirty; delete $("#city-terrain-seed").dataset.dirty;
   await siteAction("site/terrain", body);
 }
-$("#city-terrain-preset").onchange = e => { e.target.dataset.dirty = "1"; paintTerrain(); };
+$("#city-terrain-preset").onchange = e => { e.target.dataset.dirty = "1"; terrainPick = null; $("#city-terrain-chosen").textContent = ""; paintTerrain(); };
 $("#city-terrain-seed").oninput = e => { e.target.dataset.dirty = "1"; };
 $("#city-terrain-apply").onclick = () => applyTerrain();
 

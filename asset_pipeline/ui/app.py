@@ -315,7 +315,13 @@ class TerrainReq(BaseModel):
     preset: str | None = None          # a terrain preset (terrain_gen.PRESETS); with describe: the fallback
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
     describe: str | None = Field(default=None, max_length=600)    # words, mapped to a preset and settings
+    settings: dict | None = None       # exactly these TerrainSettings (what Describe showed); wins over preset / describe
     replace_heightmap: bool = False
+
+
+class DescribeReq(BaseModel):
+    text: str = Field(max_length=600)
+    preset: str | None = None          # the picker's preset: the keywords' fallback when no word matches
 
 
 class PresetReq(BaseModel):
@@ -1491,8 +1497,13 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _roll_check(store)
         if req.preset is not None and req.preset not in terrain_gen.PRESETS:
             raise HTTPException(400, f"unknown terrain preset {req.preset!r} (presets: {', '.join(terrain_gen.PRESETS)})")
-        if not req.preset and not (req.describe or "").strip():
+        if not req.preset and not (req.describe or "").strip() and not req.settings:
             raise HTTPException(400, "give a terrain preset or a description")
+        from ..schema import TerrainSettings
+        try:
+            exact = TerrainSettings.model_validate(req.settings) if req.settings else None
+        except ValueError as e:
+            raise HTTPException(400, f"terrain settings: {e}")
         try:
             lay = sw_site.load_layout(store)
             if lay.terrain.heightmap and not req.replace_heightmap:
@@ -1505,7 +1516,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             from ..jobs import current_job
             job = current_job()
             log = (lambda m: setattr(job, "note", str(m)[:200])) if job else print
-            if (req.describe or "").strip():
+            if exact is not None:
+                pick, settings = None, exact
+            elif (req.describe or "").strip():
                 from .. import terrain_describe
                 pick = terrain_describe.describe(req.describe, prefer=req.preset)
                 settings = pick["settings"]
@@ -1516,6 +1529,18 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return {"terrain": settings.name, "seed": seed, "buildings": st["buildings"], "warnings": st["warnings"],
                     **({"described": {k: pick[k] for k in ("preset", "source", "summary", "tweaks")}} if pick else {})}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True, "terrain": True}).public()
+
+    @app.post("/api/projects/{slug}/site/terrain/describe")
+    def site_terrain_describe(slug: str, req: DescribeReq):
+        """What a description maps to (a preset and tweaks), without applying it: the local model's text
+        mode when its server is running, else keyword matching."""
+        from .. import terrain_describe
+        _store(slug)
+        try:
+            pick = terrain_describe.describe(req.text, prefer=req.preset)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        return {k: pick[k] for k in ("preset", "tweaks", "source", "summary")} | {"settings": pick["settings"].model_dump()}
 
     @app.post("/api/projects/{slug}/site/roll/step")
     def site_roll_step(slug: str, req: StepReq):
