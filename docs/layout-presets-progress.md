@@ -88,5 +88,19 @@ fails the housing-share check is rolled again (up to 6 tries). `site/rolls.json`
   bounds margin.
 - The roll does not pick a preset at random. It could become an optional rule group.
 - Shots: the auto shots don't yet frame highways or a linear city's length.
-- Found while testing (existing code, not presets): a roll on a project with a heightmap terrain
-  re-plans, then fails at `set_city_shots` ("city_shots needs a generated terrain").
+
+## Terrain: generated vs heightmap (2026-10-27)
+
+- **Generated**: `greybox.make_terrain(TerrainSpec)` builds a fictional coast and hills from the
+  spec (extent, resolution, shore, headland, hills, bay). City mode then levels each node into a
+  pad (`city.apply_pads`).
+- **Heightmap**: `terrain.heightmap` points at a project-relative 16-bit PNG (decoded with
+  `z_range`), e.g. the terrain build's `site/terrain_far/core.png`. `terrain.far` adds the far
+  ring beyond the tile. `sw_site.terrain()` loads either kind and applies the pads; the greybox
+  uses it. The plan uses `plan_terrain()`, which with a far build plans on the plain generated
+  tile so the plan doesn't reshuffle with heightmap rounding.
+- **Fixed**: `sw_site.city_shots` refused heightmaps ("city_shots needs a generated terrain"), so a
+  roll (and `ap site plan --shots`) failed at the shots step on such projects. It now takes the
+  store and, for a heightmap, samples the ground from `sw_site.terrain(store, layout, write=False)`,
+  the same heights plus pads the build uses. Generated terrain is unchanged.
+  Test: `test_city_roll.py::test_a_roll_on_a_heightmap_terrain_places_its_shots_on_the_heightmap`.

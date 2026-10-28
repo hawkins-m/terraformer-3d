@@ -106,13 +106,14 @@ def starter_city() -> SiteLayout:
             bounds=(-2500, -1500, 2500, 1500)))
 
 
-def city_shots(layout: SiteLayout) -> list[ShotSpec]:
-    """Auto-placed city-mode shots for a layout (terrain generated as the build would)."""
-    t = layout.terrain
-    h = greybox.make_terrain(t) if not t.heightmap else None
-    if h is None:
-        raise ValueError("city_shots needs a generated terrain")
-    return city.shots(layout, city.apply_pads(layout, h))
+def city_shots(layout: SiteLayout, store: ProjectStore | None = None) -> list[ShotSpec]:
+    """Auto-placed city-mode shots for a layout, on the ground the build uses: the generated
+    terrain, or the project's heightmap (`store` needed to read it), with the node pads."""
+    if layout.terrain.heightmap:
+        if store is None:
+            raise ValueError("city_shots: a heightmap terrain is read from the project (give the store)")
+        return city.shots(layout, terrain(store, layout, write=False))
+    return city.shots(layout, city.apply_pads(layout, greybox.make_terrain(layout.terrain)))
 
 
 def plan_city(store: ProjectStore) -> dict:
@@ -139,7 +140,7 @@ def set_city_shots(store: ProjectStore, only: list[str] | None = None) -> list[S
     camera (its frame is done)."""
     layout = load_layout(store)
     old = {s.id: s for s in layout.shots}
-    shots = city_shots(layout)
+    shots = city_shots(layout, store)
     auto = {s.id for s in shots}
     shots = [old[s.id] if s.id in old and old[s.id].locked else s for s in shots]
     shots += [s for s in layout.shots if s.locked and s.id not in auto]
@@ -180,7 +181,7 @@ def init(store: ProjectStore, layout_file: Path | None = None, force: bool = Fal
     layout = (SiteLayout.model_validate(json.loads(Path(layout_file).read_text())) if layout_file
               else starter_city() if city_mode else starter_layout())
     if layout.city is not None and not layout.shots:
-        layout.shots = city_shots(layout)
+        layout.shots = city_shots(layout, store)
     save_layout(store, layout)
     project = store.load()
     project.mode = "world"

@@ -158,3 +158,29 @@ def test_the_dice_sits_after_the_catalog_and_asks_with_cancel_the_default():
     assert '{label: "Continue", onClick: () => { ok = true; }}, {label: "Cancel", default: true}' in js
     assert 'siteAction("site/roll"' in js and 'siteAction("site/roll/step"' in js and "data-keep" in js
     assert 'p.start === "city"' in js                        # the new-project hint
+
+
+def test_a_roll_on_a_heightmap_terrain_places_its_shots_on_the_heightmap(store):
+    """A project whose terrain is a heightmap PNG (e.g. after a terrain build) rolls through to
+    shots; the cameras stand on the heightmap's ground, not on the generated terrain's."""
+    from PIL import Image
+    from asset_pipeline import city, greybox
+    L = sw_site.load_layout(store)
+    raise_m = 25.0
+    h = greybox.make_terrain(L.terrain) + raise_m           # differs from the generated terrain everywhere
+    Image.fromarray(greybox.to_png16(h, L.terrain.z_range)).save(sw_site.site_dir(store) / "hm.png")
+    L.terrain.heightmap = "site/hm.png"
+    sw_site.save_layout(store, L)
+    r = city_roll.roll(store, seed=2024, log=lambda *a: None)
+    lay = sw_site.load_layout(store)
+    assert r["stats"]["buildings"] > 1000 and lay.terrain.heightmap == "site/hm.png"
+    shots = {s.id: s for s in lay.shots}
+    assert any(s.tier == "wide" for s in shots.values()) and any(s.id.startswith("med-") for s in shots.values())
+    # eye-level mediums stand 1.7 m over the heightmap's ground (with the pads), well off the generated one's
+    ground = greybox.Heights(sw_site.terrain(store, lay, write=False), lay.terrain.extent_m)
+    gen = greybox.Heights(city.apply_pads(lay, greybox.make_terrain(lay.terrain)), lay.terrain.extent_m)
+    meds = [s for i, s in shots.items() if i.startswith("med-") and not i.endswith("-high")]
+    assert meds and all(abs(s.pos[2] - 1.7 - ground(*s.pos[:2])) < 1.0 for s in meds)
+    assert any(abs(s.pos[2] - 1.7 - gen(*s.pos[:2])) > 5.0 for s in meds)
+    with pytest.raises(ValueError, match="give the store"):
+        sw_site.city_shots(lay)
