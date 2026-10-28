@@ -246,6 +246,42 @@ def set_preset(store: ProjectStore, preset: str | None = None, layout_seed: int 
     return stats
 
 
+class HeightmapInUse(ValueError):
+    """The project's terrain is a heightmap (a terrain build): a generated terrain would replace it."""
+
+
+def set_terrain(store: ProjectStore, settings, log=print, shots: bool = True, replace_heightmap: bool = False) -> dict:
+    """The terrain from these TerrainSettings (terrain_gen), the city's layout preset, its seeds and
+    rules kept: the districts are placed again on the new ground (a preset with a shape recipe: the
+    same recipe and seed; utopia: moved out of any water), then the plan and the auto shots.
+    A heightmap terrain is replaced only with replace_heightmap. Returns the stats."""
+    from . import terrain_gen
+    from .stages import sw_site
+    layout = _layout_or_starter(store)
+    if layout.terrain.heightmap and not replace_heightmap:
+        raise HeightmapInUse(f"the terrain is a heightmap ({layout.terrain.heightmap}): a generated terrain replaces it "
+                             "(replace_heightmap / --replace-heightmap)")
+    L = layout.model_copy(deep=True)
+    x0, y0, x1, y1 = L.city.bounds
+    s = settings.model_copy(update={"centre": ((x0 + x1) / 2, (y0 + y1) / 2)}) if settings.centre == (0.0, 0.0) else settings
+    L.terrain = terrain_gen.with_settings(L.terrain, s)
+    L = SiteLayout.model_validate(L.model_dump(mode="json"))
+    if city_shape.has_recipe(L.city.preset.name):
+        try:
+            L = city_shape.shape(L, sw_site.plan_ground(store, L), L.city.preset.name, L.city.seed)
+        except ValueError as e:              # no room for the shape on this ground: keep the districts, moved onto land
+            log(f"{L.city.preset.name} doesn't fit this terrain as rolled ({e}); its districts are moved onto land")
+            L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))
+    else:
+        L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))
+    L.city.preset, L.city.layout_seed = layout.city.preset.model_copy(deep=True), layout.city.layout_seed   # exactly as it was
+    stats = _plan(store, L, log)
+    if shots:
+        sw_site.set_city_shots(store)
+    store.log_run({"stage": "site.terrain", "terrain": s.name, "terrain_seed": s.seed, "buildings": stats.get("buildings")})
+    return stats
+
+
 def _keep_shape_of(layout: SiteLayout, own: SiteLayout) -> SiteLayout:
     """The new preset's streets on the layout's own outline, walls and water."""
     L = layout.model_copy(deep=True)
@@ -264,7 +300,7 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
     if preset is not None and preset != layout_presets.RANDOM:
         layout_presets.get(preset)           # an unknown name fails before anything is saved
     keep = set(keep)
-    if own.terrain.heightmap:
+    if own.terrain.heightmap or own.terrain.settings is not None:   # a heightmap's or the terrain settings' coast stays
         keep.add("waterfront")
     if keep_shape:
         keep |= {"size", "civic", "waterfront"}

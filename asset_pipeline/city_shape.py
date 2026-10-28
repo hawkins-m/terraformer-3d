@@ -208,9 +208,13 @@ def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteL
     lat = float(np.array([(x0 + x1) / 2, (y0 + y1) / 2]) @ v) + rng.uniform(-0.12, 0.12) * (x1 - x0)
     along = float(f0._shore(lat)) - rec.inland * Rb
     target = along * u + lat * v
+    ts = L.terrain.settings
+    no_shore = ts is not None and ts.coast != "side"
+    if no_shore:                   # an island or inland terrain: no shoreline to measure from; near its centre
+        target = np.array(ts.centre, float) + rng.uniform(-0.08, 0.08, 2) * Rb
     d0 = rec.districts[0]
     r0 = d0.r * k
-    if rec.inland < 0:             # an island: offshore, its own ground made round the centre; the bounds take it in
+    if rec.inland < 0 and not no_shore:   # an island: offshore, its own ground made round the centre; the bounds take it in
         R = pr.outline_m or Rb
         C = np.clip(target, -half + R + 100, half - R - 100)
         x0, y0 = max(min(x0, C[0] - R - 150), -half), max(min(y0, C[1] - R - 150), -half)

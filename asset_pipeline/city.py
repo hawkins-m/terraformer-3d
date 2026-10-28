@@ -149,7 +149,13 @@ class Fields:
         gy, gx = np.gradient(heights.astype(np.float64), sp)
         self.slope_grid = np.hypot(gx, gy)
         self.u, self.v = sea_axes(self.t)
-        self._shore = lambda lat: shore_at(self.t, lat)
+        ts = self.t.settings
+        if ts is not None and ts.coast != "side":    # an island or an inland terrain: no spec shoreline
+            self._shore = lambda lat: np.full_like(np.asarray(lat, float), 1e6)
+        else:
+            self._shore = lambda lat: shore_at(self.t, lat)
+        from . import terrain_gen
+        self.water_grid = terrain_gen.water_mask(self.t, water_lines(layout))   # lowered rivers and canals (None: none)
         rng = np.random.default_rng(self.city.seed + 7)
         self.noise = _value_noise(129, 6, rng)       # organic asymmetry of the density
         self.outline = Outline(self.city, self) if self.city.preset.outline != "coastal" else None
@@ -169,14 +175,33 @@ class Fields:
     def inland(self, x, y):
         """Metres from the shoreline, positive on land (an island: from its shore)."""
         x, y = np.asarray(x, float), np.asarray(y, float)
+        ts = self.t.settings
+        if ts is not None and ts.coast != "side":
+            from . import terrain_gen
+            return terrain_gen.inland_of(self.t, x, y)
         along = x * self.u[0] + y * self.u[1]
         lat = x * self.v[0] + y * self.v[1]
         if self.outline is not None and self.outline.kind == "island":
             return np.maximum(self.outline.sd(x, y), self._shore(lat) - along)
         return self._shore(lat) - along
 
-    def land(self, x, y):
+    def ground(self, x, y):
+        """Dry ground or a river or canal (a road bridges those): not the sea."""
         return (self.inland(x, y) > 0) & (self.z(x, y) > self.sea + 0.5)
+
+    def water(self, x, y):
+        """Lowered water: a river's or canal's width (terrain_gen.water_mask)."""
+        if self.water_grid is None:
+            return np.zeros(np.shape(x), bool)
+        n = self.water_grid.shape[0]
+        e = self.t.extent_m
+        j = np.clip(np.round((np.asarray(x, float) / e + 0.5) * (n - 1)).astype(int), 0, n - 1)
+        i = np.clip(np.round((0.5 - np.asarray(y, float) / e) * (n - 1)).astype(int), 0, n - 1)
+        return self.water_grid[i, j]
+
+    def land(self, x, y):
+        out = self.ground(x, y)
+        return out & ~self.water(x, y) if self.water_grid is not None else out
 
     def density(self, x, y):
         x, y = np.asarray(x, float), np.asarray(y, float)
@@ -384,6 +409,7 @@ def pads(layout: SiteLayout, heights: np.ndarray) -> list[tuple[float, float, fl
     return out
 
 
+WATER_LIFT = 1.9               # a river's or canal's surface over its lowered bed (terrain_gen.WATER_DEPTH_M - 0.1)
 ISLAND_STRAIT_M = 300.0         # an island: the sea this wide all round it (the mainland beyond stays)
 
 
@@ -393,6 +419,9 @@ def preset_terrain(layout: SiteLayout, heights: np.ndarray):
     from .greybox import grid_coords, sea_axes
     c = layout.city
     h = heights.astype(np.float32).copy()
+    if c is not None and layout_water(c, layout.terrain):      # the preset's canals, channels, river: lowered water
+        from . import terrain_gen
+        h, _ = terrain_gen.carve(h, layout.terrain, [w for _, _, w in layout_water(c, layout.terrain)], layout.sea_level)
     if c is None or c.preset.outline != "island":
         return h, None
     t = layout.terrain
@@ -414,6 +443,9 @@ def apply_pads(layout: SiteLayout, heights: np.ndarray) -> np.ndarray:
     x, y = grid_coords(t)
     u, v = sea_axes(t)
     inland = shore_at(t, x * v[0] + y * v[1]) - (x * u[0] + y * u[1])
+    if t.settings is not None and t.settings.coast != "side":     # an island or inland terrain: its own coast
+        from . import terrain_gen
+        inland = terrain_gen.inland_of(t, x, y)
     h, sd = preset_terrain(layout, heights)
     if sd is not None:            # an island: inland is from its own shore (the mainland keeps the coast's)
         inland = np.maximum(sd, inland)
@@ -791,7 +823,7 @@ def _trace(f: Fields, start, heading, length, curve, target=None, free_m=0.0, st
         hd = best if best is not None else planned
         p = pts[-1] + STEP_M * _dir(hd)
         walked += STEP_M
-        if not f.land(*p):
+        if not f.ground(*p):           # the sea; a river or canal is bridged
             break
         pts.append(p)
         if stop is not None and stop(p):
@@ -1091,9 +1123,13 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
         ln = _trace(f, start, hd, 3 * math.dist(start, end), 0.0, target=end)
         if ln is not None and ln.length > 40:
             out.append(Way(f"art-{a_id}-{b_id}", "arterial", ln, c.arterial_w, a_id))
-    ok = lambda p: inside(p) and bool(f.land(*p)) and not in_other(p, None)  # noqa: E731
-    ok_river = lambda p: in_box(p) and bool(f.land(*p)) and not in_other(p, None)  # noqa: E731
+    ok = lambda p: inside(p) and bool(f.ground(*p)) and not in_other(p, None)  # noqa: E731
+    ok_river = lambda p: in_box(p) and bool(f.ground(*p)) and not in_other(p, None)  # noqa: E731
     out += pattern_ways(c, f, ok, ok_river)
+    from . import terrain_gen
+    for k, w in enumerate(terrain_gen.terrain_lines(L.terrain)):     # the terrain's own river: lowered water
+        out += _clipped(f"terrain-river{k}", "river", np.asarray(w.line.coords), lambda p: in_box(p) and bool(f.ground(*p)),
+                        w.width)
     if e:
         out += enclosure_ways(L, f, rr)
     for tw in c.towns:
@@ -1181,25 +1217,67 @@ def pattern_ways(c: CitySpec, f: Fields, ok, ok_river=None) -> list[Way]:
         a = np.linspace(0, 2 * math.pi, max(24, int(2 * math.pi * r / STEP_M)) + 1)
         out += _clipped(f"ring{k}", "boulevard" if pr.boulevard_w else "ring", np.c_[C[0] + r * np.cos(a), C[1] + r * np.sin(a)],
                         ok, pr.boulevard_w or c.arterial_w)
-    if pr.canals:          # along the coast, spread inland from the shore through the city
-        deep = float(np.max(f.inland(*np.array([[x0, y0], [x0, y1], [x1, y0], [x1, y1]]).T)))
-        lat = np.arange(-reach, reach, STEP_M) + float(C @ f.v)
+    for wid, kind, w in layout_water(c, f.t):     # the preset's canals, channels and river (lowered: preset_terrain)
+        out += _clipped(wid, kind, np.asarray(w.line.coords), ok if kind == "canal" else ok_river, w.width)
+    return out
+
+
+def layout_water(c: CitySpec, t: TerrainSpec) -> list:
+    """The preset's own water as terrain_gen.WaterLines, each (id, way kind, line): canals along the
+    coast through the city (level), channels along a strip's long sides (level), a river from the
+    hills to the sea (falling). From the spec alone (its coast, the bounds, the layout seed), so the
+    ways (pattern_ways) and the lowered ground (preset_terrain) are the same lines."""
+    from .greybox import sea_axes, shore_at
+    from .terrain_gen import WaterLine
+    pr = c.preset
+    if not (pr.canals or (pr.strip_water and pr.outline == "strip") or pr.river):
+        return []
+    u, v = sea_axes(t)
+    C = np.array(main_centre(c), float)
+    x0, y0, x1, y1 = c.bounds
+    reach = math.hypot(x1 - x0, y1 - y0)
+    tt = np.arange(-reach, reach + STEP_M, STEP_M)
+    box = sbox(x0, y0, x1, y1)
+    out = []
+
+    def clip(pts):
+        g = LineString(pts).intersection(box)
+        parts = [q for q in getattr(g, "geoms", [g]) if isinstance(q, LineString) and q.length > 40]
+        return max(parts, key=lambda q: q.length) if parts else None
+    if pr.canals:
+        corners = np.array([[x0, y0], [x0, y1], [x1, y0], [x1, y1]])
+        lat_c = corners @ v
+        deep = float(np.max(shore_at(t, lat_c) - corners @ u))
+        lat = np.arange(-reach, reach, STEP_M) + float(C @ v)
         for k in range(pr.canals):
             off = 120 + (deep - 240) * (k + 0.5) / pr.canals
-            pts = np.outer(f._shore(lat) - off, f.u) + np.outer(lat, f.v)
-            out += _clipped(f"canal{k}", "canal", pts, ok, pr.canal_w)
-    if pr.strip_water and pr.outline == "strip":   # channels along the strip's long sides, where there's land
+            ln = clip(np.outer(shore_at(t, lat) - off, u) + np.outer(lat, v))
+            if ln is not None:
+                out.append((f"canal{k}", "canal", WaterLine(ln, pr.canal_w, 3.0, "flat")))
+    if pr.strip_water and pr.outline == "strip":
         r = outline_r(c)
         for k, side in enumerate((-1, 1)):
-            off = C + side * (r + pr.river_w / 2 + 15) * f.u
-            out += _clipped(f"channel{k}", "river", off + np.outer(t, f.v), lambda p: ok_river(p), pr.river_w)
-    if pr.river:           # from the hills to the sea, meandering past the centre
+            ln = clip(C + side * (r + pr.river_w / 2 + 15) * u + np.outer(tt, v))
+            if ln is not None:
+                out.append((f"channel{k}", "river", WaterLine(ln, pr.river_w, 4.0, "flat")))
+    if pr.river:
         lr = layout_rng(c, "river")
         side, phase = lr.choice([-1, 1]), lr.uniform(0, 2 * math.pi)
-        s_ = np.arange(-reach, reach, STEP_M / 2)
-        lat0 = float(C @ f.v) + side * 0.25 * outline_r(c)
-        along = np.outer(s_, -f.u) + np.outer(lat0 + 110 * np.sin(2 * math.pi * s_ / 900 + phase), f.v)
-        out += _clipped("river", "river", along + float(C @ f.u) * f.u, lambda p: ok_river(p), pr.river_w)
+        s_ = np.arange(-reach, reach, STEP_M / 2)[::-1]           # upstream (inland) first
+        lat0 = float(C @ v) + side * 0.25 * outline_r(c)
+        pts = np.outer(s_, -u) + np.outer(lat0 + 110 * np.sin(2 * math.pi * s_ / 900 + phase), v) + float(C @ u) * u
+        ln = clip(pts)
+        if ln is not None:
+            out.append(("river", "river", WaterLine(ln, pr.river_w, 4.0, "down")))
+    return out
+
+
+def water_lines(layout: SiteLayout) -> list:
+    """Every line of lowered water: the terrain's river (terrain_gen) and the preset's own."""
+    from . import terrain_gen
+    out = terrain_gen.terrain_lines(layout.terrain) if layout.terrain.settings is not None else []
+    if layout.city is not None:
+        out = out + [w for _, _, w in layout_water(layout.city, layout.terrain)]
     return out
 
 
@@ -1474,6 +1552,14 @@ def _land_region(L: SiteLayout, f: Fields, margin: float) -> Polygon:
     shore = np.outer(s, f.u) + np.outer(lat, f.v)
     far = [shore[-1] - 4 * f.t.extent_m * f.u, shore[0] - 4 * f.t.extent_m * f.u]
     land = Polygon(np.vstack([shore, far])).buffer(0)
+    ts = f.t.settings
+    if ts is not None and ts.coast == "none":    # an inland terrain: no shoreline, the bounds are all land
+        land = sbox(*c.bounds)
+    if ts is not None and ts.coast == "all":     # an island terrain: its shore
+        from . import terrain_gen
+        a = np.linspace(0, 2 * math.pi, 241)[:-1]
+        r = terrain_gen.island_radius(f.t, a) - margin
+        land = Polygon(np.c_[ts.centre[0] + r * np.cos(a), ts.centre[1] + r * np.sin(a)])
     if island:             # the island and the mainland
         land = land.union(f.outline.polygon(f.t.extent_m).buffer(-margin))
     return land.intersection(sbox(*c.bounds))
@@ -1710,6 +1796,8 @@ def piers(L: SiteLayout, f: Fields, nd: CivicNode) -> list[Box]:
         la = lat + k * 70
         s = float(f._shore(la))
         mid = (s + 60) * f.u + la * f.v
+        if s > f.t.extent_m:           # no shoreline in the tile (an island or inland terrain): no piers here
+            continue
         rot = math.degrees(math.atan2(f.u[1], f.u[0]))
         out.append(Box(float(mid[0]), float(mid[1]), 150.0, 12.0, rot, L.sea_level - 2, 3.5, "pier", nd.id))
     return out
@@ -2374,7 +2462,8 @@ def add_slots(P: CityPlan, new, hs) -> None:
         kind = w.kind if w.kind in ("lane", "stair", "highway", "canal", "river", "boulevard") else "avenue"
         sb = new(f"way-{w.id}", kind, (x, y, float(hs(x, y))), district=w.district,
                  category="terrain")
-        ribbon_piece(sb, w.kind, list(w.line.coords), w.width, 0.15 if w.kind == "highway" else 0.12)
+        lift = 0.15 if w.kind == "highway" else (WATER_LIFT if w.kind in ("river", "canal") else 0.12)
+        ribbon_piece(sb, w.kind, list(w.line.coords), w.width, lift)
         if w.kind == "boulevard":      # a green median down the middle, kerbed
             ribbon_piece(sb, "median", list(w.line.coords), max(6.0, 0.2 * w.width), 0.24)
         if w.kind == "stair":

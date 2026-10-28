@@ -283,3 +283,61 @@ Still open from this round:
   store and, for a heightmap, samples the ground from `sw_site.terrain(store, layout, write=False)`,
   the same heights plus pads the build uses. Generated terrain is unchanged.
   Test: `test_city_roll.py::test_a_roll_on_a_heightmap_terrain_places_its_shots_on_the_heightmap`.
+
+## Terrain
+
+A fresh session resumes from the phase list below: each phase is committed on its own and
+marked done here.
+
+### How terrain works (before terrain settings)
+
+- **Two kinds.** A *generated* terrain is `greybox.make_terrain(TerrainSpec)`: a fictional coast.
+  The sea lies towards `sea_dir`, and `shore_at` sets the shoreline: `shore_m` from the origin, a
+  headland, an optional bay, and seeded bays and points. Inland the ground rises: a low cliff at the
+  shore, 3 % slope, and hills between `hill_from_m` and `hill_to_m` modulated by value noise. The sea
+  shelves down to -40 m. A *heightmap* terrain is a project 16-bit PNG (`terrain.heightmap`,
+  decoded with `z_range`), usually a terrain build's `core.png`, with `terrain.far` for the ring
+  beyond the tile.
+- **Where the coast comes from.** Always from the spec: `city.Fields.inland` is `shore_at` minus the
+  distance along `sea_dir`. Land is `inland > 0` and height above the sea, which is how a heightmap
+  project keeps a coast. A roll's waterfront rules change `shore_m` and the bays; on a heightmap
+  they are kept (2026-10-27), because the heightmap's coast can't move.
+- **Heights the city sits on.** `sw_site.terrain()` loads or generates the heights, then
+  `city.apply_pads` levels a terrace under every district (an organic one only at its summit) and
+  `city.preset_terrain` adds a preset's own ground (an island's strait). The plan uses
+  `sw_site.plan_terrain()`, which with a far build uses the plain generated tile. The greybox and
+  Unreal use the real heights. A plan reads slope and height through `Fields`: density falls on
+  steep ground (`max_slope`), avenues steer to gentle grades (`_trace`), boxes sit on their lowest
+  corner, and hillside blocks are cut along contours near organic nodes.
+- **Water.** The sea is the only real water. A preset's rivers, canals and channels are ribbons
+  painted on the ground; only the island preset lowers ground (its strait).
+
+### Phases
+
+- [x] **Phase 1: terrain settings** (committed). `schema.TerrainSettings` on `TerrainSpec.settings`
+  (None: the legacy coast, so every existing project and utopia plan exactly as before), with its own
+  `seed`. `terrain_gen.make` builds it:
+  - base noise `flat` / `rolling` / `rugged` (`relief_m`), rising `rise` per metre inland;
+  - a mountain ring round `centre` (`mountains_m`, `mountains_at_m`, `mountains_w_m`) with
+    `mountain_gaps` passes, the first facing the sea;
+  - `hills` inside `city_r_m`;
+  - a river (`river`, width, `river_depth_m`, angle, offset, meander), real water lowered into the
+    ground: its surface falls towards the sea (never rising), the bed `WATER_DEPTH_M` under it,
+    banks or `canyon_m` walls;
+  - the coast `side` (the spec's shoreline, plus a `beach_m` beach), `all` (an island of
+    `island_r_m`) or `none` (inland);
+  - a `plateau_m` table with `terraces`.
+  Water: `terrain_gen.WaterLine` / `carve` / `water_mask`. `city.Fields.ground` is land or bridgeable
+  water (roads and `_trace` cross rivers), `Fields.land` excludes water (districts, walls, blocks).
+  `city.layout_water` makes a preset's canals, channels and river the same `WaterLine`s, carved in
+  `preset_terrain`, so they are lowered too (Phase 2's water presets). River and canal ribbons sit
+  `WATER_LIFT` over their bed.
+  Reroll rules: `city_roll.set_terrain(store, settings)` keeps the layout preset, layout seed, seed
+  and rules exactly, and places the districts again on the new ground (the recipe with the same seed,
+  else `fit_nodes`). A heightmap is replaced only with `replace_heightmap`. `city_roll.roll` keeps
+  the waterfront rules (the terrain) whenever the terrain has settings, as it does for a heightmap.
+  Tests: `tests/test_terrain_gen.py`.
+- [ ] Phase 2: eight terrain presets, the Terrain picker, water presets lowering real water.
+- [ ] Phase 3: the plan respects the terrain (slopes, pads, routing, parks, walls on land).
+- [ ] Phase 4: Describe the terrain (VLM text mode, keyword fallback), `ap terrain roll`.
+- [ ] Phase 5: rerolls through Greybox and Shots (generated and heightmap), six previews.

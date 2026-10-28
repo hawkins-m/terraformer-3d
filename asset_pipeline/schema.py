@@ -404,6 +404,48 @@ class VegZone(BaseModel):
     density_per_100m2: float = 1.0
 
 
+class TerrainSettings(BaseModel):
+    """A generated terrain's shape, apart from the city layout (terrain_gen.py). Set on a
+    TerrainSpec it replaces the legacy coastal generator; None (every project before it) keeps
+    that. Its own seed: rerolling the terrain keeps the city's layout preset and seeds, rerolling
+    the city keeps the terrain."""
+    name: str = "custom"                  # the terrain preset it came from (terrain_gen.PRESETS), or custom
+    seed: int = Field(default=0, ge=0)
+    # base noise: flat (nearly level), rolling (soft hills), rugged (broken, ridged ground)
+    base: Literal["flat", "rolling", "rugged"] = "rolling"
+    relief_m: float = Field(default=18.0, ge=0)           # the base noise's height
+    rise: float = Field(default=0.02, ge=0, le=0.3)       # the ground climbs this much per metre inland
+    centre: Vec2 = (0.0, 0.0)             # the city's centre: mountains ring it, hills and the river go round it
+    city_r_m: float = Field(default=1400.0, gt=100)       # the city's radius (hills inside, mountains beyond)
+    # a mountain ring round the city: its height (0: none), its distance and width, passes through it
+    mountains_m: float = Field(default=0.0, ge=0)
+    mountains_at_m: float = Field(default=2600.0, gt=0)
+    mountains_w_m: float = Field(default=900.0, gt=50)
+    mountain_gaps: int = Field(default=2, ge=0, le=8)     # passes, the first facing the sea
+    gap_deg: float = Field(default=28.0, gt=0, le=90)
+    # hills inside the city
+    hills: int = Field(default=0, ge=0, le=12)
+    hill_m: float = Field(default=40.0, ge=0)
+    hill_r_m: float = Field(default=260.0, gt=20)
+    # a river through the city: real water lowered into the ground, falling towards the sea
+    river: bool = False
+    river_w_m: float = Field(default=70.0, gt=5)
+    river_depth_m: float = Field(default=5.0, ge=1)      # its surface this far below the ground beside it
+    river_angle: float = 0.0              # deg off straight to the sea
+    river_offset_m: float = 0.0           # beside the centre, along the coast
+    river_meander_m: float = Field(default=140.0, ge=0)
+    canyon_m: float = Field(default=0.0, ge=0)            # the river runs in a canyon this deep (0: open banks)
+    canyon_w_m: float = Field(default=160.0, gt=10)       # each wall's width
+    # the coast: side (the sea towards sea_dir, the spec's shoreline), all (an island), none (inland)
+    coast: Literal["side", "all", "none"] = "side"
+    beach_m: float = Field(default=50.0, ge=0)
+    island_r_m: float = Field(default=1700.0, gt=200)     # coast all: the island's radius
+    # a plateau under the city (0: none), and terraces stepping down its sides
+    plateau_m: float = Field(default=0.0, ge=0)
+    plateau_r_m: float = Field(default=1000.0, gt=50)
+    terraces: int = Field(default=0, ge=0, le=10)
+
+
 class TerrainSpec(BaseModel):
     """Fictional coastal terrain (generated), or a 16-bit heightmap PNG in the project."""
     extent_m: float = Field(default=2400.0, gt=0)  # square, centred on the origin
@@ -426,6 +468,7 @@ class TerrainSpec(BaseModel):
     heightmap: str | None = None          # project-relative PNG instead of generating
     far: str | None = None                # project-relative dir with far.npz / outer.npz (terrain_build): beyond the tile
     z_range: Vec2 = (-40.0, 160.0)        # PNG 0..65535 <-> metres
+    settings: TerrainSettings | None = None   # a generated terrain's shape (terrain_gen); None: the legacy coast above
 
 
 class CivicNode(BaseModel):

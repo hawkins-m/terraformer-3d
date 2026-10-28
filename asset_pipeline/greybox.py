@@ -103,7 +103,10 @@ def shore_at(t: TerrainSpec, lateral):
 def make_terrain(t: TerrainSpec) -> np.ndarray:
     """Fictional coastal terrain (float32 metres, rows north -> south): sea towards sea_dir,
     a headland (and with coast_amp_m, bays and points) on the shore, hills inland, and
-    unless city_radius_m is 0, the city a flat plateau."""
+    unless city_radius_m is 0, the city a flat plateau. With terrain settings: terrain_gen.make."""
+    if t.settings is not None:
+        from . import terrain_gen
+        return terrain_gen.make(t)
     x, y = grid_coords(t)
     rng = np.random.default_rng(t.seed)
     u, v = sea_axes(t)
