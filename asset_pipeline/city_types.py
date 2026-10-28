@@ -161,7 +161,7 @@ class Typer:
         self.by_district = defaultdict(Counter)      # district -> typology -> buildings
         self.foot = defaultdict(Counter)             # district -> typology -> footprint m2
         self.grid = defaultdict(list)                # cell -> [(x, y, typology)]
-        ways = [w for w in P.ways if w.kind in ("avenue", "arterial", "promenade", "ring")]
+        ways = [w for w in P.ways if w.kind in ("avenue", "arterial", "promenade", "ring", "boulevard")]
         self.av_buf = unary_union([w.line.buffer(w.width / 2 + 6) for w in ways]) if ways else Polygon()
         self.crossings = []
         avs = [w for w in P.ways if w.kind in ("avenue", "arterial")]

@@ -354,12 +354,13 @@ class Plaza(BaseModel):
     id: str
     center: Vec2 = (0.0, 0.0)
     radius: float = Field(gt=0)
-    type: Literal["paved", "pool", "lagoon", "court", "basins"] = "paved"   # lagoon: water nearly to the
+    type: Literal["paved", "pool", "lagoon", "court", "basins", "lot"] = "paved"   # lot: a car park (paved, striped); lagoon: water nearly to the
     # edge; court: paved with a long channel pool along `rot`; basins: two long basins either side of a
     # paved walk along `rot`, lawn beds with gravel edges in two opposite quarters
     rot: float = 0.0
     district: str | None = None
     beds: list[PlazaBed] | None = None    # basins: its lawn beds (None: two opposite quarters)
+    shape: Literal["round", "square"] = "round"   # square: `radius` is the half side, turned by `rot` (a grid square, a lot)
 
 
 class Plot(BaseModel):
@@ -537,6 +538,7 @@ class LayoutPreset(BaseModel):
     outline: Literal["coastal", "circle", "strip", "blob", "island"] = "coastal"
     outline_m: float | None = Field(default=None, gt=0)   # circle / blob radius, strip half-width; None: from the bounds
     rings: int = Field(default=0, ge=0, le=8)   # ring roads (ring districts) round the main centre; ring streets: 0 = 3
+    boulevard_w: float = Field(default=0.0, ge=0)   # > 0: the ring roads are boulevards this wide, with a green median (0: plain ring roads)
     grid_m: float | None = Field(default=None, gt=40)    # grid / linear avenue spacing; None: 2 x the outskirts block
     grid_deg: float = 0.0                       # grid orientation; linear: the spine's turn off the coast
     grid_ratio: float = Field(default=1.0, gt=0.1, le=10)   # the grid's second axis spacing, x grid_m (long blocks)
@@ -545,7 +547,8 @@ class LayoutPreset(BaseModel):
     moat_w: float = Field(default=30.0, gt=0)
     wall_shape: Literal["circle", "star"] = "circle"   # star: a bastioned star trace (a star fortress)
     bastions: int = Field(default=0, ge=0, le=16)    # pointed bastions round the wall (a star fortress)
-    inner_wall: bool = False                         # a second wall round the main node (a castle's inner ward)
+    inner_wall: bool = False                         # a second wall round the main node (a castle's inner ward): one gate, no road through it
+    hub: Literal["round", "square", "mall"] = "round"   # a district's hub: round plaza (as before), a square grid square, or a mall (market districts) with a car park
     block_parks: float = Field(default=0.0, ge=0, le=0.5)   # share of blocks left as parks between the others
     park_pattern: Literal["random", "checker"] = "random"   # checker: every other grid cell a park (block_parks > 0)
     park_rings: bool = False                         # the ring roads are green rings instead (a garden city)

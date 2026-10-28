@@ -49,7 +49,8 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             "cloister": "building", "lane": "terrain", "stair": "terrain", "wall": "structure",
             "gate": "structure", "portico": "building", "forum_gate": "structure", "fountain": "structure",
             "highway": "terrain", "interchange": "terrain", "moat": "terrain", "culdesac": "terrain",
-            "river": "terrain", "tower": "building", "industrial": "building", "bastion": "structure"}
+            "river": "terrain", "tower": "building", "industrial": "building", "bastion": "structure",
+            "mall": "building", "boulevard": "terrain"}
 DEFAULT_KIT = Kit(id="default")
 
 
@@ -198,6 +199,28 @@ class SlotBuilder:
         ox, oy, oz = self.slot["loc"]
         wx, wy = _rot(lx, ly, self.slot["rot_z"])
         self.add(piece, prim, (ox + wx, oy + wy, oz + lz), self.slot["rot_z"] + lrot)
+
+
+def lot_stripes(sb: "SlotBuilder", pz) -> None:
+    """A car park's bays: two rows of painted stripes along each side (one by the edge, one by the
+    mall in the middle, whose half side is city.MALL_FRAC of the lot's), square to the side."""
+    from . import city
+    H = pz.radius
+    m = city.MALL_FRAC * H
+    depth, pitch = 5.5, 3.0
+    for k in range(4):
+        a = 90 * k                                       # the side's outward normal, in the lot's frame
+        nx, ny = math.cos(math.radians(a)), math.sin(math.radians(a))
+        tx, ty = -ny, nx
+        for dist in (H - 5 - depth / 2, m + 9 + depth / 2):
+            if dist - depth / 2 <= m + 4:
+                continue
+            for i in range(int((2 * H - 24) / pitch) + 1):
+                t = -(H - 12) + i * pitch
+                px, py = nx * dist + tx * t, ny * dist + ty * t
+                if abs(px) < m + 6 and abs(py) < m + 6:
+                    continue
+                sb.add_local("lot-stripe", box(0.18, depth, 0.04), px, py, PAVING_LIFT + 0.14, pz.rot + a - 90)
 
 
 def box(w, d, h):
@@ -615,8 +638,13 @@ def build_spec(layout: SiteLayout, heights: np.ndarray, plan_heights: np.ndarray
         sb.add_local("radial", box(rad.width, rad.r_to - rad.r_from, 0.1), 0, 0, RADIAL_LIFT)
     for pz in layout.plazas:
         x, y = pz.center
-        sb = new(f"plaza-{pz.id}", "plaza" if pz.type in ("paved", "court") else "pool", (x, y, hs(x, y)),
+        sb = new(f"plaza-{pz.id}", "plaza" if pz.type in ("paved", "court", "lot") else "pool", (x, y, hs(x, y)),
                  district=pz.district or district_at(layout, x, y))
+        if pz.shape == "square":   # a grid square, or a car park: `radius` is the half side
+            sb.add_local("paving", box(2 * pz.radius, 2 * pz.radius, 0.1), 0, 0, PAVING_LIFT + 0.04, pz.rot)
+            if pz.type == "lot":
+                lot_stripes(sb, pz)
+            continue
         if pz.type == "court":     # paved, a channel pool down the middle along rot, short of the ends
             sb.add_local("paving", cyl(pz.radius, 0.1, 96), 0, 0, PAVING_LIFT + 0.04)
             sb.add_local("pool-water", box(2.4, pz.radius * 0.7, 0.12), 0, 0, PAVING_LIFT + 0.1, pz.rot)

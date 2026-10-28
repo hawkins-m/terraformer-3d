@@ -193,6 +193,17 @@ def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteL
             return bool(np.all(f.land(xs, ys)) and np.all(f.z(xs, ys) > sea + 3) and float(f.slope(*p)) < 0.3)
         return ok
 
+    wall_fields = (dict(rec.wall) | {"radius": round(rec.wall["radius"] * Rb)}) if rec.wall else None
+
+    def wall_fits(p) -> bool:
+        """The whole wall (a star's tips too), its moat and green belt on land, above the sea."""
+        if wall_fields is None:
+            return True
+        e = Enclosure(center=(float(p[0]), float(p[1])), **wall_fields)
+        ring = city.wall_outline(e).buffer(e.wall_d / 2 + 3 + e.moat_w + e.greenbelt_w)
+        pts = np.array(ring.exterior.segmentize(30).coords)
+        return bool(np.all(f0.land(pts[:, 0], pts[:, 1])) and np.all(f0.z(pts[:, 0], pts[:, 1]) > sea + 3))
+
     # the centre: at the recipe's distance from the coast, near the middle of the bounds
     lat = float(np.array([(x0 + x1) / 2, (y0 + y1) / 2]) @ v) + rng.uniform(-0.12, 0.12) * (x1 - x0)
     along = float(f0._shore(lat)) - rec.inland * Rb
@@ -206,7 +217,7 @@ def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteL
         x1, y1 = min(max(x1, C[0] + R + 150), half), min(max(y1, C[1] + R + 150), half)
         c.bounds = (round(x0), round(y0), round(x1), round(y1))
     else:
-        C = _search(f0, target, r0, lambda p: ok_on(f0)(p, r0), rng, 0.6 * Rb, high=d0.place == "high")
+        C = _search(f0, target, r0, lambda p: ok_on(f0)(p, r0) and wall_fits(p), rng, 0.7 * Rb, high=d0.place == "high")
         if C is None:
             raise ValueError(f"no room for a {name} city on this terrain: its centre needs {r0:.0f} m of level land")
     # the preset's own ground (an island, a strip's water) round that centre, then the districts on it
@@ -239,8 +250,12 @@ def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteL
     c.nodes = nodes
     # the wall, moat and green belt, or none
     if rec.wall:
-        w = dict(rec.wall)
-        c.enclosure = Enclosure(center=(nodes[0].center[0], nodes[0].center[1]), **(w | {"radius": round(w["radius"] * Rb)}))
+        c.enclosure = Enclosure(center=(nodes[0].center[0], nodes[0].center[1]), **wall_fields)
+        reach = city._wall_reach(c.enclosure) + 60      # the bounds take the whole wall, moat and belt in
+        c.bounds = tuple(round(float(np.clip(b, -half, half))) for b in (
+            min(c.bounds[0], c.enclosure.center[0] - reach), min(c.bounds[1], c.enclosure.center[1] - reach),
+            max(c.bounds[2], c.enclosure.center[0] + reach), max(c.bounds[3], c.enclosure.center[1] + reach)))
+        x0, y0, x1, y1 = c.bounds
     else:
         c.enclosure = None
     # satellite towns: out past the city, on land, inside the terrain

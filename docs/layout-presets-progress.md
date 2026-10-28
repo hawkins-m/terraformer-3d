@@ -155,7 +155,7 @@ in the scratch project's `site/preset_previews/`.
 - Catalog (typology) cities: downtown towers and sheds are plain boxes, not catalog typologies.
 - Island presets on a layout with an enclosure or towns give a wall and greenbelt that run into
   the sea, and towns across the water vanish.
-- Bastions and the inner wall are boxes on a circular wall. A real star trace would bend the wall.
+- (The star trace now bends the wall: see "A preset owns the whole city shape". The inner wall is still a circle.)
 - Industrial sheds need their own catalog look, and suburbs need bigger lots and driveways.
 
 ### A preset owns the whole city shape on a roll (2026-10-27)
@@ -217,6 +217,56 @@ street-only previews were removed.
 - Recipes place districts by angle and distance. They could also read the terrain's valleys and
   ridges.
 - Locked shots keep their cameras after a shape roll, though their frames show the old city.
+
+### Polish: star fill, gates only, hub shapes, boulevard (2026-10-27)
+
+Utopia is unchanged by all of this (its plan digests in `tests/test_layout_presets.py` still match,
+and its own wall keeps its old gate roads).
+
+- **Star fortress fills out and stays on land.** For a star wall the block region, the ring road
+  (`enclosure_ring`: the star trace drawn in) and the density (`Fields.star`, a signed distance to
+  the trace) follow the star, so blocks reach into all eight bastion points (nearest building to
+  each tip 120-147 m; the old circular fill stopped near 566 m). The recipe (`city_shape`) now
+  searches for a centre where the whole wall, its moat and green belt are on land above the sea
+  (`wall_fits`), and the bounds grow to take them in. Gate roads start at `ring_point`, on the star's
+  ring road.
+- **Roads cross the wall and moat only at gates** (presets with `walls` != none; utopia's own wall is
+  untouched, `_enclosure_ways_own`):
+  - `preset_gate_ways`: each satellite town's road leaves by the gate nearest it and goes round
+    outside the wall, moat and belt (`_town_route`), instead of every gate sending a road across the
+    city to it. Gates with no town get a short road straight out.
+  - `wall_guard` cuts any way that meets the wall or moat band outside a gate's opening, ending it
+    11 m from the wall's centre line, so a stray road or street can't bridge the moat.
+  - The castle (`inner_ward`, replaces `inner_ring`) has **one gate**, facing the outer gate nearest it,
+    with a main avenue (`castle-gate-av`) between the two. Every other way is cut at the ward wall: one
+    that starts inside ends at the wall, one that starts outside ends at its foot.
+- **Hub shape by preset** (`LayoutPreset.hub`, `city.hub_kind`; round is the default and is utopia's):
+  - round: utopia, walled-castle, star-fortress, canal-city, island-city and every other preset not
+    named below, plus any node with a monument (a rotunda needs its round plaza) or a hill-town layout.
+  - square (classic, manhattan, grid, park-grid): a square plaza (`Plaza.shape = "square"`, turned to
+    the grid), a square street round it, four axis streets, no round rings or civic row; the node's
+    cut-out, `in_other` tests and the arterial ends use the square (`hub_poly`, `hub_reach`, `in_hub`).
+  - mall (suburbia, market districts): a car park (`Plaza.type = "lot"`: paving with painted
+    `lot-stripe` bays) with a low mall in the middle (a `mall` building, `MALL_FRAC` of the lot); the
+    other suburbia districts get square plazas.
+- **Classic's ring is a boulevard** (`boulevard_w` = 40): `ring0` is a `boulevard` way built as road
+  (a carriageway and a green `median` piece, trees along it, drawn in road grey with a green median),
+  no longer a plain ring road that read as a wall. Classic still has no wall, belt or forum.
+- New slot types: `boulevard`, `mall`; the registrations are as for the earlier ones.
+- Tests: `tests/test_preset_polish.py` (crossings only at gates for star-fortress and walled-castle, a
+  town's road from its nearest gate and outside the wall, the castle's one gate, star fill and land,
+  density at the star's tip, hub shape per preset, the square hub, the mall and its lot, the boulevard,
+  and utopia's own wall unchanged).
+- Previews regenerated from real rolls on a second app instance (seed 11), in the scratch project's
+  `site/preset_previews/`: flat-utopia, flat-classic, flat-manhattan, flat-star-fortress, scratch-walled-castle,
+  scratch-suburbia, scratch-island-city, scratch-canal-city.
+
+Still open from this round:
+- The star's wall bays follow its sides, but the bastion points are not built up (no ravelins or
+  casemates); the moat and belt follow the trace.
+- The castle's gate has one road; castle-side lanes now dead-end at the wall (their last 9 m are left
+  clear), so the keep has few streets of its own beyond the gate avenue and its lanes.
+- A mall hub has no entrance road into the lot beyond the district's own streets, and no bus loop.
 
 ## Terrain: generated vs heightmap (2026-10-27)
 

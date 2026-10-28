@@ -20,7 +20,7 @@ from .project import ProjectStore, read_json, write_json
 
 # greybox slot types that are open ground: trees may stand on them
 OPEN_TYPES = ("plaza", "park", "garden", "street", "avenue", "radial", "lane", "stair", "terrain", "sea", "ring",
-              "way", "aqueduct_park", "pergola_walk")
+              "way", "aqueduct_park", "pergola_walk", "boulevard")
 # plaza pieces trees keep clear of (basins, fountains, plinths), with their clearance in metres
 PLAZA_OBSTACLES = {"pool-water": 16.0, "basin-kerb": 16.0, "plinth": 6.0, "fountain": 8.0}
 
