@@ -6,7 +6,7 @@ import struct
 
 import numpy as np
 
-from asset_pipeline import city_library as cl, ue_build
+from asset_pipeline import city_library as cl, ue, ue_build
 
 
 def test_expected_prune_counts_pipeline_actors_the_manifest_no_longer_has():
@@ -346,3 +346,21 @@ def test_progress_time_left_follows_the_stage_not_the_old_median(stub_build):
     p = ui_app._progress(stub_build.store, job, t0 - 700, t0 + 1)
     check = estimates.ue_build_stages(tag)[ue_build.STAGES.index("check")]["seconds"]
     assert (p["done"], p["total"]) == (30, 40) and p["eta_s"] == round(10 * 3.0 + check)
+
+
+def test_the_terrain_assets_are_remade_when_their_material_changes(tmp_path, monkeypatch):
+    from asset_pipeline import terrain_build
+    from asset_pipeline.project import ProjectStore, write_json
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    store = ProjectStore.create("t")
+    monkeypatch.setattr(ue, "project_dir", lambda st: tmp_path / "ue")
+    far = store.root / terrain_build.FAR_DIR
+    far.mkdir(parents=True)
+    (far / "outer.glb").write_bytes(b"glb")
+    ring = tmp_path / "ue" / "Content/AP/Terrain/SM_OuterRing.uasset"
+    ring.parent.mkdir(parents=True)
+    ring.write_bytes(b"x")
+    write_json(far / "ue_assets.json", {"ok": True, "version": terrain_build.TERRAIN_MAT_VERSION})
+    assert not ue_build.terrain_due(store)
+    write_json(far / "ue_assets.json", {"ok": True})                    # made before the material had a version
+    assert ue_build.terrain_due(store)

@@ -517,10 +517,15 @@ Approve (`outside`).
   kit nothing. The spine is cut from the union of every piece (oblique end cuts dropped, then
   reached out along its own ends); the open side is the one with less tall mass. The real stoas
   take 7 (forum) and 8 (harbour) stoa-bay modules at k 0.94-0.97: the greybox's own bay count.
-- Row runs (`city_library.row_run`, RUN_FORMS {"row"}): a TRELLIS model on a typed townhouse
-  footprint that would stretch past 1.5x along it stands as copies at about its own proportions
-  (keys `<key>_r<n>`, `run_of`). Single-house plots narrower than the model (townhouses-render,
-  8 x 12.7 m under a 2:1 row model) stay squashed: a run can't make a footprint longer.
+- Stretch cap (`city_library.model_fit`, STRETCH_CAP 1.4): every Active-model placement keeps its
+  two horizontal scales within 1.4 of each other (the only placements past it on the real city were
+  TRELLIS models: kit modules, props and procedural builds stay well under). Past it: a run of
+  copies for forms that repeat (REPEAT_FORMS row, bar, stepped, arcade_line; keys `<key>_r<n>`,
+  `run_of`; turned a quarter when the model's long side is across the footprint), else a swap to
+  the best-fitting entry of the same catalog family (`swap_fit` on `unplaced.family_models`, the
+  unplaced-swap fit, uniform scale; `refit` on the placement), else capped and centred. The build
+  report lists it per asset ("stretch cap:"). On 2026-10-28 it changed 42 assets: 251 runs, 282
+  swaps (domus-render's narrow plots mostly to cohousing-court-marble), 26 capped (nymphaeum).
 - `library_instances.entry_of` names materials as the library does (polished_concrete ->
   polished-concrete); `insula-polished-concrete` etc. had matched no planned building.
 - Locked shots: only shots locked on a frame count (their id pass); greybox-locked wides see

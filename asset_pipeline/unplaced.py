@@ -331,6 +331,36 @@ def candidates(store: ProjectStore, ok, bounds: dict | None = None, standing: se
     return out, why
 
 
+def family_models(store: ProjectStore, ok, bounds: dict | None = None) -> list[dict]:
+    """Every building entry of a catalog family that may stand (ok) with a model, placed or not:
+    [{entry, family, w, d, model}] (city_library.swap_fit: a stretched place swaps to the best
+    fitting). Not kit modules, attached pieces, variants, excluded entries or ones whose own model
+    would stretch past city_library.STRETCH_CAP at its size."""
+    from . import library_entries as le, next_build
+    from .city_library import STRETCH_CAP, _ratio
+    from .stages import sw_library
+    dec = sw_library.decisions(store)
+    rel = next_build._relations(store, dec)
+    typ = _families(store)
+    bounds = {} if bounds is None else bounds
+    out = []
+    for eid, ent in sorted(le._all_entries(store).items()):
+        if (ent.get("kind") not in (None, "building") or (dec.get(eid) or {}).get("decision") in ("exclude", "kit")
+                or rel["attached"].get(eid) or rel["variant"].get(eid) or ent.get("part") in sw_library.KIT_TYPES):
+            continue
+        t = typ.get(ent.get("typology") or "")
+        if t is None or not t.family or not ok(eid):
+            continue
+        m = _model(store, eid, ent, bounds)
+        if m is None:
+            continue
+        ext = np.subtract(m["hi"], m["lo"])
+        if _ratio(m["dims"][0] / max(ext[0], 1e-9), m["dims"][1] / max(ext[1], 1e-9)) > STRETCH_CAP:
+            continue
+        out.append({"entry": eid, "family": t.family, "w": m["dims"][0], "d": m["dims"][1], "model": m})
+    return out
+
+
 def places(store: ProjectStore, gb: dict, placements: list[dict], ok, avoid_locked: bool,
            planned: dict[str, int] | None = None) -> list[dict]:
     """The placements an unplaced asset may take (module doc): with their group, district,

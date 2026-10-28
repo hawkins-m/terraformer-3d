@@ -424,7 +424,7 @@ files = [
   { src = "preprocessor_config.json", dest = "preprocessor_config.json", size = 585, git_sha1 = "0126173c1ab7b75bbd9102e37de8a56ffe0a012b" },
 ]
 
-# --- World dressing defaults (CC0): ap ue build's ground textures, rocks and shrubs when Megascans
+# --- World dressing defaults (CC0): ap ue build's ground textures, street paving, rocks and shrubs when Megascans
 # are off or lack a role (asset_pipeline/dressing.py). Fetched on first use, or
 # `ap models download --feature dressing --all`. Roles without a suitable CC0 asset (umbrella
 # pine, cypress, olive, grass tufts) get a stylised Blender mesh instead (scripts/blender_dressing.py).
@@ -495,6 +495,57 @@ vram_gb = 0
 select = "ground_sand"
 files = [
   { src = "Ground093C_2K-JPG.zip", dest = "ambientcg/Ground093C/Ground093C_2K-JPG.zip", size = 18689560, sha256 = "7f0223582641a1407ff6050029ed46ad3c4e66f21a15ffb51880d092617f9ecf", url = "https://ambientcg.com/get?file=Ground093C_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-pavingstones054"
+title = "ambientCG Paving Stones 054 (2K)"
+used_by = "World dressing: paving_slabs (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:PavingStones054"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "paving_slabs"
+files = [
+  { src = "PavingStones054_2K-JPG.zip", dest = "ambientcg/PavingStones054/PavingStones054_2K-JPG.zip", size = 22723296, sha256 = "d9adf3ab149b1c6b61a00ba13d5cb92fc67d1458ad8ca47b19668961d47deb07", url = "https://ambientcg.com/get?file=PavingStones054_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-pavingstones119"
+title = "ambientCG Paving Stones 119 (2K)"
+used_by = "World dressing: paving_cobbles (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:PavingStones119"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "paving_cobbles"
+files = [
+  { src = "PavingStones119_2K-JPG.zip", dest = "ambientcg/PavingStones119/PavingStones119_2K-JPG.zip", size = 32014303, sha256 = "25d2e27849f3fd3188c4659160f6528cf7f8dfd920d01245d63a4e7495bc6905", url = "https://ambientcg.com/get?file=PavingStones119_2K-JPG.zip" },
+]
+
+[[model]]
+id = "cc0-pavingstones128"
+title = "ambientCG Paving Stones 128 (2K)"
+used_by = "World dressing: paving_flagstones (ap ue build)"
+feature = "dressing"
+need = "optional"
+license = "CC0-1.0"
+repo = "ambientcg:PavingStones128"
+revision = "2K-JPG"
+gated = false
+root = "dressing"
+vram_gb = 0
+select = "paving_flagstones"
+files = [
+  { src = "PavingStones128_2K-JPG.zip", dest = "ambientcg/PavingStones128/PavingStones128_2K-JPG.zip", size = 31876928, sha256 = "05c61918db5e2eb76d4312e14286932dd72e6f043acf08433a5281dd288abf01", url = "https://ambientcg.com/get?file=PavingStones128_2K-JPG.zip" },
 ]
 
 [[model]]

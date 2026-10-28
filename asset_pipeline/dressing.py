@@ -5,7 +5,11 @@ last-used set; `prepare` writes export/dressing.json and `unreal/ap_dressing.py`
 the import run.
 
     ground       a world-aligned ground material on the terrain: grass on flats, dirt patches by
-                 macro noise, rock on steep ground, sand near sea level; macro variation (Light)
+                 macro noise, rock on steep ground, sand near sea level; macro variation (Light).
+                 Streets and plazas take stone paving (`paving`): large slabs on avenues and
+                 streets, small cobbles on lanes and stairs, large flagstones on plazas and the
+                 forum's radials, world-aligned with the same macro variation and a second, larger
+                 texture scale blended in with camera distance, so it doesn't tile from the air
     rocks        instanced small and large rocks in sparse clusters on open ground, more on slopes,
                  at edges and on the shore; never on buildings, streets, plazas or water (Light-Medium)
     vegetation   tree meshes for the greybox's placeholder trees (and the street-tree slots), olives in
@@ -61,6 +65,9 @@ ROLES = {
     "ground_dirt":  ("ground", "surface", "dirt / soil surface"),
     "ground_rock":  ("ground", "surface", "rock surface (steep ground)"),
     "ground_sand":  ("ground", "surface", "sand surface (shore)"),
+    "paving_slabs":      ("ground", "surface", "large stone slabs (avenues, streets)"),
+    "paving_cobbles":    ("ground", "surface", "small cobbles (lanes, stairs)"),
+    "paving_flagstones": ("ground", "surface", "large flagstones (plazas, the forum floor)"),
 }
 OPTIONS = {   # what the UI shows: label, performance tag, one-line tooltip
     "ground": ("Ground textures", "Light", "A world-aligned terrain material: grass on flats, dirt patches, "
@@ -584,6 +591,33 @@ def macro_noise() -> str:
     return str(p)
 
 
+# --- paving -------------------------------------------------------------------------------------
+
+# kind -> (role, slot types, texture repeat in metres (x, y): ambientCG's measured size)
+PAVING = {"Slabs": ("paving_slabs", ("avenue", "street"), (1.9, 3.8)),
+          "Cobbles": ("paving_cobbles", ("lane", "stair"), (1.15, 1.15)),
+          "Flagstones": ("paving_flagstones", ("plaza", "radial"), (3.5, 3.5))}
+NOT_PAVED = {"pool", "water", "tree", "lawn", "garden"}     # words of a slot's pieces that keep their own look
+
+
+def paving(man: dict, src: dict) -> dict:
+    """{kind: {role, tile_m, src, slots [{slot, components [ISM names]}]}} for the way and plaza slots
+    of the manifest (only their paved pieces: a plaza's pool stays water)."""
+    out = {}
+    for kind, (role, types, tile) in PAVING.items():
+        rows = []
+        for s in man["slots"]:
+            if s.get("type") not in types:
+                continue
+            comps = sorted({f"ISM_{c['asset']}" for c in s.get("components") or []
+                            if not NOT_PAVED & set(c["asset"].split("-"))})
+            if comps:
+                rows.append({"slot": s["id"], "components": comps})
+        if rows:
+            out[kind] = {"role": role, "tile_m": list(tile), "src": src.get(role), "slots": rows}
+    return out
+
+
 # --- the plan Unreal applies ----------------------------------------------------------------------
 
 def _sea_z(gb: dict) -> float:
@@ -643,7 +677,8 @@ def prepare(store: ProjectStore, opts: DressingOptions, log=print) -> dict:
         rec["ground"] = {"slots": t.get("material_slots") or [s["id"] for s in man["slots"] if s.get("type") == "terrain"],
                          "outer": bool(t.get("outer_ring")), "sea_z_cm": _sea_z(gb) * 100, "noise": macro_noise(),
                          "white_mask": white_mask(),
-                         "layers": {r: src.get(r) for r in roles if ROLES[r][1] == "surface"}}
+                         "layers": {r: src.get(r) for r in roles if ROLES[r][1] == "surface" and not r.startswith("paving_")},
+                         "paving": paving(man, src)}
     rec["water"] = None
     if opts.water != "off":
         sea = sea_slots(man)
@@ -670,7 +705,9 @@ WORDS = {   # role -> words in a name or folder that suggest it (first match win
     "rock_large": ("boulder", "cliff", "large rock", "rock large", "big rock", "outcrop"),
     "rock_small": ("pebble", "small rock", "rock small", "stone", "rubble", "rock"),
 }
-SURFACE_WORDS = {"ground_sand": ("sand", "beach", "dune"), "ground_rock": ("rock", "cliff", "stone", "gravel"),
+SURFACE_WORDS = {"paving_cobbles": ("cobble", "sett"), "paving_flagstones": ("flagstone", "flag stone", "plaza"),
+                 "paving_slabs": ("paving", "pavement", "slab", "roman road"),
+                 "ground_sand": ("sand", "beach", "dune"), "ground_rock": ("rock", "cliff", "stone", "gravel"),
                  "ground_grass": ("grass", "lawn", "meadow", "moss"), "ground_dirt": ("dirt", "soil", "mud", "ground", "earth", "forest floor")}
 
 

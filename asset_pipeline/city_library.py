@@ -540,44 +540,85 @@ def model_label(m: dict) -> str:
     return f"Cleaned ({how})" + (f" {c['faces']:,} faces" if c.get("faces") else "")
 
 
-RUN_FORMS = {"row"}         # catalog forms whose Active model repeats along a long footprint instead of stretching
-RUN_STRETCH = 1.5           # ... when one copy would stretch more than this along it
+STRETCH_CAP = 1.4           # a model's two horizontal scales differ by at most this (any placed asset)
+REPEAT_FORMS = {"row", "bar", "stepped", "arcade_line"}     # catalog forms whose model repeats well along a run
 
 
-def row_run(w: float, d: float, ext) -> list[tuple] | None:
-    """A long footprint (w along its own x, d) as copies of a model (footprint ext[0] x ext[1]) at
-    its own proportions as near as whole copies allow, the model's long side along the
-    footprint's: [(ox, oy, kx, ky, turn)] (each copy's centre offset, the model's scales on its own
-    axes, turn: a quarter turn first); None when one copy stretches less than RUN_STRETCH."""
+def _ratio(kx: float, ky: float) -> float:
+    return max(kx, ky) / max(min(kx, ky), 1e-9)
+
+
+def model_fit(w: float, d: float, ext, repeats: bool) -> tuple[str, list[tuple]] | None:
+    """A footprint (w along its own x, d) for a model of footprint ext[0] x ext[1]: ("fit", one
+    copy) when stretching it to the footprint stays within STRETCH_CAP; else, when the model
+    repeats well, ("run", copies along the footprint's long side, the model's long side along it,
+    as many as keep each nearest its own proportions) when that is within the cap; else None.
+    Copies: (ox, oy, kx, ky, turn): centre offset, the model's scales on its own axes, turn: a
+    quarter turn first."""
+    kx, ky = w / max(ext[0], 1e-9), d / max(ext[1], 1e-9)
+    if _ratio(kx, ky) <= STRETCH_CAP:
+        return "fit", [(0.0, 0.0, kx, ky, False)]
+    if not repeats or min(ext[0], ext[1]) <= 0:
+        return None
     along_x, ml_x = w >= d, ext[0] >= ext[1]
     L, D = (w, d) if along_x else (d, w)
     me, md = (ext[0], ext[1]) if ml_x else (ext[1], ext[0])
-    if me <= 0 or md <= 0 or L / me < RUN_STRETCH * D / md:
+    kd = D / md
+    base = L / (me * kd)
+    n = min({max(1, math.floor(base)), max(1, math.ceil(base))}, key=lambda n: _ratio((L / n) / me, kd))
+    kl = (L / n) / me
+    if _ratio(kl, kd) > STRETCH_CAP:
         return None
-    n = max(2, round(L / (me * D / md)))
-    kl, kd = (L / n) / me, D / md
     out = []
     for i in range(n):
         o = -L / 2 + (i + 0.5) * L / n
         out.append(((o, 0.0) if along_x else (0.0, o)) + ((kl, kd) if ml_x else (kd, kl)) + (along_x != ml_x,))
-    return out
+    return "run", out
 
 
-def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], bounds: dict) -> dict[str, dict]:
+def capped_fit(w: float, d: float, ext) -> tuple:
+    """The model inside the footprint, its scales at most STRETCH_CAP apart: the tighter axis fits,
+    the other is held to the cap (centred: the footprint's rest stays empty)."""
+    kx, ky = w / max(ext[0], 1e-9), d / max(ext[1], 1e-9)
+    m = min(kx, ky)
+    return (0.0, 0.0, min(kx, m * STRETCH_CAP), min(ky, m * STRETCH_CAP), False)
+
+
+def swap_fit(cands: list[dict], family: str | None, entry: str, w: float, d: float, key: str) -> dict | None:
+    """The best-fitting other entry of the same catalog family for a footprint w x d (unplaced.fit:
+    within its tolerance after uniform scaling, maybe turned), ties broken by a hash of the place:
+    the candidate (unplaced.family_models) | {k, turn, err}; None when none fits."""
+    from . import unplaced
+    best = None
+    for c in cands:
+        if c["family"] != family or c["entry"] == entry:
+            continue
+        f = unplaced.fit(c["w"], c["d"], w, d)
+        if f and (best is None or (f["err"], unplaced._h(0, c["entry"], key)) < (best[1]["err"], unplaced._h(0, best[0]["entry"], key))):
+            best = (c, f)
+    return best[0] | best[1] if best else None
+
+
+def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], bounds: dict,
+                      ok=None, entries: dict | None = None) -> dict[str, dict]:
     """Placements (in place) of entries whose Active version isn't procedural take that model
     instead of their procedural build: one mesh per entry and version, scaled to the placement's
     footprint (a typed building's own; a slot's masses, else the build's) and height (the slot's
-    masses, else the procedural build it replaces), centred on it. A typed building of a row
-    form (RUN_FORMS: townhouses) that would stretch the model past RUN_STRETCH takes copies of it
-    in a run along its length instead (row_run; keys <key>_r<n>, "run_of" the first). Kit modules
-    and props are left alone (props already take the Active model). Returns {entry: {n, kind,
-    placements, runs (buildings made runs)}}; the run copies are added to placements."""
+    masses, else the procedural build it replaces), centred on it. Its two horizontal scales stay
+    within STRETCH_CAP of each other (model_fit): past it, a model of a form that repeats well
+    (REPEAT_FORMS) stands as a run of copies (keys <key>_r<n>, "run_of" the first); else the place
+    swaps to the best-fitting entry of the same family (swap_fit; given ok, the build's gate), at a
+    uniform scale; else the model stands capped, centred (capped_fit). Kit modules and props are
+    left alone (props already take the Active model). Returns {entry: {n, kind, placements, runs,
+    fit {run, swap {to: n}, capped}}}; the run copies are added to placements, a swap to a
+    procedural build adds its job to entries."""
     from . import kit_assembly
     from .assembly import glb_bounds
     from .unplaced import _families
     slots = {s["id"]: s for s in gb["slots"]}
     fam = _families(store)
     extra: list[dict] = []
+    cands: list[dict] | None = None
 
     def bounds_of(rel):
         if rel not in bounds:
@@ -615,12 +656,39 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
                 h = max(t for *_, t in ms) - min(b for _, b, _ in ms)
         ext = np.subtract(mhi, mlo)
         mc = [(mlo[0] + mhi[0]) / 2, (mlo[1] + mhi[1]) / 2, mlo[2]]
-        t = fam.get(p.get("typology") or "")
-        copies = row_run(w, d, ext) if p.get("typology") and t is not None and t.form in RUN_FORMS else None
+        s_ = slots.get(p.get("slot")) or {}
+        t = fam.get(p.get("typology") or s_.get("typology") or s_.get("type") or "")
+        how = model_fit(w, d, ext, t is not None and t.form in REPEAT_FORMS)
         cl = m.get("cleaned")
-        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "model": model_label(m), "placements": 0, "runs": 0})
-        r["runs"] += copies is not None
-        for i, (ox, oy, kx, ky, turn) in enumerate(copies or [(0.0, 0.0, w / max(ext[0], 1e-6), d / max(ext[1], 1e-6), False)]):
+        r = out.setdefault(e, {"n": m["n"], "kind": m["kind"], "model": model_label(m), "placements": 0,
+                               "fit": {"run": 0, "swap": {}, "capped": 0}})
+        if how is None and ok is not None:            # a better-fitting entry of the same family
+            if cands is None:
+                from .unplaced import family_models
+                cands = family_models(store, ok, bounds)
+            c = swap_fit(cands, t.family if t else None, e, w, d, p["key"])
+            if c is not None:
+                mo = c["model"]
+                M = B @ _t([cx, cy, z0]) @ placed_model(mo["lo"], mo["hi"], mo["dims"], c["k"], c["turn"])
+                p.update(entry=c["entry"], glb=mo["glb"], mesh=mo["mesh"], matrix=M.tolist(), refit={"from": e, "k": c["k"]},
+                         procedural=None if p.get("planned") else p["glb"])
+                p.pop("vrole", None)
+                if mo["active"] is not None:
+                    p.update(active=mo["active"], active_kind=mo["kind"])
+                    out.setdefault(c["entry"], {"n": mo["active"], "kind": mo["kind"], "model": "raw GLB", "placements": 0,
+                                                "fit": {"run": 0, "swap": {}, "capped": 0}})
+                else:
+                    p.pop("active", None)
+                    p.pop("active_kind", None)
+                    if entries is not None:
+                        entries[c["entry"]] = (Path("3d/library") / c["entry"] / "procedural" / "job.json").as_posix()
+                r["fit"]["swap"][c["entry"]] = r["fit"]["swap"].get(c["entry"], 0) + 1
+                continue
+        if how is None:
+            how = ("capped", [capped_fit(w, d, ext)])
+        r["fit"]["run"] += how[0] == "run"
+        r["fit"]["capped"] += how[0] == "capped"
+        for i, (ox, oy, kx, ky, turn) in enumerate(how[1]):
             T = np.eye(4)
             T[:3, 3] = [cx + ox, cy + oy, z0]
             if turn:
@@ -628,6 +696,8 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
             M = B @ T @ np.diag([kx, ky, h / max(ext[2], 1e-6), 1.0])
             M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
             q = p if i == 0 else dict(p, key=f"{p['key']}_r{i}", run_of=p["key"])
+            if how[0] != "fit":
+                q["stretch_fit"] = how[0]
             q.update(glb=m["glb"], mesh=f"active_{e}_v{m['n']}" + (f"_{cl['usage']}" if cl else ""), matrix=M.tolist(),
                      active=m["n"], active_kind=m["kind"], procedural=None if p.get("planned") else p["glb"])
             q.pop("vrole", None)
@@ -638,11 +708,35 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
     return out
 
 
+def _t(xyz) -> np.ndarray:
+    T = np.eye(4)
+    T[:3, 3] = xyz
+    return T
+
+
+def placed_model(lo, hi, dims, k: float, turn: bool) -> np.ndarray:
+    """A model (bounds lo, hi) at size dims * k, turned a quarter when turn, its footprint centred
+    on the origin and its base at 0 (unplaced.placed_matrix without the place)."""
+    from .unplaced import placed_matrix
+    return placed_matrix(np.eye(4), [0.0, 0.0, 0.0], lo, hi, dims, k, turn)
+
+
+def fit_lines(active: dict[str, dict]) -> list[str]:
+    """The build report's stretch lines: per entry whose placements the cap changed."""
+    out = []
+    for e, r in sorted(active.items()):
+        f = r.get("fit") or {}
+        parts = ([f"{f['run']} as runs of copies"] * bool(f.get("run")) + [f"{f['capped']} capped"] * bool(f.get("capped"))
+                 + [f"{n} swapped to {to}" for to, n in sorted((f.get("swap") or {}).items())])
+        if parts:
+            out.append(f"{e}: " + ", ".join(parts))
+    return out
+
+
 def active_lines(active: dict[str, dict]) -> list[str]:
     """The build report's line per entry placed with its non-procedural Active version."""
     return [f"{e}: {r['placements']} placements use Active v{r['n']} {r['kind'].upper() if r['kind'] == 'trellis' else r['kind']}"
-            + (f", {r['model']}" if r.get("model") else "")
-            + (f"; {r['runs']} row buildings as runs of copies (not stretched)" if r.get("runs") else "") for e, r in sorted(active.items())]
+            + (f", {r['model']}" if r.get("model") else "") for e, r in sorted(active.items()) if r.get("placements")]
 
 
 def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: list[dict], fitter, bounds: dict) -> list[dict]:
@@ -660,7 +754,7 @@ def fit_heights(store: ProjectStore, gb: dict, index: dict | None, placements: l
     out = []
     for p in placements:
         s = slots.get(p.get("slot"))
-        if (p.get("typed") or p.get("typology") or p.get("kit") or p.get("prop") or p.get("active") or p.get("unplaced")
+        if (p.get("typed") or p.get("typology") or p.get("kit") or p.get("prop") or p.get("active") or p.get("unplaced") or p.get("refit")
                 or s is None):
             out.append(p)
             continue
@@ -758,7 +852,7 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
         picks = up.plan(store, gb, base, ok, index, unplaced.get("avoid_locked", True), unplaced.get("seed", up.SEED), bounds,
                         planned={sid: len(v) for sid, v in buildings.items()})
         extra = up.apply(store, gb, picks, base, entries, bounds)
-    active = use_active_models(store, gb, index, base, bounds)
+    active = use_active_models(store, gb, index, base, bounds, ok, entries)
     singles = fit_heights(store, gb, index, base, fitter, bounds)    # after the split: it keeps its keys
     kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds, fitter)
     for p in kit_pl:
@@ -781,9 +875,17 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
         replaced.setdefault(p["slot"], "pieces")
     used = {p["entry"] for p in placed + kids if not p.get("active")}     # (an Active model keeps its own maps)
     entries = {e: j for e, j in {**kid_entries, **entries}.items() if e in used}
+    def fits(e):                                  # what the stretch cap did to the placements that stand
+        swap: dict[str, int] = {}
+        for p in placed:
+            if (p.get("refit") or {}).get("from") == e:
+                swap[p["entry"]] = swap.get(p["entry"], 0) + 1
+        return {"run": len({p.get("run_of") or p["key"] for p in placed if p["entry"] == e and p.get("stretch_fit") == "run"}),
+                "capped": sum(1 for p in placed if p["entry"] == e and p.get("stretch_fit") == "capped"), "swap": swap}
     active = {e: r | {"placements": sum(1 for p in placed if p["entry"] == e and p.get("active")),
-                      "runs": len({p["run_of"] for p in placed if p["entry"] == e and p.get("run_of")})} for e, r in active.items()}
-    active = {e: r for e, r in active.items() if r["placements"]}
+                      "fit": fits(e)}
+              for e, r in active.items()}
+    active = {e: r for e, r in active.items() if r["placements"] or any(r["fit"].values())}
     if picks is not None:                         # what actually stands: a held slot's swap doesn't count
         stand = {p["key"] for p in placed}
         picks["placed"] = sum(1 for p in placed if p.get("unplaced"))
@@ -876,12 +978,12 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
                     "kit_notes": kit_assembly.report_lines(pl["kits"]),
                     "stacked_layers": sum(1 for p in pl["placed"] if p.get("vrole") in ("middle", "top")),
                     "height_variants_built": pl["height_variants"], "height_variant_s": pl["height_variant_s"],
-                    "active_models": active_lines(pl["active"])}
+                    "active_models": active_lines(pl["active"]), "stretch_fits": fit_lines(pl["active"])}
     if pl["unplaced"] is not None:
         from . import unplaced as up
         m["library"]["unplaced"] = up.summary(pl["unplaced"]) | {"placed": pl["unplaced"]["placed"],
                                                                   "held": pl["unplaced"]["held"]} | unplaced
-    for line in m["library"]["kit_notes"] + m["library"]["active_models"] + ((m["library"].get("unplaced") or {}).get("lines") or []):
+    for line in m["library"]["kit_notes"] + m["library"]["active_models"] + [f"stretch cap: {x}" for x in m["library"]["stretch_fits"]] + ((m["library"].get("unplaced") or {}).get("lines") or []):
         log(line)
     log(f"library: {pl['parents']} builds + {pl['props']} props + {len(pl['placed']) - pl['parents'] - pl['props']} attached pieces in "
         f"{len(pl['replaced'])} slots; {len(held)} held back as greybox"

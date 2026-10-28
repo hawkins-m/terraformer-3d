@@ -76,12 +76,14 @@ STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain",
 
 
 def terrain_due(store: ProjectStore) -> bool:
-    """The outer ring's Unreal assets need (re)making: built, and newer than what Unreal has."""
+    """The outer ring's Unreal assets need (re)making: built, and newer than what Unreal has, or
+    made with an older terrain material (terrain_build.TERRAIN_MAT_VERSION)."""
     from . import terrain_build
     glb = store.root / terrain_build.FAR_DIR / "outer.glb"
     done = store.root / terrain_build.FAR_DIR / "ue_assets.json"
     ring = ue.project_dir(store) / "Content/AP/Terrain/SM_OuterRing.uasset"
-    return glb.is_file() and (not ring.is_file() or not done.is_file() or glb.stat().st_mtime > done.stat().st_mtime)
+    old = (read_json(done, default={}) or {}).get("version", "1") != terrain_build.TERRAIN_MAT_VERSION
+    return glb.is_file() and (not ring.is_file() or not done.is_file() or old or glb.stat().st_mtime > done.stat().st_mtime)
 
 
 def queued_work(store: ProjectStore, use_active: bool = False, render: bool = False, unplaced: dict | None = None) -> dict:
@@ -248,16 +250,19 @@ def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = Fa
            "skipped": len(rep["assets"]["skipped"]), "reset": len(rep["actors"]["reset"]),
            "pruned": len(rep.get("pruned", [])), "terrain_outer": bool(rep.get("terrain_outer")),
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
-           "placement": placement, "active_models": lib.get("active_models", []),
+           "placement": placement, "active_models": lib.get("active_models", []), "stretch_fits": lib.get("stretch_fits", []),
            "unplaced": lib.get("unplaced"),
            "dressing": dress.summary(drec, rep),
            "steps": steps, "seconds": round(time.time() - t0, 1)}
     _record_times(store, steps, lib, rep)
-    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models",
+    store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models", "stretch_fits",
                                                                                     "dressing", "unplaced")},
                    "unplaced_swapped": None if out["unplaced"] is None else out["unplaced"]["placed"],
                    "placement_ok": None if placement is None else placement["ok"]})
     return out
+
+
+STRETCH_NOTE = "models kept within 1.4:1; runs of copies, same-family swaps, else capped"
 
 
 def report_lines(r: dict) -> list[str]:
@@ -276,6 +281,9 @@ def report_lines(r: dict) -> list[str]:
              + (f"; {r['shots']} shots rendered" if r["shots"] is not None else ""),
              f"time: {r['seconds'] / 60:.1f} min (" + ", ".join(f"{k} {v:.0f} s" for k, v in r["steps"].items()) + ")"]
     lines += r.get("active_models") or []
+    if r.get("stretch_fits"):
+        lines.append(f"stretch cap ({STRETCH_NOTE}):")
+        lines += [f"  {x}" for x in r["stretch_fits"]]
     u = r.get("unplaced")
     if u:
         lines.append(f"unplaced assets: {u['placed']} places taken ({u['swapped']} swapped, {u['open']} on open ground"

@@ -53,7 +53,21 @@ def test_options_are_remembered_per_project_and_flags_override_them(store):
     u = dressing._unreal(store)
     assert u.dressing_library == {"rock_small": "/Game/Fab/R/SM_R.SM_R", "grass": ""} and u.dressing_folders == ["/Game/Mine"]
     assert dressing.options(store).rocks                           # saving the library kept the options
-    assert dressing.roles_for(DressingOptions(ground=True)) == ["ground_grass", "ground_dirt", "ground_rock", "ground_sand"]
+    assert dressing.roles_for(DressingOptions(ground=True)) == ["ground_grass", "ground_dirt", "ground_rock", "ground_sand",
+                                                                "paving_slabs", "paving_cobbles", "paving_flagstones"]
+
+
+def test_ways_and_plazas_get_paving_by_kind_and_keep_their_pools():
+    slot = lambda sid, typ, *assets: {"id": sid, "type": typ, "components": [{"asset": a} for a in assets]}  # noqa: E731
+    man = {"slots": [slot("way-a", "avenue", "way-a-avenue"), slot("st-1", "street", "street-1"), slot("ln-1", "lane", "way-l-lane"),
+                     slot("sx", "stair", "way-s-stair", "stair-tread"), slot("pl", "plaza", "paving-1", "pool-water-2"),
+                     slot("r0", "radial", "radial-x"), slot("park", "park", "park-lawn", "tree-pine"), slot("b", "insula", "box")]}
+    pv = dressing.paving(man, {"paving_slabs": {"source": "cc0", "color": "c.jpg"}})
+    assert set(pv) == {"Slabs", "Cobbles", "Flagstones"}
+    assert [r["slot"] for r in pv["Slabs"]["slots"]] == ["way-a", "st-1"] and pv["Slabs"]["src"]["color"] == "c.jpg"
+    assert [r["slot"] for r in pv["Cobbles"]["slots"]] == ["ln-1", "sx"] and pv["Cobbles"]["tile_m"] == [1.15, 1.15]
+    assert {r["slot"]: r["components"] for r in pv["Flagstones"]["slots"]} == {"pl": ["ISM_paving-1"], "r0": ["ISM_radial-x"]}
+    assert pv["Flagstones"]["src"] is None and pv["Slabs"]["tile_m"] == [1.9, 3.8]
 
 
 def test_density_is_bounded():

@@ -7,6 +7,10 @@ What it makes (all under /Game/AP/Dressing):
                                   type's mesh) and fall back to these when it's gone
     Materials/M_AP_GroundDress    world-aligned ground: grass, dirt patches (macro noise), rock by
                                   slope, sand near sea level, macro brightness variation
+    Materials/M_AP_Paving         world-aligned stone paving for ways and plazas: the set's maps at
+                                  their measured size near the camera, a second scale further off
+                                  (blended by camera distance), macro colour and roughness noise;
+                                  MI_AP_Paving_<Slabs|Cobbles|Flagstones> per kind
     Materials/M_AP_SeaSimple      opaque sea: depth colour from a depth map, two panning wave
                                   normals, shoreline foam
     AP_Dress_<role>               one actor per role, a HierarchicalInstancedStaticMeshComponent per
@@ -34,7 +38,7 @@ mel = unreal.MaterialEditingLibrary
 ROOT = "/Game/AP/Dressing"
 MATS = f"{ROOT}/Materials"
 TEX = f"{ROOT}/Textures"
-GROUND_MAT, SEA_MAT = f"{MATS}/M_AP_GroundDress", f"{MATS}/M_AP_SeaSimple"
+GROUND_MAT, SEA_MAT, PAVE_MAT = f"{MATS}/M_AP_GroundDress", f"{MATS}/M_AP_SeaSimple", f"{MATS}/M_AP_Paving"
 MAT_VERSION = "4"
 HIDDEN, OVERRIDE = "ap:dress_hidden", "ap:dress_mat"
 
@@ -318,6 +322,106 @@ def ground(spec, noise_png, eas, report, used):
     return set_on
 
 
+# --- paving ---------------------------------------------------------------------------------------
+
+def macro(g, xy, cm, noise_tex):
+    """The low-frequency variation every ground material shares: (mix 0-1, brightness factor). A
+    410 m sample with a 71 m one on rotated coordinates, so nothing repeats along the axes."""
+    ma = g.mask(g.tex("MacroNoise", noise_tex, g.div(xy, g.mul(g.scalar("MacroTileM", 410.0), cm)), "data"), r=True)
+    u, v = g.mask(xy, r=True), g.mask(xy, g=True)
+    rot = g.e(unreal.MaterialExpressionAppendVector)
+    g.link(g.sub(g.mul(u, g.const(0.8)), g.mul(v, g.const(0.6))), rot, "A")
+    g.link(g.add(g.mul(u, g.const(0.6)), g.mul(v, g.const(0.8))), rot, "B")
+    mb = g.mask(g.tex("MacroNoise2", noise_tex, g.div(rot, g.mul(g.scalar("MacroTile2M", 71.0), cm)), "data"), g=True)
+    mix = g.add(g.mul(ma, g.const(0.65)), g.mul(mb, g.const(0.35)))
+    bright = g.lerp(g.sub(g.const(1.0), g.scalar("MacroStrength", 0.18)), g.add(g.const(1.0), g.scalar("MacroStrength2", 0.18)), mix)
+    return mix, bright
+
+
+def far_blend(g, cm):
+    """0 near the camera, 1 past FarM: where the second, larger texture scale takes over."""
+    d = g.e(unreal.MaterialExpressionDistance)
+    g.link(g.e(unreal.MaterialExpressionCameraPositionWS, -2800), d, "A")
+    g.link(g.e(unreal.MaterialExpressionWorldPosition, -2800), d, "B")
+    near = g.mul(g.scalar("NearM", 40.0), cm)
+    return g.sat(g.div(g.sub(d, near), g.sub(g.mul(g.scalar("FarM", 160.0), cm), near)))
+
+
+def paving_material(noise_tex, white_mask):
+    m, fresh = _material(PAVE_MAT)
+    if not fresh:
+        return m
+    g = Graph(m)
+    wp = g.e(unreal.MaterialExpressionWorldPosition, -2800, 0)
+    xy = g.mask(wp, r=True, g=True)
+    cm = g.const(100.0)
+    tile = g.e(unreal.MaterialExpressionAppendVector)
+    g.link(g.mul(g.scalar("TileXM", 2.0), cm), tile, "A")
+    g.link(g.mul(g.scalar("TileYM", 2.0), cm), tile, "B")
+    uv = g.div(xy, tile)
+    uv_far = g.div(uv, g.scalar("FarScale", 3.7))          # not a whole number: the two scales don't line up
+    white, flat = ap_import.engine_asset(WHITE), ap_import.engine_asset(FLAT)
+    fa = far_blend(g, cm)
+    col = g.lerp(g.tex("PaveColor", white, uv), g.tex("PaveColor", white, uv_far), fa)
+    nrm = g.lerp(g.tex("PaveNormal", flat, uv, "normal"), g.tex("PaveNormal", flat, uv_far, "normal"), fa, "RGB")
+    rgh = g.lerp(g.mask(g.tex("PaveRough", white_mask, uv, "rough"), g=True),
+                 g.mask(g.tex("PaveRough", white_mask, uv_far, "rough"), g=True), fa)
+    mix, bright = macro(g, xy, cm, noise_tex)
+    tint = g.lerp(g.vec("TintA", (1.0, 0.97, 0.92)), g.vec("TintB", (0.9, 0.9, 0.92)), mix)     # warm to cool stone
+    g.out(g.mul(g.mul(col, tint), bright), unreal.MaterialProperty.MP_BASE_COLOR)
+    g.out(nrm, unreal.MaterialProperty.MP_NORMAL)
+    var = g.mul(g.sub(mix, g.const(0.5)), g.scalar("RoughVariation", 0.2))
+    g.out(g.sat(g.add(g.mul(rgh, g.scalar("RoughnessMultiplier", 1.0)), var)), unreal.MaterialProperty.MP_ROUGHNESS)
+    _done(m)
+    log("built paving material")
+    return m
+
+
+def paving(spec, noise, mask, eas, report, used):
+    """Stone paving on the way and plaza slots' paved pieces: one instance per kind."""
+    parent = paving_material(noise, mask)
+    actors = {ap_import.tagged(a).get("ap:id"): a for a in eas.get_all_level_actors() if "ap:id" in ap_import.tagged(a)}
+    set_on = []
+    for kind, k in spec.items():
+        src, tex = k.get("src") or {}, None
+        if src.get("source") == "megascans":
+            tex = mi_textures(src.get("asset"))
+            if tex:
+                used[k["role"]] = "megascans"
+            else:
+                report["warnings"].append(f"{k['role']}: Megascans {src.get('asset')} not found or has no maps: CC0 used")
+                src = src.get("fallback") or {}
+        if tex is None and src.get("color"):
+            tex = {t: amp.import_texture(src[t], TEX, t) for t in ("color", "normal", "rough")}
+            used[k["role"]] = "cc0"
+        if tex is None:
+            used[k["role"]] = "none"
+            report["warnings"].append(f"{k['role']}: no paving maps; {kind.lower()} slots keep their greybox look")
+            continue
+        mi = _instance(f"{MATS}/MI_AP_Paving_{kind}", parent)
+        for t, p in (("color", "Color"), ("normal", "Normal"), ("rough", "Rough")):
+            if tex.get(t) is not None:
+                mel.set_material_instance_texture_parameter_value(mi, f"Pave{p}", tex[t])
+        mel.set_material_instance_scalar_parameter_value(mi, "TileXM", float(k["tile_m"][0]))
+        mel.set_material_instance_scalar_parameter_value(mi, "TileYM", float(k["tile_m"][1]))
+        mel.update_material_instance(mi)
+        eal.save_loaded_asset(mi)
+        n = 0
+        for row in k["slots"]:
+            comps = ap_import.ism_components(actors[row["slot"]]) if row["slot"] in actors else {}
+            for name in row["components"]:
+                c = comps.get(name)
+                if c is None:
+                    continue
+                for i in range(c.get_num_materials()):
+                    c.set_material(i, mi)
+                set_comp_tag(c, OVERRIDE, True)
+                set_on.append(c)
+                n += 1
+        report.setdefault("paving", {})[kind] = n
+    return set_on
+
+
 # --- water ----------------------------------------------------------------------------------------
 
 def sea_material(depth_tex, wave_tex):
@@ -596,6 +700,9 @@ def apply(path, eas, report):
     if d.get("ground"):
         g = {}
         set_on += ground(d["ground"], d["ground"]["noise"], eas, rep, g)
+        if d["ground"].get("paving"):
+            set_on += paving(d["ground"]["paving"], import_texture(d["ground"]["noise"], "T_AP_MacroNoise", "data"),
+                             import_texture(d["ground"]["white_mask"], "T_AP_WhiteMask", "data"), eas, rep, g)
         rep["sources"].update(g)
     w = d.get("water")
     sea_hidden = []

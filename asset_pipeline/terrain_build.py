@@ -502,16 +502,21 @@ def outer_glb(store: ProjectStore) -> Path:
     return d / "outer.glb"
 
 
+TERRAIN_MAT_VERSION = "2"     # M_AP_LandscapeAuto (unreal/ap_terrain.py): bump to rebuild it on the next build
+
+
 def ue_assets(store: ProjectStore) -> dict:
     """The auto material (rock: Travertine009; grass and scrub: Plaster001's fine detail, tinted:
-    the scans on disk have no vegetation) and the outer ring mesh in the Unreal project
-    (unreal/ap_terrain.py, headless, no GPU)."""
-    from . import config, ue
+    the scans on disk have no vegetation; macro noise and a camera-distance second scale, as the
+    dressing's ground and paving) and the outer ring mesh in the Unreal project (unreal/ap_terrain.py,
+    headless, no GPU)."""
+    from . import config, dressing, ue
     acg = config.ap_root() / "materials" / "ambientcg"
     maps = lambda n: {"color": str(acg / n / f"{n}_2K-JPG_Color.jpg"), "normal": str(acg / n / f"{n}_2K-JPG_NormalDX.jpg"),  # noqa: E731
                       "rough": str(acg / n / f"{n}_2K-JPG_Roughness.jpg")}
     glb = store.root / FAR_DIR / "outer.glb"
     rep = ue.run_script(store, "ap_terrain.py", {"rock": maps("Travertine009"), "detail": maps("Plaster001"),
+                                                 "noise": dressing.macro_noise(), "version": TERRAIN_MAT_VERSION,
                                                  "outer_glb": str(glb) if glb.exists() else None}, "UE terrain assets")
     if not rep.get("ok"):
         raise RuntimeError(f"UE terrain assets failed: {rep.get('error')}\n{rep.get('traceback', '')}")

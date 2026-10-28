@@ -125,6 +125,14 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
 - Interchange imports every mesh node of a glTF / GLB as its own static mesh (Poly Haven sets lay
   several variants side by side); the dressing uses each as a variant and recentres it on its
   bounds, base down, so the file's layout doesn't matter.
+- Paving (2026-10-28, `dressing.paving`, `ap_dressing.paving`): M_AP_Paving and an instance per kind
+  (Slabs: avenues, streets, ambientCG PavingStones054 at 1.9 x 3.8 m; Cobbles: lanes, stairs,
+  PavingStones119 at 1.15 m; Flagstones: plazas and the forum radials, PavingStones128 at 3.5 m) on
+  the way and plaza slots' ISMs by name (`ISM_<asset>`; pools, trees and lawns keep their look).
+  Near/far: the maps at their size near the camera, at 1/3.7 past FarM (160 m), plus the ground's
+  macro noise for brightness, a warm-to-cool tint and roughness. M_AP_LandscapeAuto (MI_AP_TerrainAuto)
+  has the same since TERRAIN_MAT_VERSION 2; a version bump re-runs the terrain step on the next build.
+  Not checked in a render yet: `-nullrhi` doesn't compile shaders (below).
 - Macro noise built from summed sines (integer wave numbers, for tiling) drew parallel stripes on
   the terrain seen from the air; FFT-shaped white noise (1/f^beta, periodic by construction) doesn't.
 - HISM per variant with cull distances (grass 40-60 m, shrubs 150-200 m, small rocks 300-400 m) and

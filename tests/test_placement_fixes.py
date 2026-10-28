@@ -91,7 +91,7 @@ def test_an_entry_with_a_trellis_active_version_stands_with_it_everywhere(proj, 
            "yaw": 0.0, "w": 10.0, "d": 10.0, "slot": "s1", "typed": False}]
     act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
     assert act == {"hall": {"n": 6, "kind": "trellis", "model": "raw GLB (Clean up output is optional and not chosen)", "placements": 2,
-                            "runs": 0}}
+                            "fit": {"run": 0, "swap": {}, "capped": 0}}}
     assert cl.active_lines(act) == ["hall: 2 placements use Active v6 TRELLIS, raw GLB (Clean up output is optional and not chosen)"]
     a, b, other = pl
     assert a["glb"] == b["glb"] == "3d/library/hall/model.glb" and a["mesh"] == b["mesh"] == "active_hall_v6"
@@ -126,7 +126,7 @@ def test_a_trellis_entry_stands_at_its_planned_buildings_without_instance_builds
     assert [p["key"] for p in pl] == ["insula-polished-concrete_100_0".replace("-", "m")]    # the same spot counts once
     p = pl[0]
     assert p["planned"] and p["glb"] == model and (p["w"], p["d"], p["h"], p["yaw"]) == pytest.approx((12.0, 30.0, 24.0, 90.0))   # in its own frame
-    bounds = {model: [[-1, -0.5, -0.2], [1, 0.5, 0.8]]}
+    bounds = {model: [[-0.6, -1.5, -0.2], [0.6, 1.5, 0.8]]}                    # its own proportions: no stretch cap
     act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
     assert act["insula-polished-concrete"]["placements"] == 1 and p["procedural"] is None
     cl.ground_all(proj, pl, Flat(), "min", bounds)
@@ -186,13 +186,27 @@ def test_an_excluded_entry_takes_its_stand_ins_model_at_its_planned_buildings(pr
     assert sw_library.set_stand_in(proj, "domus-limestone", None) == {} and cl.model_placements(proj, P, []) == []
 
 
-def test_a_long_row_takes_copies_of_its_model_at_its_own_proportions():
-    assert cl.row_run(20.0, 14.0, [30.0, 14.0, 9.0]) is None                     # about its own length: stretched as before
-    run = cl.row_run(90.0, 14.0, [30.0, 14.0, 9.0])
-    assert [round(o[0], 6) for o in run] == [-30.0, 0.0, 30.0] and all(o[2:] == (1.0, 1.0, False) for o in run)
-    run = cl.row_run(14.0, 61.0, [3.0, 1.4, 1.0])                               # along the building's y: turned, model scale 14/1.4
-    assert len(run) == 2 and all(o[0] == 0.0 and o[4] for o in run) and [o[1] for o in run] == [-15.25, 15.25]
+def test_a_model_stretches_at_most_the_cap_else_runs_else_is_capped():
+    assert cl.model_fit(42.0, 14.0, [30.0, 14.0, 9.0], False) == ("fit", [(0.0, 0.0, 1.4, 1.0, False)])   # at the cap
+    assert cl.model_fit(43.0, 14.0, [30.0, 14.0, 9.0], False) is None                                # past it, no run
+    how, run = cl.model_fit(90.0, 14.0, [30.0, 14.0, 9.0], True)
+    assert how == "run" and [round(o[0], 6) for o in run] == [-30.0, 0.0, 30.0] and all(o[2:] == (1.0, 1.0, False) for o in run)
+    how, run = cl.model_fit(14.0, 61.0, [3.0, 1.4, 1.0], True)                 # along the building's y: turned
+    assert how == "run" and len(run) == 2 and all(o[0] == 0.0 and o[4] for o in run) and [o[1] for o in run] == [-15.25, 15.25]
     assert run[0][2:4] == pytest.approx((30.5 / 3.0, 10.0))
+    for w, d in ((102.0, 8.0), (13.0, 61.0), (136.0, 11.0)):                   # whatever it takes, within the cap
+        how, run = cl.model_fit(w, d, [2.0, 1.0, 1.0], True)
+        assert how == "run" and all(max(o[2], o[3]) / min(o[2], o[3]) <= cl.STRETCH_CAP + 1e-9 for o in run)
+    ox, oy, kx, ky, turn = cl.capped_fit(100.0, 10.0, [1.0, 1.0, 1.0])
+    assert (ox, oy, kx, ky, turn) == (0.0, 0.0, 14.0, 10.0, False)             # inside the footprint, centred, 1.4:1
+
+
+def test_a_stretched_place_swaps_to_the_best_fitting_entry_of_its_family():
+    cands = [{"entry": "cube", "family": "civic", "w": 20.0, "d": 20.0}, {"entry": "bar", "family": "civic", "w": 60.0, "d": 14.0},
+             {"entry": "long-house", "family": "housing", "w": 60.0, "d": 14.0}, {"entry": "self", "family": "civic", "w": 60.0, "d": 15.0}]
+    c = cl.swap_fit(cands, "civic", "self", 62.0, 15.0, "k")
+    assert c["entry"] == "bar" and c["err"] <= 0.25                            # same family, not itself, the best fit
+    assert cl.swap_fit(cands, "civic", "self", 300.0, 5.0, "k") is None         # nothing fits
 
 
 def test_a_row_buildings_trellis_model_stands_as_a_run_of_copies(proj, monkeypatch):
@@ -202,21 +216,38 @@ def test_a_row_buildings_trellis_model_stands_as_a_run_of_copies(proj, monkeypat
     model = "3d/library/row/model.glb"
     bounds = {model: [[-1.5, -0.7, 0.0], [1.5, 0.7, 1.0]]}
     monkeypatch.setattr(cl, "active_model", lambda st, e: {"n": 2, "kind": "trellis", "glb": model})
-    pl = [{"key": "row_1", "entry": "row", "typology": "townhouses", "typed": True, "planned": True, "glb": model, "slot": "t",
-           "x": 100.0, "y": 0.0, "z": 0.0, "yaw": 30.0, "w": 90.0, "d": 14.0, "h": 10.0}]
+    fresh = lambda key: {"key": key, "entry": "row", "typology": "townhouses", "typed": True, "planned": True, "glb": model,  # noqa: E731
+                         "slot": "t", "x": 100.0, "y": 0.0, "z": 0.0, "yaw": 30.0, "w": 90.0, "d": 14.0, "h": 10.0}
+    pl = [fresh("row_1")]
     act = cl.use_active_models(proj, {"slots": []}, None, pl, bounds)
     assert [p["key"] for p in pl] == ["row_1", "row_1_r1", "row_1_r2"] and [p.get("run_of") for p in pl] == [None, "row_1", "row_1"]
-    assert act["row"]["runs"] == 1 and act["row"]["placements"] == 3
-    assert "1 row buildings as runs of copies" in cl.active_lines(act)[0]
+    assert act["row"]["fit"]["run"] == 1 and act["row"]["placements"] == 3
+    assert cl.fit_lines(act) == ["row: 1 as runs of copies"]
     cl.ground_all(proj, pl, Flat(), "min", bounds)
     feet = [cl.footprint_of(cl.world_matrix(p), *bounds[model]) for p in pl]
     assert all((f["w"], f["d"]) == pytest.approx((30.0, 14.0)) and f["yaw"] == pytest.approx(30.0) for f in feet)
     a = math.radians(30.0)
     assert [(f["x"], f["y"]) for f in feet] == pytest.approx([(100 + o * math.cos(a), o * math.sin(a)) for o in (-30, 0, 30)])
-    monkeypatch.setattr(unplaced, "_families", lambda st: {"townhouses": SimpleNamespace(form="hall")})
-    one = [pl[0] | {"key": "x"}]
-    cl.use_active_models(proj, {"slots": []}, None, one, bounds)
-    assert len(one) == 1                                                       # not a row form: one model, stretched
+    monkeypatch.setattr(unplaced, "_families", lambda st: {"townhouses": SimpleNamespace(form="hall", family="housing")})
+    one = [fresh("x")]
+    act = cl.use_active_models(proj, {"slots": []}, None, one, bounds)
+    assert len(one) == 1 and one[0]["stretch_fit"] == "capped"                 # doesn't repeat, no swap given: capped
+    f = cl.footprint_of(np.asarray(one[0]["matrix"]), *bounds[model])
+    assert max(f["w"] / 3.0, f["d"] / 1.4) / min(f["w"] / 3.0, f["d"] / 1.4) == pytest.approx(cl.STRETCH_CAP)
+    assert act["row"]["fit"]["capped"] == 1
+    glb = "3d/library/bar/procedural.glb"                                      # with the gate: a better-fitting entry instead
+    bounds[glb] = [[-45.0, -7.0, 0.0], [45.0, 7.0, 12.0]]
+    monkeypatch.setattr(unplaced, "family_models", lambda st, ok, b: [
+        {"entry": "bar", "family": "housing", "w": 90.0, "d": 14.0,
+         "model": {"glb": glb, "lo": bounds[glb][0], "hi": bounds[glb][1], "dims": [90.0, 14.0, 12.0], "mesh": "unplaced_bar",
+                   "active": None, "kind": "procedural"}}])
+    two, entries = [fresh("y")], {}
+    act = cl.use_active_models(proj, {"slots": []}, None, two, bounds, ok=lambda e: True, entries=entries)
+    p = two[0]
+    assert p["entry"] == "bar" and p["refit"] == {"from": "row", "k": 1.0} and "active" not in p and "bar" in entries
+    assert act["row"]["fit"]["swap"] == {"bar": 1}
+    f = cl.footprint_of(np.asarray(p["matrix"]), *bounds[glb])
+    assert (f["x"], f["y"], f["w"], f["d"], f["yaw"]) == pytest.approx((100.0, 0.0, 90.0, 14.0, 30.0))   # uniform, in place
 
 
 def test_an_active_trellis_model_places_its_clean_up_output_for_its_tier(proj, monkeypatch):

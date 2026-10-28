@@ -471,6 +471,7 @@ is for non-commercial use unless you swap those models.
 | DINOv3 ViT-L/16 (TRELLIS.2, gated) | Image features | Meta DINOv3 License |
 | ambientCG 2K sets | Materials | CC0 |
 | ambientCG Grass004, Ground106, Rock030, Ground093C (2K) | World dressing: ground textures (optional) | CC0 |
+| ambientCG PavingStones054, PavingStones119, PavingStones128 (2K) | World dressing: street and plaza paving (optional) | CC0 |
 | Poly Haven rock_07, boulder_01, shrub_02 (1k glTF) | World dressing: rocks, shrubs (optional) | CC0 |
 
 Code dependencies with notable licenses: nvdiffrast and nvdiffrec (NVIDIA Source Code License,
@@ -495,7 +496,8 @@ is untested and not used.
 ## World dressing and Megascans
 
 "Build city in Unreal" (Unreal tab) and `ap ue build` can dress the world: **Ground textures**
-(Light: grass, dirt patches, rock on slopes, sand at the shore), **Rocks** (Light–Medium, density
+(Light: grass, dirt patches, rock on slopes, sand at the shore; stone paving on streets and plazas:
+slabs, cobbles, flagstones), **Rocks** (Light–Medium, density
 slider), **Vegetation** (Medium–Heavy: tree meshes for the placeholder trees, olives in open green,
 shrubs and grass in green zones; density slider) and **Water** (Simple sea, Light; or the Water
 plugin's Ocean, Heavy and experimental: in UE 5.8 the plugin crashes the headless editor when it
