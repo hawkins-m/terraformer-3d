@@ -178,7 +178,7 @@ The challenge started on 2026-10-08. The last commit before it is tagged
 [`pre-challenge`](https://github.com/hawkins-m/terraformer-3d/tree/pre-challenge) (`0cef52e`,
 2026-10-07); everything since is in the
 [pre-challenge...main compare](https://github.com/hawkins-m/terraformer-3d/compare/pre-challenge...main)
-(about 150 commits, 245 files). Before the challenge the repo had the greybox, shot passes,
+(over 250 commits, about 360 files). Before the challenge the repo had the greybox, shot passes,
 FLUX frame generation, the city planner and the first browser UI. Added during it:
 
 - **Unreal city build**: `ap export --assets` and `ap ue build` place the whole city's library
