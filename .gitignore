@@ -88,3 +88,16 @@ moodboard/
 # User config and API keys live in ~/.config/terraformer, never here
 secrets.toml
 backends.local.toml
+
+# Tool caches, logs and scratch files
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+node_modules/
+*.log
+*.swp
+Thumbs.db
+/all.js
+.env.*

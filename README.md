@@ -1,5 +1,9 @@
 # Terraformer
 
+**A city layout in, a lit Unreal Engine 5.8 scene out: a local 3D environment pipeline on ComfyUI and open-weights models.**
+
+![Terraformer's main window: the starter city's Shots tab, with a shot-pass render running in its job window](docs/images/terraformer-main.png)
+
 Terraformer is a local-first 3D environment pipeline, built around ComfyUI, that takes a world
 layout to a lit Unreal Engine 5.8 scene. You lay out a place (roads, districts, landmarks,
 terrain); the pipeline builds a Blender greybox, renders control passes for each camera shot,
@@ -9,14 +13,114 @@ frame. Everything runs on your own machine with open-weights models: no partner 
 no hosted services. It is an entry for the Comfy "Open Source Higgsfield" challenge, category
 **Open Weights Only**.
 
+**Demo video:** TODO: the link goes here at submission.
+<!-- TODO(owner): replace the line above with the demo video URL before tagging v0.1.0 -->
+
+[Quick start](#quick-start) · [Requirements](#requirements) · [How ComfyUI is used](#how-comfyui-is-used) ·
+[Models and licenses](#models-and-licenses) · [Built during the challenge](#built-during-the-challenge) ·
+[Known issues](#known-issues) · [Roadmap](#roadmap)
+
 The repo is [`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraformer-3d) (renamed
 from `asset-pipeline` on 2026-10-18; the old URL redirects). The command line is `ap`, the Python
 package is `asset_pipeline`, and the app (`ap ui`) is called Terraformer.
 
-## Demo video
+## Quick start
 
-▶ **[Watch the demo](https://example.com/terraformer-demo)** (placeholder: the link goes here
-once the video is up).
+New machine? `git clone https://github.com/hawkins-m/terraformer-3d.git && cd terraformer-3d && scripts/install.sh`
+opens the setup wizard, which installs everything below ([Install](#install) has the details and the manual steps).
+With `ap` installed:
+
+```bash
+ap setup                           # first run: check and save your settings
+ap models download --required      # ~50 GB
+ap doctor                          # what is installed, what is missing, how to fix it
+ap comfy start                     # ComfyUI and the SDK proxy
+ap ui                              # the app, at http://127.0.0.1:8700 (or the desktop launcher)
+scripts/demo.sh starter            # neutral starter layout, no Unreal needed
+```
+
+Closing the browser doesn't stop jobs; closing the Terraformer window does.
+
+`demo.sh starter [SLUG]` creates a project (default `my-project`), a starter layout, the greybox,
+the shot passes and a style text, and generates two concept frames for the `street` shot through
+ComfyUI. Frames land under `<storage>/projects/my-project/`. In the app it is Help › Run demo….
+
+The full path on one area of a project, brief to Unreal render:
+
+```bash
+scripts/demo.sh area my-project SHOT ENTRY [ENTRY ...]
+```
+
+This generates two new frames for the shot, builds the listed buildings procedurally, places
+them near the shot's camera, exports GLBs, imports into Unreal headless and renders a look scene.
+It needs an existing project with a shot and library entries; see `scripts/demo.sh`,
+[USAGE.md](USAGE.md) and [RUNBOOK.md](RUNBOOK.md).
+
+## Requirements
+
+- Linux (verified on Ubuntu 26.04). Windows through WSL2 with an NVIDIA GPU is **beta**
+  ([below](#windows-wsl2--nvidia-beta)); macOS is not supported.
+- Python 3.12 (`python3.12`; the default `python3` may be newer, and every venv here uses 3.12).
+- ComfyUI 0.24 or newer (the tested version). The workflows use only core nodes (SAM 3.1
+  included).
+- Blender 4.2 or newer (verified with 5.2.2; the snap works).
+- Unreal Engine 5.8 (free with an Epic account) for the last steps only: import, city build and
+  look scenes. The starter demo does not need it.
+- GPU memory:
+  - Concept frames (Flux fp8, ControlNet, Redux): about 24 GB.
+  - Vision LLM: Qwen3-VL-32B Q5_K_M takes about 27 GB on its own GPU; with 24 GB or less, use
+    the 8B (`ap config set local.model 8b`).
+  - Two GPUs are recommended (ComfyUI on one; the VLM, TRELLIS and Unreal renders on the other).
+    One 32 GB GPU works with jobs run one after another.
+- Disk: about 50 GB of required models (below), 18 GB more for TRELLIS.2; several hundred GB is
+  comfortable with Unreal projects. All of it goes under one storage folder (default
+  `~/.local/share/terraformer`).
+
+**Tested on** one machine: Ubuntu 26.04, 2x AMD Radeon AI PRO R9700 (32 GB, gfx1201), ROCm 7.2.4,
+ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
+
+- Full test suite: 635 tests (633 offline; 2 more need a live ComfyUI), all passing.
+- Clean install (2026-10-23) from a fresh clone with an empty `HOME`: `ap setup`, the first-run
+  Setup screen, `ap doctor`, a new project and its greybox (the model downloads and GPU jobs were
+  left out).
+- The two ComfyUI backends give identical SAM 3.1 results (`pytest -m comfy`); the SDK backend's
+  cancel and error handling were checked against a live ComfyUI.
+- Starter path (`scripts/demo.sh starter`) through the SDK backend, on a fresh storage folder:
+  greybox and two shots' passes in about 16 s (CPU), two concept frames in 67 s.
+- Area path (`scripts/demo.sh area`) on one shot of a larger private test city (about 2.3k
+  buildings, 381 exported assets, 29k instances): two frames about 1 min each, 11 procedural
+  builds in about 1 min, about 620 per-building instances near the shot in 25 min (CPU), export
+  about 3 min, Unreal import about 2 min, look scene 5-11 min (GPU).
+
+**NVIDIA / CUDA is untested.** The code has a CUDA path, but only ROCm has been run.
+
+## How ComfyUI is used
+
+ComfyUI does every image-model step: concept frames, the style anchor, the realism pass, reference
+sheets and SAM 3.1 masks. The pipeline talks to it in one place, the `ComfyClient` interface
+(`asset_pipeline/comfy/client.py`, `comfy.client.connect()`), with two backends:
+
+- **`sdk` (default):** the official [Comfy SDK](https://pypi.org/project/comfy-sdk/) (`comfy-sdk` 0.5.0,
+  Comfy API v2) through `comfy-api-proxy` in front of your local ComfyUI (`scripts/comfy_api_proxy.sh`;
+  `ap comfy start` brings both up).
+- **`httpx`:** ComfyUI's own HTTP API, no proxy.
+
+Pick one with `AP_COMFY_BACKEND=sdk|httpx` or `ap config set comfyui.backend sdk`. Both run the same
+workflows; the live test (`pytest -m comfy`) checks that SAM 3.1 gives identical results through
+both, and that FLUX.1-dev returns real images. The workflows in [`workflows/`](workflows/) are ComfyUI API-format JSON, each with a
+`.bindings.json` naming the inputs the pipeline fills in, and use **core nodes only**: no custom
+nodes, no API or partner nodes (`comfy_api_nodes`), no hosted services.
+
+| Workflow | Does |
+|---|---|
+| `flux_t2i`, `flux_t2i_anchor` | FLUX.1-dev text to image; with a Flux Redux style anchor |
+| `flux_control_union` | Concept frames held to the greybox's depth (ControlNet Union Pro 2.0) |
+| `flux_img2img` | The optional realism pass |
+| `sam3_box`, `sam3_detect` | SAM 3.1 masks from a box or a text prompt (crop checks, silhouettes) |
+| `flux_depth_lora`, `hunyuan3d_mv`, `wan22_i2v_orbit` | Experimental, off the default path |
+
+`ap comfy start | status | stop` runs a local ComfyUI for you (or uses the one you already run);
+the Setup wizard can install ComfyUI 0.24 into the storage folder.
 
 ## Features
 
@@ -50,6 +154,23 @@ once the video is up).
   states, job lanes with queue positions, VRAM checks and real progress.
 - **Setup that checks itself.** `ap setup`, `ap doctor` and `ap models` (pinned, checksummed
   model manifest), with hardware profiles for ROCm (one or two GPUs) and NVIDIA.
+
+## Pipeline overview
+
+**Style → Layout → Greybox → Shots → Frames → Library → Generate 3D Model & Review → Review → Unreal**
+
+Each step is a tab or button in the app (the [RUNBOOK](RUNBOOK.md) describes the clicks) and a
+command. **Artist** marks a decision point; everything else runs unattended.
+
+1. **Style.** `ap new`, `ap style text`: the brief and a style text (optional anchor images). **Artist:** writes the brief.
+2. **Layout.** `ap site init` (or `--city`): roads, districts, landmarks, terrain. **Artist:** edits the layout.
+3. **Greybox.** `ap site build`: terrain and greybox in headless Blender (CPU).
+4. **Shots.** `ap shots render`: depth, edge, object-id and normal passes per camera shot (Blender Cycles, CPU).
+5. **Frames.** `ap frames generate SHOT -n 4`: FLUX.1-dev, ControlNet Union Pro 2.0 (depth) and Redux through ComfyUI. **Artist:** picks and locks frames (`ap frames lock`).
+6. **Library.** `ap library plan`, `ap library check` (SAM 3.1), `ap library sheets` (FLUX.1-dev reference sheets). **Artist:** decides each entry's source and picks the sheet view.
+7. **Generate 3D Model & Review.** `ap library brief` (Qwen3-VL reads the sheet), then `ap library build` (procedural Blender, ambientCG materials) or `ap library trellis` (TRELLIS.2); Reroll with guidance. **Artist:** edits the brief and picks versions.
+8. **Review.** Library › Asset review, `ap library review apply`, silhouette and openings checks. **Artist:** approves or sends back with a note.
+9. **Unreal.** `ap export`, `ap ue build` (the whole city, headless), `ap ue look PROJECT SHOT` (OneFormer and Depth Anything V2 read the frame's look). **Artist:** chooses and tunes the look preset.
 
 ## Built during the challenge
 
@@ -113,44 +234,6 @@ Added from 2026-10-27, mostly in the Layout tab's roll box and `ap ue build`:
   variation (part of Ground textures).
 - **Library commands**: `ap library status` (where each asset waits), `repair-plan` (decided assets back in
   the plan), `stand-in` (an excluded entry's buildings take another entry's model).
-
-## Requirements
-
-- Linux (verified on Ubuntu 26.04). Windows through WSL2 with an NVIDIA GPU is **beta**
-  ([below](#windows-wsl2--nvidia-beta)); macOS is not supported.
-- Python 3.12 (`python3.12`; the default `python3` may be newer, and every venv here uses 3.12).
-- ComfyUI 0.24 or newer (the tested version). The workflows use only core nodes (SAM 3.1
-  included).
-- Blender 4.2 or newer (verified with 5.2.2; the snap works).
-- Unreal Engine 5.8 (free with an Epic account) for the last steps only: import, city build and
-  look scenes. The starter demo does not need it.
-- GPU memory:
-  - Concept frames (Flux fp8, ControlNet, Redux): about 24 GB.
-  - Vision LLM: Qwen3-VL-32B Q5_K_M takes about 27 GB on its own GPU; with 24 GB or less, use
-    the 8B (`ap config set local.model 8b`).
-  - Two GPUs are recommended (ComfyUI on one; the VLM, TRELLIS and Unreal renders on the other).
-    One 32 GB GPU works with jobs run one after another.
-- Disk: about 50 GB of required models (below), 18 GB more for TRELLIS.2; several hundred GB is
-  comfortable with Unreal projects. All of it goes under one storage folder (default
-  `~/.local/share/terraformer`).
-
-**Tested on** one machine: Ubuntu 26.04, 2x AMD Radeon AI PRO R9700 (32 GB, gfx1201), ROCm 7.2.4,
-ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
-
-- Full test suite: 635 tests (633 offline; 2 more need a live ComfyUI), all passing.
-- Clean install (2026-10-23) from a fresh clone with an empty `HOME`: `ap setup`, the first-run
-  Setup screen, `ap doctor`, a new project and its greybox (the model downloads and GPU jobs were
-  left out).
-- The two ComfyUI backends give identical SAM 3.1 results (`pytest -m comfy`); the SDK backend's
-  cancel and error handling were checked against a live ComfyUI.
-- Starter path (`scripts/demo.sh starter`) through the SDK backend, on a fresh storage folder:
-  greybox and two shots' passes in about 16 s (CPU), two concept frames in 67 s.
-- Area path (`scripts/demo.sh area`) on one shot of a larger private test city (about 2.3k
-  buildings, 381 exported assets, 29k instances): two frames about 1 min each, 11 procedural
-  builds in about 1 min, about 620 per-building instances near the shot in 25 min (CPU), export
-  about 3 min, Unreal import about 2 min, look scene 5-11 min (GPU).
-
-**NVIDIA / CUDA is untested.** The code has a CUDA path, but only ROCm has been run.
 
 ## Install
 
@@ -426,54 +509,11 @@ Details in [docs/notes/machine-and-gpu.md](docs/notes/machine-and-gpu.md).
 - Build HIP extensions with `scripts/setup_rocm_toolchain.sh` once, then
   `source scripts/rocm_build_env.sh` in the shell that builds. No flash-attn; sdpa is used.
 
-## Quick start
-
-```bash
-ap setup                           # first run: check and save your settings
-ap models download --required      # ~50 GB
-ap doctor                          # what is installed, what is missing, how to fix it
-ap comfy start                     # ComfyUI and the SDK proxy
-ap ui                              # the app, at http://127.0.0.1:8700 (or the desktop launcher)
-scripts/demo.sh starter            # neutral starter layout, no Unreal needed
-```
-
-Closing the browser doesn't stop jobs; closing the Terraformer window does.
-
-`demo.sh starter [SLUG]` creates a project (default `my-project`), a starter layout, the greybox,
-the shot passes and a style text, and generates two concept frames for the `street` shot through
-ComfyUI. Frames land under `<storage>/projects/my-project/`. In the app it is Help › Run demo….
-
-The full path on one area of a project, brief to Unreal render:
-
-```bash
-scripts/demo.sh area my-project SHOT ENTRY [ENTRY ...]
-```
-
-This generates two new frames for the shot, builds the listed buildings procedurally, places
-them near the shot's camera, exports GLBs, imports into Unreal headless and renders a look scene.
-It needs an existing project with a shot and library entries; see `scripts/demo.sh`,
-[USAGE.md](USAGE.md) and [RUNBOOK.md](RUNBOOK.md).
-
-## Pipeline overview
-
-**Style → Layout → Greybox → Shots → Frames → Library → Generate 3D Model & Review → Review → Unreal**
-
-Each step is a tab or button in the app (the [RUNBOOK](RUNBOOK.md) describes the clicks) and a
-command. **Artist** marks a decision point; everything else runs unattended.
-
-1. **Style.** `ap new`, `ap style text`: the brief and a style text (optional anchor images). **Artist:** writes the brief.
-2. **Layout.** `ap site init` (or `--city`): roads, districts, landmarks, terrain. **Artist:** edits the layout.
-3. **Greybox.** `ap site build`: terrain and greybox in headless Blender (CPU).
-4. **Shots.** `ap shots render`: depth, edge, object-id and normal passes per camera shot (Blender Cycles, CPU).
-5. **Frames.** `ap frames generate SHOT -n 4`: FLUX.1-dev, ControlNet Union Pro 2.0 (depth) and Redux through ComfyUI. **Artist:** picks and locks frames (`ap frames lock`).
-6. **Library.** `ap library plan`, `ap library check` (SAM 3.1), `ap library sheets` (FLUX.1-dev reference sheets). **Artist:** decides each entry's source and picks the sheet view.
-7. **Generate 3D Model & Review.** `ap library brief` (Qwen3-VL reads the sheet), then `ap library build` (procedural Blender, ambientCG materials) or `ap library trellis` (TRELLIS.2); Reroll with guidance. **Artist:** edits the brief and picks versions.
-8. **Review.** Library › Asset review, `ap library review apply`, silhouette and openings checks. **Artist:** approves or sends back with a note.
-9. **Unreal.** `ap export`, `ap ue build` (the whole city, headless), `ap ue look PROJECT SHOT` (OneFormer and Depth Anything V2 read the frame's look). **Artist:** chooses and tunes the look preset.
-
 ## License
 
-The code is **MIT**, see [LICENSE](LICENSE). The models and tools carry their own licenses.
+The code is **MIT**, see [LICENSE](LICENSE). The models, assets and tools carry their own licenses, collected in
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md). No model weights or assets are in this repository: they
+download on setup from their original sources.
 
 ### Models and licenses
 
@@ -481,23 +521,24 @@ All open weights, all run locally. The full list with sources, pinned revisions,
 checksums is [config/models.toml](config/models.toml) (`ap models list --all`). **Commercial use requires a commercial license from each model's owner wherever that model's license calls for one; check every row below before using any output commercially.** Several are non-commercial, so the pipeline as configured
 is for non-commercial use unless you swap those models.
 
-| Model | Used for | License |
-|---|---|---|
-| FLUX.1-dev (fp8) | Concept frames | FLUX.1 [dev] Non-Commercial License |
-| FLUX.1 Redux dev (gated) | Style anchor | FLUX.1 [dev] Non-Commercial License |
-| SigLIP so400m patch14-384 (vision) | Redux image encoder | Apache-2.0 |
-| ControlNet Union Pro 2.0 (Shakker-Labs) | Depth control of frames | FLUX.1-dev non-commercial (derivative) |
-| SAM 3.1 (gated) | Text-prompted masks | Meta SAM License |
-| Qwen3-VL 32B / 8B Instruct | Plans, material reading | Apache-2.0 |
-| OneFormer Swin-L ADE20K | Frame classes | MIT |
-| Depth Anything V2 Small | Frame depth | Apache-2.0 (Base, Large, Giant are CC-BY-NC-4.0 and not used) |
-| TRELLIS.2-4B (optional) | Irregular assets | MIT |
-| BiRefNet (TRELLIS.2) | Background removal | MIT |
-| DINOv3 ViT-L/16 (TRELLIS.2, gated) | Image features | Meta DINOv3 License |
-| ambientCG 2K sets | Materials | CC0 |
-| ambientCG Grass004, Ground106, Rock030, Ground093C (2K) | World dressing: ground textures (optional) | CC0 |
-| ambientCG PavingStones054, PavingStones119, PavingStones128 (2K) | World dressing: street and plaza paving (optional) | CC0 |
-| Poly Haven rock_07, boulder_01, shrub_02 (1k glTF) | World dressing: rocks, shrubs (optional) | CC0 |
+| Model | Used for | Needed | License |
+|---|---|---|---|
+| FLUX.1-dev (fp8) | Concept frames, reference sheets | required | FLUX.1 [dev] Non-Commercial License |
+| FLUX.1 Redux dev (gated) | Style anchor | required | FLUX.1 [dev] Non-Commercial License |
+| SigLIP so400m patch14-384 (vision) | Redux image encoder | required | Apache-2.0 |
+| ControlNet Union Pro 2.0 (Shakker-Labs) | Depth control of frames | required | FLUX.1-dev non-commercial (derivative) |
+| SAM 3.1 (gated) | Text- and box-prompted masks | required | Meta SAM License |
+| OneFormer Swin-L ADE20K | Frame classes (segmentation) | required | MIT |
+| Depth Anything V2 Small | Frame depth | required | Apache-2.0 (Base, Large, Giant are CC-BY-NC-4.0 and not used) |
+| Qwen3-VL 32B or 8B Instruct (GGUF, llama.cpp) | Plans, briefs, material reading | one of them | Apache-2.0 |
+| TRELLIS.2-4B | Irregular assets | optional | MIT |
+| TRELLIS image large | TRELLIS.2 conditioning | optional | MIT |
+| BiRefNet | Background removal (TRELLIS.2) | optional | MIT |
+| DINOv3 ViT-L/16 (gated) | Image features (TRELLIS.2) | optional | Meta DINOv3 License |
+| ambientCG 2K sets | Building materials | fetched on use | CC0 |
+| ambientCG Grass004, Ground106, Rock030, Ground093C (2K) | World dressing: ground textures | optional | CC0 |
+| ambientCG PavingStones054, PavingStones119, PavingStones128 (2K) | World dressing: street and plaza paving | optional | CC0 |
+| Poly Haven rock_07, boulder_01, shrub_02 (1k glTF) | World dressing: rocks, shrubs | optional | CC0 |
 
 Code dependencies with notable licenses: nvdiffrast and nvdiffrec (NVIDIA Source Code License,
 non-commercial), used by TRELLIS.2.
@@ -560,9 +601,7 @@ that folder over by USB into the target's `Content`, keeping its path). Then cli
 
 ## Design note
 
-![Terraformer's main window: the starter city's Shots tab, with a shot-pass render running in its job window](docs/images/terraformer-main.png)
-
-Terraformer's interface is deliberately styled after Windows XP/Me-era desktop software: menu
+Terraformer's interface (screenshot at the top) is deliberately styled after Windows XP/Me-era desktop software: menu
 bar, toolbar, group boxes, tabbed panels, status bar and Tahoma / MS Sans Serif-style type. Its
 muted grey palette avoids near-white glare during long sessions. Each pipeline stage has its own
 small animated job icon (frame generation, greybox building, 3D conversion, Unreal export and
@@ -590,6 +629,10 @@ workspace for artists rather than a web-app look.
 - Native app packaging
 - Blender hand-finish workflow
 - Optional API vision backends (OpenAI-compatible: ChatGPT, Grok, other servers)
+- Thumbnails for the city layout and terrain presets
+- Simpler layout controls in the Layout tab
+- A shorter name for the Generate 3D Model & Review tab
+- Ready for Unreal: refresh the unplaced-assets preview when it goes stale
 
 ## Docs
 
@@ -597,6 +640,8 @@ workspace for artists rather than a web-app look.
 - [RUNBOOK.md](RUNBOOK.md): the daily asset loop for one area, common failures.
 - [PLAN.md](PLAN.md): design, stages and milestones.
 - [CLAUDE.md](CLAUDE.md): working rules; [docs/notes/](docs/notes/): machine facts, measured findings and pitfalls.
+- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md): licenses of the models, assets and tools.
+- [docs/release-notes-v0.1.0.md](docs/release-notes-v0.1.0.md): what is in the first release.
 
 ## Credits
 
@@ -604,4 +649,9 @@ workspace for artists rather than a web-app look.
 - nvdiffrast ROCm port: Painter3000 ([amd-nvdiffrast-rocm72-gfx1201](https://github.com/Painter3000/amd-nvdiffrast-rocm72-gfx1201)).
 - Thanks to [egore/comfyui-trellis2-gguf-rocm](https://github.com/egore/comfyui-trellis2-gguf-rocm),
   whose notes first got CuMesh building on ROCm. The CuMesh fixes used here are our own.
-- ambientCG for the CC0 materials; the authors of the models above.
+- [ambientCG](https://ambientcg.com) for the CC0 materials, ground and paving textures, and
+  [Poly Haven](https://polyhaven.com) for the CC0 rocks and shrub. Both are fetched from their sites on
+  first use, never bundled.
+- Megascans (Fab) assets are **not** redistributed: Terraformer never downloads them, and nothing from Fab is
+  in this repo. If you own them, you map your own copies into your Unreal project.
+- [Comfy](https://www.comfy.org) for ComfyUI and the Comfy SDK, and the authors of every model above.

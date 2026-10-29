@@ -5,11 +5,11 @@
 ## Quick start
 
 ```bash
-cp ~/Pictures/my_image.png /mnt/storage/asset-pipeline/inputs/
+cp ~/Pictures/my_image.png $AP_ROOT/inputs/
 trellis my_image.png
 ```
 
-The textured GLB lands in `/mnt/storage/asset-pipeline/outputs/trellis2/`. The last lines
+The textured GLB lands in `$AP_ROOT/outputs/trellis2/`. The last lines
 the command prints show the exact path.
 
 `trellis` is `scripts/trellis`, symlinked into `~/bin` (already on your PATH). It sets up
@@ -17,7 +17,7 @@ the ROCm environment and the venv for you, so it runs from any directory.
 
 ## Input images
 
-- Put them in `/mnt/storage/asset-pipeline/inputs/` and pass the bare filename, or pass
+- Put them in `$AP_ROOT/inputs/` and pass the bare filename, or pass
   any path: `trellis ~/Downloads/chair.webp`.
 - Use one object per image. A clean or white background, or a transparent PNG, works
   best. The background is removed automatically; an existing alpha channel is used as-is.
@@ -25,7 +25,7 @@ the ROCm environment and the venv for you, so it runs from any directory.
 
 ## Outputs
 
-Everything goes to `/mnt/storage/asset-pipeline/outputs/trellis2/`, named
+Everything goes to `$AP_ROOT/outputs/trellis2/`, named
 `<image name>_<mode>_s<seed>`. The image name is cut to 24 characters.
 
 | File | What it is |
@@ -612,7 +612,7 @@ ap ue backup my-project          # snapshot -> <backup_dir>/my-project/<timestam
 **Backups.** Pipeline-imported content is disposable: a re-import recreates it. What
 needs backing up is the work you do in UE, such as lighting and Sequencer.
 - `ap ue backup` copies the project to `[unreal] backup_dir` (default
-  `/mnt/storage/backups/unreal`, the other drive).
+  `$AP_ROOT/backups/unreal`; point it at another drive).
 - It skips `Intermediate`, `Saved` and `DerivedDataCache`, which the editor rebuilds.
 - Each snapshot is complete, but files that didn't change are hard links to the previous
   one, so it costs only what changed.
@@ -904,7 +904,7 @@ ap style show my-project               # batches, stars, anchor
 ap gen "a wooden pier post, isolated on white" --project my-project --anchor
 ```
 
-Projects live in `/mnt/storage/asset-pipeline/projects/<slug>/`:
+Projects live in `$AP_ROOT/projects/<slug>/`:
 - `style/explore/` holds the scenes.
 - `style/derive/` holds cutouts and redraws.
 - `style/anchor/` holds the saved anchor.
@@ -944,7 +944,7 @@ ap set my-project --backend references=gemini   # image backend per stage
   afterwards.
 - Both models free GPU 0 after 10 minutes idle (config `[local] idle_unload_s`) and
   reload on the next request (~2 s for the 32B's server, 6–9 s for the 8B).
-- Logs: `/mnt/storage/asset-pipeline/logs/vlm-32b.log`, `vlm-8b.log`.
+- Logs: `$AP_ROOT/logs/vlm-32b.log`, `vlm-8b.log`.
 - Installing: `scripts/install_llamacpp_vlm.sh` (llama.cpp + 32B), `scripts/install_qwen_vl.sh` (8B).
 
 **Paid providers are blocked by default.** Gemini and Claude (and the Gemini image
@@ -1013,7 +1013,7 @@ ap plan show my-project                        # summary table of every plan
 ap plan show my-project batch_001__scene_002 --json
 ```
 
-Plans live in `/mnt/storage/asset-pipeline/projects/<slug>/plan/`, one per scene, named
+Plans live in `$AP_ROOT/projects/<slug>/plan/`, one per scene, named
 after the scene's batch and file (`batch_001__scene_002.json`). Imported scenes are copied
 to `scenes/`. Asset `id`s are stable once created; later stages name files after them.
 
@@ -1040,7 +1040,7 @@ ap refs generate my-project --unit crate -n 4   # 4 more for one asset
 ap refs show my-project                          # units, sheet counts, stars
 ```
 
-Sheets land in `/mnt/storage/asset-pipeline/projects/<slug>/refs/<plan>/<unit>/sheet_NNN.png`
+Sheets land in `$AP_ROOT/projects/<slug>/refs/<plan>/<unit>/sheet_NNN.png`
 with a `meta.json` (prompt, seed, size). The canvas shape follows the asset's real
 proportions (wide strips for barrels and walls, taller cells for houses and trees). About
 55 s per sheet.
