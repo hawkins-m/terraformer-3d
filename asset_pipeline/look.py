@@ -445,14 +445,18 @@ def backdrop(store: ProjectStore, p: dict, shot: dict) -> tuple[dict | None, dic
 
 
 def presets(store: ProjectStore) -> list[dict]:
-    """The project's look presets: [{name, shot, runs}] (defaults.json is not one)."""
+    """The project's look presets: [{name, shot, runs, last_ok}] (defaults.json is not one); last_ok:
+    when its newest successful run finished (epoch seconds), or None."""
     d = preset_dir(store)
     out = []
     for p in sorted(d.glob("*.json")) if d.is_dir() else []:
         if p.stem == "defaults":
             continue
         own = read_json(p, default={}) or {}
-        out.append({"name": p.stem, "shot": own.get("shot"), "runs": len(own.get("history") or [])})
+        hist = own.get("history") or []
+        ok = [r["at"] for r in hist if r.get("ok") and r.get("at")]
+        out.append({"name": p.stem, "shot": own.get("shot"), "runs": len(hist),
+                    "last_ok": time.mktime(time.strptime(max(ok), "%Y-%m-%d %H:%M:%S")) if ok else None})
     return out
 
 

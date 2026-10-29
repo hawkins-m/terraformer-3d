@@ -2070,7 +2070,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         out["imported"] = ({"mtime": rep.stat().st_mtime, "ok": bool((read_json(rep, default={}) or {}).get("ok"))}
                            if rep.is_file() else None)
         renders = sorted((ue.work_dir(store) / "shots").glob("*.png"))
-        out["renders"] = {"count": len(renders), "mtime": max(p.stat().st_mtime for p in renders)} if renders else None
+        out["renders"] = {"count": len(renders), "mtime": max(p.stat().st_mtime for p in renders),
+                          "shots": {p.stem: p.stat().st_mtime for p in renders}} if renders else None
+        out["shot_ids"] = [s["id"] for s in read_json(man)["shots"]] if man.is_file() else []   # the shots a render needs
         out["looks"] = look.presets(store)
         from .. import ue_build
         out["build"] = read_json(ue_build.report_path(store), default=None)    # the last `ap ue build` from the UI

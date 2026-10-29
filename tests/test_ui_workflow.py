@@ -191,10 +191,46 @@ def test_unreal_goes_exported_scene_assembled_render_verified():
     assert ue(project=False)[0::2] == ("input", "Exported")
     assert ue(imported={"mtime": 5, "ok": True})[0::2] == ("input", "Exported")          # imported before the export
     assert ue(imported={"mtime": 20, "ok": True})[0::2] == ("review", "Scene assembled")
-    assert ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 30})[0::2] == ("review", "Scene assembled")
-    done = ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 30}, looks=[{"name": "dusk", "runs": 1}])
+    assert ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 30})[0::2] == ("review", "Render available")
+    done = ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 30}, looks=[{"name": "dusk", "runs": 1, "last_ok": 40}])
     assert done[0::2] == ("done", "Render verified")
-    assert ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 10}, looks=[{"name": "dusk", "runs": 1}])[0] == "review"
+    assert ue(imported={"mtime": 20, "ok": True}, renders={"count": 2, "mtime": 10},
+              looks=[{"name": "dusk", "runs": 1, "last_ok": 40}])[0::2] == ("review", "Render available")
+
+
+@pytest.mark.skipif(not NODE, reason="needs node")
+def test_render_verified_needs_every_shot_and_the_look_run_after_the_current_build():
+    def ue(**kw):
+        u = {"greybox": True, "export": {"mtime": 10}, "project": True, "imported": {"mtime": 20, "ok": True},
+             "shot_ids": ["a", "b"], "renders": {"count": 2, "mtime": 30, "shots": {"a": 30, "b": 25}},
+             "looks": [{"name": "dusk", "runs": 2, "last_ok": 40}]} | kw
+        return tuple(_st(_wf(siteData=BUILT, unrealData=u, expr="workflow().map(s => [s.id, s.status, s.next.ok, s.label])"), "unreal"))
+    assert ue()[0::2] == ("done", "Render verified")
+    # the newest render is after the build, but shot b's is from before it
+    assert ue(renders={"count": 2, "mtime": 30, "shots": {"a": 30, "b": 15}})[0::2] == ("review", "Render available")
+    # a required shot never rendered
+    assert ue(shot_ids=["a", "b", "c"])[0::2] == ("review", "Render available")
+    # the look ran before this build (or only failed runs since)
+    assert ue(looks=[{"name": "dusk", "runs": 2, "last_ok": 18}])[0::2] == ("review", "Render available")
+    assert ue(looks=[{"name": "dusk", "runs": 2, "last_ok": None}])[0::2] == ("review", "Render available")
+    assert ue(looks=[{"name": "old", "runs": 1, "last_ok": 5}, {"name": "dusk", "runs": 1, "last_ok": 21}])[0] == "done"
+    # nothing rendered or run yet: just assembled
+    assert ue(renders=None, looks=[])[0::2] == ("review", "Scene assembled")
+
+
+def test_look_presets_say_when_their_last_good_run_was(tmp_path, monkeypatch):
+    import time as _t
+    from asset_pipeline import look
+    from asset_pipeline.project import ProjectStore, write_json
+    monkeypatch.setenv("AP_ROOT", str(tmp_path))
+    s = ProjectStore.create("t", name="T")
+    d = look.preset_dir(s)
+    write_json(d / "dusk.json", {"shot": "a", "history": [{"at": "2026-10-01 10:00:00", "ok": True},
+                                                          {"at": "2026-10-02 10:00:00", "ok": False}]})
+    write_json(d / "dawn.json", {"shot": "b"})
+    got = {p["name"]: p for p in look.presets(s)}
+    assert got["dusk"]["runs"] == 2 and got["dusk"]["last_ok"] == _t.mktime(_t.strptime("2026-10-01 10:00:00", "%Y-%m-%d %H:%M:%S"))
+    assert got["dawn"]["last_ok"] is None
 
 
 @pytest.mark.skipif(not NODE, reason="needs node")

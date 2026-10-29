@@ -131,15 +131,21 @@ const STEP_STATE = {
     if (!u) return {status: "none", detail: "", next: {ok: false}};
     const run = (data.jobs || []).some(j => isActive(j) && j.kind.startsWith("ue."));
     const k = ueSteps(u), exported = !!u.export && !ueExportStale(), assembled = exported && k.import[1];
+    // verified only when every required shot and a look run are newer than the current build/import;
+    // older ones still exist to look at ("Render available")
     const verified = assembled && k.render[1] && k.look[1];
+    const available = assembled && !verified && (!!u.renders || (u.looks || []).some(l => l.runs));
     const st = run ? "running" : !u.greybox ? "none" : !u.export ? "ready" : ueExportStale() ? "stale"
       : verified ? "done" : assembled ? "review" : "input";
-    const label = st === "done" ? "Render verified" : st === "review" ? "Scene assembled" : st === "input" ? "Exported" : null;
+    const label = st === "done" ? "Render verified" : st === "review" ? (available ? "Render available" : "Scene assembled")
+      : st === "input" ? "Exported" : null;
     const detail = !u.greybox ? "build the greybox first (Greybox)" : !u.export ? "build the city in Unreal (or export the greybox)"
       : ueExportStale() ? "the greybox changed after the export: build or export again"
       : !u.project ? "exported: create the UE project, then import (Build city in Unreal does both)"
       : !assembled ? "exported: build the city in Unreal (or import) to assemble the scene"
-      : !k.render[1] ? "scene assembled: render the shots" : !k.look[1] ? "shots rendered: match the look to an approved frame"
+      : !k.render[1] ? (u.renders ? `renders from before the current build (${k.render[0]}): render the shots again` : "scene assembled: render the shots")
+      : !k.look[1] ? ((u.looks || []).some(l => l.runs) ? "the look run is older than the current build: run the look again"
+        : "shots rendered: match the look to an approved frame")
       : "rendered and look matched";
     return {status: st, detail, label, next: {ok: false, reason: "This is the last step."}};
   },
@@ -151,16 +157,23 @@ function ueSteps(u) {
   const exp = u.export, imp = u.imported, ren = u.renders, looks = u.looks || [];
   const when = t => new Date(t * 1000).toLocaleString();
   const fresh = exp && !ueExportStale();
+  // each required shot rendered after the current build/import (a build re-imports before it renders)
+  const shotIds = (u.shot_ids && u.shot_ids.length) ? u.shot_ids : Object.keys((ren && ren.shots) || {});
+  const staleShots = imp && ren && ren.shots ? shotIds.filter(id => !(ren.shots[id] >= imp.mtime)) : null;
+  const rendered = !!(ren && imp && (staleShots ? shotIds.length && !staleShots.length : ren.mtime >= imp.mtime));
+  const lookFresh = !!imp && looks.some(l => l.last_ok != null && l.last_ok >= imp.mtime);
   return {
     init: [u.project ? `Created: ${u.uproject}` : "", !!u.project, u.project ? "Already created." : ""],
     export: [null, !!fresh, !u.greybox ? "Build the greybox first (Greybox)." : ""],
     import: [imp ? `Imported ${when(imp.mtime)}${imp.ok ? "" : " (with errors)"}${exp && imp.mtime < exp.mtime ? " · the export is newer: import again" : ""}` : "",
       !!(imp && exp && imp.mtime >= exp.mtime && imp.ok),
       !u.project ? "Create the UE project first (step 1)." : !exp ? "Export first (step 2)." : u.editor_open ? "Close the Unreal Editor first." : ""],
-    render: [ren ? `${ren.count} shot render${ren.count === 1 ? "" : "s"}, newest ${when(ren.mtime)}` : "",
-      !!(ren && imp && ren.mtime >= imp.mtime), !imp ? "Import first (step 3)." : ""],
+    render: [ren ? `${ren.count} shot render${ren.count === 1 ? "" : "s"}, newest ${when(ren.mtime)}`
+      + (staleShots && staleShots.length ? ` · ${staleShots.length} of ${shotIds.length} from before the current build` : "") : "",
+      rendered, !imp ? "Import first (step 3)." : ""],
     look: [looks.length ? `${looks.length} look preset${looks.length === 1 ? "" : "s"}: ${looks.map(l => `${l.name}${l.runs ? ` (${l.runs} run${l.runs === 1 ? "" : "s"})` : ""}`).join(", ")}`
-      : "No look preset yet: one is created from an approved shot.", looks.some(l => l.runs),
+      + (looks.some(l => l.runs) && !lookFresh ? " · last run before the current build" : "")
+      : "No look preset yet: one is created from an approved shot.", lookFresh,
       !imp ? "Import first (step 3)." : !looks.length && !(u.approved_shots || []).length ? "Lock a shot on its approved frame first (Frames)." : ""],
   };
 }
