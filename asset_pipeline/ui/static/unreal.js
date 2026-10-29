@@ -181,7 +181,7 @@ function renderReadiness() {
   const n = (k, one, many = one + "s") => `${k} ${k === 1 ? one : many}`;
   cn.innerHTML = [`<b>${c.approved}</b> approved`, `<b>${c.active_not_approved}</b> active but not approved${nb.use_active ? " (placed: Use Active versions)" : ""}`,
     `<b>${c.stand_ins}</b> stand-in${c.stand_ins === 1 ? "" : "s"}`,
-    nb.placement_checked ? `<b>${c.placement_issues}</b> with placement-check issues` : "placement not checked yet (no build)"].join(" · ")
+    nb.placement_checked ? `<b>${c.placement_issues}</b> with placement-check issues (checked on previous build)` : "placement not checked yet (no build)"].join(" · ")
     + (off ? ` <span class="hint" style="margin:0">(${n(off, "other asset")} not in the city layout)</span>` : "");
   // every asset counted there, with its reason (next_build.outside_reason): some still appear in the city, some never do
   const offRows = nb.assets.filter(r => r.role === "none");
@@ -192,7 +192,7 @@ function renderReadiness() {
     : r.model === "procedural" ? "procedural build" : r.model === "cleaned" ? `cleaned for ${r.usage ? usageLabel(r.usage) : "its tier"} (your choice)`
     : r.cleanup_available ? "raw (a cleaned version exists, not chosen)" : "not cleaned (optional)";
   const issues = r => Object.entries(r.placement || {}).map(([k, v]) => `${k.replace(/_/g, " ")} ${v}`).join(", ");
-  box.innerHTML = `<table class="grid-table"><thead><tr><th>Asset</th><th>Version used</th><th>Approved</th><th>Cleanup</th><th>Stand-in reason</th><th>Placement issues</th></tr></thead><tbody>
+  box.innerHTML = `<table class="grid-table"><thead><tr><th>Asset</th><th>Version used</th><th>Approved</th><th>Cleanup</th><th>Stand-in reason</th><th title="The placement check runs during a build: these are the last build's results, not the next one's">Placement issues${nb.placement_checked ? `<div class="hint" style="margin:0;font-weight:normal">Checked on previous build</div>` : ""}</th></tr></thead><tbody>
     ${rows.map(r => `<tr data-asset="${esc(r.entry)}" class="${r.placed ? "" : "ue-standin"}">
       <td><a href="#" class="jump-link" data-jump="views" data-asset="${esc(r.entry)}" title="Open it in Generate 3D Model & Review">${esc(assetName(r.entry, r.name))}</a></td>
       <td title="${esc(r.why || "")}">${r.placed ? (r.version != null ? `v${r.version}` : "build on disk") : "–"}</td>

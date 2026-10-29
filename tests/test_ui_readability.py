@@ -177,8 +177,11 @@ def test_ready_for_unreal_sits_above_the_build_and_links_to_views():
     assert html.index('id="ue-ready"') < html.index('id="ue-build-box"')
     ue = (STATIC / "unreal.js").read_text()
     assert 'data-jump="views"' in ue and "renderReadiness()" in ue and '$("#ueb-active").onchange' in ue
-    for col in ("Asset", "Version used", "Approved", "Cleanup", "Stand-in reason", "Placement issues"):
+    for col in ("Asset", "Version used", "Approved", "Cleanup", "Stand-in reason"):
         assert f"<th>{col}</th>" in ue, col
+    # the placement check runs during a build: its column shows the last build's results, and says so
+    assert '>Placement issues${nb.placement_checked ? `<div class="hint"' in ue and "Checked on previous build" in ue
+    assert "placement-check issues (checked on previous build)" in ue
     assert 'if (k === "views") showTab("views")' in (STATIC / "jump.js").read_text()
 
 
