@@ -387,7 +387,7 @@ def test_unreal_steps_state_and_a_look_preset_from_the_approved_shot(client, sto
     assert client.post(f"{U}/ue/looks/new", json={"shot": "med-a"}).json() == {"name": "med-a"}
     assert _json.loads((store.root / "site/look_tests/med-a.json").read_text()) == {"shot": "med-a"}   # no class map: no from_frame
     assert client.post(f"{U}/ue/looks/new", json={"shot": "med-a"}).status_code == 409
-    assert client.get(f"{U}/unreal").json()["looks"] == [{"name": "med-a", "shot": "med-a", "runs": 0}]
+    assert client.get(f"{U}/unreal").json()["looks"] == [{"name": "med-a", "shot": "med-a", "runs": 0, "last_ok": None}]
     (store.root / "site/reconcile/med-a").mkdir(parents=True)
     (store.root / "site/reconcile/med-a/classes.png").write_bytes(b"")
     from asset_pipeline import look

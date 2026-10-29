@@ -79,7 +79,9 @@ It needs an existing project with a shot and library entries; see `scripts/demo.
 **Tested on** one machine: Ubuntu 26.04, 2x AMD Radeon AI PRO R9700 (32 GB, gfx1201), ROCm 7.2.4,
 ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
-- Full test suite: 635 tests (633 offline; 2 more need a live ComfyUI), all passing.
+- Full test suite: 1,119 tests (1,117 offline; 2 more need a live ComfyUI). Offline, all pass except
+  `test_wsl.py::test_setup_prefers_a_blender_inside_wsl`, which picks up the host's own snap Blender (a test
+  isolation issue).
 - Clean install (2026-10-23) from a fresh clone with an empty `HOME`: `ap setup`, the first-run
   Setup screen, `ap doctor`, a new project and its greybox (the model downloads and GPU jobs were
   left out).
