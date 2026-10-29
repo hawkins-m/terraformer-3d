@@ -96,9 +96,18 @@ ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
 ## How ComfyUI is used
 
-ComfyUI does every image-model step: concept frames, the style anchor, the realism pass, reference
-sheets and SAM 3.1 masks. The pipeline talks to it in one place, the `ComfyClient` interface
+ComfyUI does every image generation step (concept frames, the style anchor, the realism pass, reference
+sheets) and the SAM 3.1 masks. The pipeline talks to it in one place, the `ComfyClient` interface
 (`asset_pipeline/comfy/client.py`, `comfy.client.connect()`), with two backends:
+
+```
+browser ──▶ ap ui :8700 ──▶ ComfyClient ──▶ comfy-api-proxy :8190 ──▶ ComfyUI :8188
+            (FastAPI,        sdk backend     Comfy API v2              FLUX.1-dev, Redux,
+             job lanes)      (httpx: direct to ComfyUI)                ControlNet, SAM 3.1
+               ├──▶ Blender, headless: greybox, shot passes, procedural buildings, GLB export
+               ├──▶ llama.cpp: Qwen3-VL (plans, briefs) · TRELLIS.2 (optional) · OneFormer, Depth Anything V2
+               └──▶ Unreal Engine 5.8, headless: import, city build, look scenes
+```
 
 - **`sdk` (default):** the official [Comfy SDK](https://pypi.org/project/comfy-sdk/) (`comfy-sdk` 0.5.0,
   Comfy API v2) through `comfy-api-proxy` in front of your local ComfyUI (`scripts/comfy_api_proxy.sh`;
