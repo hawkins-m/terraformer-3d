@@ -13,8 +13,7 @@ frame. Everything runs on your own machine with open-weights models: no partner 
 no hosted services. It is an entry for the Comfy "Open Source Higgsfield" challenge, category
 **Open Weights Only**.
 
-**Demo video:** TODO: the link goes here at submission.
-<!-- TODO(owner): replace the line above with the demo video URL before tagging v0.1.0 -->
+**Demo video:** [watch on YouTube](https://www.youtube.com/watch?v=R8xaOrSxGe4)
 
 [Quick start](#quick-start) · [Requirements](#requirements) · [How ComfyUI is used](#how-comfyui-is-used) ·
 [Models and licenses](#models-and-licenses) · [Built during the challenge](#built-during-the-challenge) ·

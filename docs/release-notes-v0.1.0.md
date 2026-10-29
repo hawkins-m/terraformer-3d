@@ -4,7 +4,7 @@ The first release of Terraformer, a local 3D environment pipeline that takes a c
 Unreal Engine 5.8 scene, with ComfyUI and open-weights models on your own GPU. It is the entry for
 Comfy's "Open Source Higgsfield" challenge, category **Open Weights Only**.
 
-**Demo video:** TODO: add the link.
+**Demo video:** [watch on YouTube](https://www.youtube.com/watch?v=R8xaOrSxGe4)
 
 ## Highlights
 
