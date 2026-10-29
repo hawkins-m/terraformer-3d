@@ -97,6 +97,10 @@ ComfyUI 0.24.0, Blender 5.2.2, Unreal Engine 5.8.3.
 
 ## How ComfyUI is used
 
+ComfyUI turns each shot's depth, canny and object-ID passes into FLUX.1-dev concept frames (depth and canny
+steer the ControlNet, the ID pass writes the prompt and masks the Redux style images) and generates the
+reference sheets the 3D models are built from, all through the official Comfy SDK.
+
 ComfyUI does every image generation step (concept frames, the style anchor, the realism pass, reference
 sheets) and the SAM 3.1 masks. The pipeline talks to it in one place, the `ComfyClient` interface
 (`asset_pipeline/comfy/client.py`, `comfy.client.connect()`), with two backends:
@@ -123,11 +127,11 @@ nodes, no API or partner nodes (`comfy_api_nodes`), no hosted services.
 
 | Workflow | Does |
 |---|---|
-| `flux_t2i`, `flux_t2i_anchor` | FLUX.1-dev text to image; with a Flux Redux style anchor |
-| `flux_control_union` | Concept frames held to the greybox's depth (ControlNet Union Pro 2.0) |
-| `flux_img2img` | The optional realism pass |
-| `sam3_box`, `sam3_detect` | SAM 3.1 masks from a box or a text prompt (crop checks, silhouettes) |
-| `flux_depth_lora`, `hunyuan3d_mv`, `wan22_i2v_orbit` | Experimental, off the default path |
+| [`flux_t2i`](workflows/flux_t2i.json), [`flux_t2i_anchor`](workflows/flux_t2i_anchor.json) | FLUX.1-dev text to image; with a Flux Redux style anchor |
+| [`flux_control_union`](workflows/flux_control_union.json) | Concept frames held to the greybox's depth (ControlNet Union Pro 2.0) |
+| [`flux_img2img`](workflows/flux_img2img.json) | The optional realism pass |
+| [`sam3_box`](workflows/sam3_box.json), [`sam3_detect`](workflows/sam3_detect.json) | SAM 3.1 masks from a box or a text prompt (crop checks, silhouettes) |
+| [`flux_depth_lora`](workflows/flux_depth_lora.json), [`hunyuan3d_mv`](workflows/hunyuan3d_mv.json), [`wan22_i2v_orbit`](workflows/wan22_i2v_orbit.json) | Experimental, off the default path |
 
 `ap comfy start | status | stop` runs a local ComfyUI for you (or uses the one you already run);
 the Setup wizard can install ComfyUI 0.24 into the storage folder.
