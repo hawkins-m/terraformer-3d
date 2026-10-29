@@ -24,7 +24,7 @@ PRESET_WORDS = {
 }
 # (pattern, tweak, one-line reason): applied in order, later ones win
 TWEAKS = [
-    (r"\bno river\b|\bwithout (a )?river\b|\bdry\b", {"river": False}, "no river"),
+    (r"\bdry\b", {"river": False}, "no river"),
     (r"\briver\b|\bstream\b", {"river": True}, "a river"),
     (r"\bwide river\b|\bbroad river\b|\bgreat river\b", {"river": True, "river_w_m": 130.0}, "a wide river"),
     (r"\bnarrow river\b|\bstream\b|\bcreek\b", {"river": True, "river_w_m": 35.0}, "a narrow river"),
@@ -39,10 +39,25 @@ TWEAKS = [
     (r"\bplateau\b|\bmesa\b", {"plateau_m": 70.0}, "a plateau"),
     (r"\bbeach(es)?\b|\bsandy\b", {"beach_m": 150.0}, "a wide beach"),
     (r"\bcliffs?\b", {"beach_m": 0.0}, "cliffs, no beach"),
-    (r"\blandlocked\b|\binland\b|\bno sea\b|\bfar from the sea\b", {"coast": "none"}, "inland, no sea"),
+    (r"\blandlocked\b|\binland\b|\bfar from the sea\b", {"coast": "none"}, "inland, no sea"),
     (r"\bisland\b|\bisle\b", {"coast": "all"}, "the sea all round"),
     (r"\bdeep canyon\b|\bdeep gorge\b", {"canyon_m": 90.0}, "a deep canyon"),
 ]
+# a negator ("no river", "without mountains or hills") turns off the next few words, up to a comma or a
+# clause word; those words count for no preset and no tweak above, and NEGATED then applies last, so it wins
+_NEG = re.compile(r"\b(?:no|not|without|never|nor|free of|lacking)\b"
+                  r"((?:\s+(?!(?:and|but|with|yet|though|while|where|from|near|by|in|on|at|beside)\b)[a-z'-]+){1,4})")
+NEGATED = [
+    (r"\b(rivers?|streams?|creeks?|delta)\b", {"river": False}, "no river"),
+    (r"\b(mountains?|peaks?|ranges?|alpine)\b", {"mountains_m": 0.0}, "no mountains"),
+    (r"\b(hills?|hilly|knolls?)\b", {"hills": 0}, "no hills"),
+    (r"\b(seas?|ocean|coast(line)?|coastal|shore|seaside|harbou?r|bay|waterfront)\b", {"coast": "none"}, "inland, no sea"),
+    (r"\bbeach(es)?\b", {"beach_m": 0.0}, "no beach"),
+    (r"\b(canyons?|gorges?|ravines?)\b", {"canyon_m": 0.0}, "no canyon"),
+    (r"\b(plateaus?|mesas?)\b", {"plateau_m": 0.0}, "no plateau"),
+    (r"\bterrace[sd]?\b", {"terraces": 0}, "no terraces"),
+]   # lakes, cliffs, islands and the like only stop counting: the generator has no setting to turn off
+
 TWEAKABLE = ("base", "relief_m", "rise", "mountains_m", "mountains_at_m", "mountain_gaps", "hills", "hill_m", "river",
              "river_w_m", "river_depth_m", "river_angle", "canyon_m", "coast", "beach_m", "island_r_m", "plateau_m",
              "plateau_r_m", "terraces")
@@ -57,17 +72,27 @@ def _apply(name: str, tweaks: dict) -> TerrainSettings:
 def keywords(text: str, prefer: str | None = None) -> dict:
     """The preset whose words the text uses most (ties: the more specific), then the tweaks its words ask for."""
     t = " " + re.sub(r"\s+", " ", text.lower()) + " "
+    negated = " ".join(m.group(1) for m in _NEG.finditer(t))
+    t = _NEG.sub(" ", t)
     scores = {n: sum(t.count(f" {w}") for w in ws) for n, ws in PRESET_WORDS.items()}
     best = max(scores.values())
     name = (next(n for n in PRESET_WORDS if scores[n] == best) if best else
             (prefer if prefer in terrain_gen.PRESETS else "coastal-plain"))
-    tweaks, why = {}, []
+    preset, tweaks, why = terrain_gen.get(name), {}, []
     for pat, tw, reason in TWEAKS:
         if re.search(pat, t):
-            changed = {k: v for k, v in tw.items() if getattr(terrain_gen.get(name), k) != v}
+            changed = {k: v for k, v in tw.items() if getattr(preset, k) != v}
             if changed:
                 tweaks.update(changed)
                 why.append(reason)
+    for pat, tw, reason in NEGATED:
+        if re.search(pat, negated):
+            for k, v in tw.items():
+                if getattr(preset, k) != v:
+                    tweaks[k] = v
+                else:
+                    tweaks.pop(k, None)           # the preset already has it off: undo a tweak that turned it on
+            why.append(reason)
     return {"preset": name, "tweaks": tweaks, "why": why}
 
 

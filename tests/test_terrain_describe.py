@@ -40,6 +40,27 @@ def test_keywords_pick_a_preset_and_tweaks(text, preset, tweaks):
     assert r["settings"].name == preset and preset in r["summary"]
 
 
+@pytest.mark.parametrize("text,preset,want", [
+    ("flat plain with no river", "flat-plain", {"river": False}),
+    ("a plain without a wide river", "flat-plain", {"river": False, "river_w_m": 70.0}),
+    ("a river valley with no river", "river-valley", {"river": False}),
+    ("a valley, no mountains", "river-valley", {"mountains_m": 0.0}),
+    ("an alpine bowl without mountains or hills", "mountain-bowl", {"mountains_m": 0.0, "hills": 0}),
+    ("rolling hills, no coast", "hill-city", {"coast": "none"}),
+    ("a plain with no sea and no beach", "flat-plain", {"coast": "none"}),
+    ("a coastal plain with no beach", "coastal-plain", {"beach_m": 0.0, "coast": "side"}),
+    ("a plateau with no lake", "plateau", {"river": False}),
+    ("a flat plain by a river with no lake", "flat-plain", {"river": True}),
+    ("a mesa without terraces", "plateau", {"terraces": 0}),
+    ("not far from the sea, no hills", "coastal-plain", {"hills": 0, "coast": "side"}),
+])
+def test_negation_wins_over_the_keyword(text, preset, want):
+    r = td.describe(text)
+    assert r["source"] == "keywords" and r["preset"] == preset, r
+    for k, v in want.items():
+        assert getattr(r["settings"], k) == v, (k, r)
+
+
 def test_no_matching_word_falls_back_to_the_pickers_preset():
     assert td.describe("somewhere nice", prefer="plateau")["preset"] == "plateau"
     assert td.describe("somewhere nice")["preset"] == "coastal-plain"
