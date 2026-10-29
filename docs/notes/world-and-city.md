@@ -275,4 +275,3 @@ World and city mode: greybox and passes, concept frames and their control settin
 - New slot types: `highway`, `interchange` (flat paving), `moat` (water piece `moat-water`), `culdesac`,
   `river`, `canal` ways, `tower`, `industrial`, `bastion`; inner walls are `innerwall-*` slots typed `wall`.
 - Presets other than utopia set `clear_overlaps`; utopia keeps its old overlaps on purpose (locked frames).
-- Status and next steps: [docs/layout-presets-progress.md](../layout-presets-progress.md).
