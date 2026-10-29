@@ -175,3 +175,18 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
 - Roles are read from the greybox (prop pieces, variants), instance builds and entries' slots; an
   entry used nowhere says "not in the city layout". "Not cleaned up" is never a stand-in reason:
   the build places the raw model then (unchanged behaviour); it counts as "need cleanup".
+
+## Park ground and flat-slot models (2026-10-28)
+- **Park and garden lawns rendered near-white**: the terrain section only listed `type == "terrain"`
+  slots, and `park` had no stand-in tint (so the off-white building tint). Now the manifest's
+  `terrain.ground_slots` lists each park / garden slot's ground meshes (`city_library.ground_components`:
+  not its placeholder trees, which can share a mesh with a dome, nor water); the import gives them
+  MI_AP_TerrainAuto, and with vegetation on the dressing puts MI_AP_Grass (the paving material with
+  the grass maps, `dressing.json` "green") over it. Plazas keep the dressing's paving.
+- **Placeholder trees under the dressing's trees**: hiding the tree-only components wasn't enough;
+  with vegetation on, `dressing.prepare` now drops them from the manifest (`drop_placeholders`),
+  so the import never places them. The next export brings them back.
+- **Models in flat landscape slots were squashed** (a sunken garden at Z scale 3 against X/Y 80):
+  `use_active_models` took Z from the slot's height. Only slots of category `building` keep that
+  vertical fit (`city_library.vertical_fit`); the rest scale uniformly at the smaller X/Y fit.
+  Not yet run in Unreal.

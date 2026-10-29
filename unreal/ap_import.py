@@ -22,7 +22,8 @@ What it builds (all under /Game/AP):
                                exposure) and clouds, and the preset applied through ap_lighting:
                                a setting you change in Unreal is kept on later builds
         AP_Terrain_outer       the outer ring (/Game/AP/Terrain/SM_OuterRing, `ap terrain ue`)
-                               in place of its greybox slot; the terrain slots take
+                               in place of its greybox slot; the terrain slots, and the
+                               ground meshes of park and garden slots, take
                                MI_AP_TerrainAuto (manifest "terrain"); a heightmap project's
                                Landscape stays a manual import (report["landscape"]: whether the
                                level has one)
@@ -836,7 +837,16 @@ def place_terrain(man, eas, report):
         for ism in ism_components(actors[sid]).values() if sid in actors else []:
             for i in range(ism.get_num_materials()):
                 ism.set_material(i, mi)
+    n = 0
+    for row in t.get("ground_slots") or []:      # parks' and gardens' lawns (their trees and water keep theirs)
+        comps = ism_components(actors[row["slot"]]) if row["slot"] in actors else {}
+        for name in row["components"]:
+            if name in comps:
+                for i in range(comps[name].get_num_materials()):
+                    comps[name].set_material(i, mi)
+                n += 1
     report["terrain_material"] = t.get("material_slots") or []
+    report["terrain_ground"] = n
 
 
 def library_readback(man, eas, report):

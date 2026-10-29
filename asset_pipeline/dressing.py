@@ -88,6 +88,7 @@ PLUGIN_NAMES = ("Fab", "Bridge", "MegascansPlugin", "QuixelBridge")
 CULL_M = {"grass": (40, 60), "shrub": (150, 200), "rock_small": (300, 400)}   # instance fade start, end (m)
 PROPOSE_MAX = 5                # name matches proposed per mesh role
 SEA_DEPTH_M = 30.0             # depth texture: 1.0 = this deep or more
+GRASS_TILE_M = 3.0             # the grass on park and garden lawns repeats every this many metres
 
 
 # --- options and library (project.json) ----------------------------------------------------------
@@ -454,6 +455,19 @@ def placeholder_trees(gb: dict, index: dict) -> tuple[list[dict], list[dict]]:
     return trees, hide
 
 
+def drop_placeholders(man: dict, hide: list[dict]) -> int:
+    """The placeholder trees the dressing's tree roles replace (hide: placeholder_trees) out of the
+    manifest's slots (in place), so the import never places them (a park's SM_tree-* stood under
+    the dressing's trees). Returns the components dropped; the next export brings them back."""
+    drop = {(h["slot"], c) for h in hide for c in h["components"]}
+    n = 0
+    for s in man["slots"]:
+        keep = [c for c in s["components"] if (s["id"], f"ISM_{c['asset']}") not in drop]
+        n += len(s["components"]) - len(keep)
+        s["components"] = keep
+    return n
+
+
 SPECIES = {"pine": "tree_pine", "cypress": "tree_cypress", "olive": "tree_olive"}
 
 
@@ -699,6 +713,15 @@ def prepare(store: ProjectStore, opts: DressingOptions, log=print) -> dict:
                          "white_mask": white_mask(),
                          "layers": {r: src.get(r) for r in roles if ROLES[r][1] == "surface" and not r.startswith("paving_")},
                          "paving": paving(man, src)}
+    rec["green"] = None
+    if opts.vegetation:
+        rows = (man.get("terrain") or {}).get("ground_slots") or []
+        if rows:                                 # the parks' and gardens' lawns: grass (the import gave them the terrain material)
+            g = src.get("ground_grass") or sources(["ground_grass"], lib, opts.megascans, log)["ground_grass"]
+            rec["green"] = {"role": "ground_grass", "src": g, "tile_m": [GRASS_TILE_M] * 2, "slots": rows,
+                            "noise": macro_noise(), "white_mask": white_mask()}
+        if drop_placeholders(man, rec["hide"]):
+            write_json(s7_export.export_dir(store) / "manifest.json", man)
     rec["water"] = None
     if opts.water != "off":
         sea = sea_slots(man)

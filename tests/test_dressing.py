@@ -126,6 +126,29 @@ def test_placeholder_trees_and_the_components_to_hide():
     assert hide == [{"slot": "park-1", "components": ["ISM_cone-a", "ISM_dome-b"]}]   # the thermae's dome stays
 
 
+def test_a_parks_lawn_takes_a_ground_material_and_its_placeholder_trees_leave_the_manifest():
+    from asset_pipeline import city_library
+    index = {"tree:cypress#a": {"id": "cone-a"}, "dome#b": {"id": "dome-b"}, "lawn#d": {"id": "park-1-lawn"},
+             "pool#e": {"id": "park-1-pool-water"}, "path#f": {"id": "path-f"}}
+    gb = {"slots": [
+        {"id": "park-1", "type": "park", "category": "terrain", "pieces": [
+            {"piece": "tree:cypress", "mesh": "tree:cypress#a"}, {"piece": "tree:olive-crown", "mesh": "dome#b"},
+            {"piece": "lawn", "mesh": "lawn#d"}, {"piece": "pool-water", "mesh": "pool#e"}, {"piece": "path", "mesh": "path#f"}]},
+        {"id": "plaza-1", "type": "plaza", "category": "terrain", "pieces": [{"piece": "paving", "mesh": "path#f"}]},
+        {"id": "terrain", "type": "terrain", "category": "terrain", "pieces": []}]}
+    t = city_library.terrain_section(gb, index)
+    assert t["material_slots"] == ["terrain"]                 # (plazas: the dressing's paving)
+    assert t["ground_slots"] == [{"slot": "park-1", "components": ["ISM_park-1-lawn", "ISM_path-f"]}]   # no trees, no water
+    man = {"slots": [{"id": "park-1", "components": [{"asset": a, "instances": [{}]} for a in
+                                                     ("cone-a", "dome-b", "park-1-lawn", "path-f")]},
+                     {"id": "thermae", "components": [{"asset": "dome-b", "instances": [{}]}]}]}
+    hide = [{"slot": "park-1", "components": ["ISM_cone-a", "ISM_dome-b"]}]
+    assert dressing.drop_placeholders(man, hide) == 2
+    assert [c["asset"] for c in man["slots"][0]["components"]] == ["park-1-lawn", "path-f"]
+    assert [c["asset"] for c in man["slots"][1]["components"]] == ["dome-b"]     # the thermae's dome stays
+    assert dressing.drop_placeholders(man, hide) == 0
+
+
 def test_vegetation_keeps_plan_species_and_green_zones():
     g = grid()
     trees = [{"x": 0.0, "y": 150.0, "z": 3.0, "h": 11.0, "w": 2.0, "species": "cypress"},

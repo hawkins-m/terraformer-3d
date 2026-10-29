@@ -293,3 +293,31 @@ def test_the_build_report_lists_entries_placed_with_their_active_model():
          "imported": 1, "skipped": 0, "reset": 0, "pruned": 0, "terrain_outer": False, "shots": None, "seconds": 60,
          "steps": {}, "warnings": [], "placement": None, "active_models": ["my-hall: 14 placements use Active v6 TRELLIS"]}
     assert "my-hall: 14 placements use Active v6 TRELLIS" in ue_build.report_lines(r)
+
+
+def _scales(p) -> tuple[float, float, float]:
+    M = np.asarray(p["matrix"])[:3, :3]
+    return tuple(float(np.linalg.norm(M[:, i])) for i in range(3))
+
+
+def test_a_model_in_a_flat_landscape_slot_scales_uniformly_and_no_placed_asset_is_squashed(proj, monkeypatch):
+    """A garden in a near-flat structure slot never takes its Z scale from the slot's height (it was
+    squashed to a few cm): uniform, the smaller of its X/Y fits. Buildings keep the vertical fit.
+    No placed asset ends with a Z scale under half its X/Y scales."""
+    model = "3d/library/garden/model.glb"
+    hall = "3d/library/hall/model.glb"
+    bounds = {model: [[-0.5, -0.6, 0.0], [0.5, 0.6, 0.4]], hall: [[-1, -0.5, 0], [1, 0.5, 1]]}
+    monkeypatch.setattr(cl, "active_model", lambda store, e: {"n": 1, "kind": "trellis", "glb": model if e == "garden" else hall})
+    gb = {"slots": [{"id": "g1", "type": "sunken_garden", "category": "structure", "typology": "sunken_garden"},
+                    {"id": "b1", "type": "market_hall", "category": "building", "typology": "market_hall"}]}
+    pl = [{"key": "garden_g1", "entry": "garden", "glb": model, "x": 0.0, "y": 0.0, "z": 0.0, "yaw": 0.0,
+           "w": 40.0, "d": 52.0, "h": 0.5, "planned": True, "typed": True, "typology": "sunken_garden", "slot": "g1"},
+          {"key": "hall_b1", "entry": "hall", "glb": hall, "x": 80.0, "y": 0.0, "z": 0.0, "yaw": 0.0,
+           "w": 20.0, "d": 10.0, "h": 14.0, "planned": True, "typed": True, "typology": "market_hall", "slot": "b1"}]
+    cl.use_active_models(proj, gb, None, pl, bounds)
+    g, b = pl
+    assert _scales(g) == pytest.approx((40.0, 40.0, 40.0))          # min(40 / 1, 52 / 1.2): the slot's 0.5 m ignored
+    assert _scales(b) == pytest.approx((10.0, 10.0, 14.0))          # a building: its footprint and the plan's height
+    for p in pl:
+        kx, ky, kz = _scales(p)
+        assert kz >= 0.5 * max(kx, ky), p["key"]

@@ -10,7 +10,8 @@ What it makes (all under /Game/AP/Dressing):
     Materials/M_AP_Paving         world-aligned stone paving for ways and plazas: the set's maps at
                                   their measured size near the camera, a second scale further off
                                   (blended by camera distance), macro colour and roughness noise;
-                                  MI_AP_Paving_<Slabs|Cobbles|Flagstones> per kind
+                                  MI_AP_Paving_<Slabs|Cobbles|Flagstones> per kind, and MI_AP_Grass
+                                  (the grass maps) on park and garden lawns with vegetation on
     Materials/M_AP_SeaSimple      opaque sea: depth colour from a depth map, two panning wave
                                   normals, shoreline foam
     AP_Dress_<role>               one actor per role, a HierarchicalInstancedStaticMeshComponent per
@@ -422,6 +423,47 @@ def paving(spec, noise, mask, eas, report, used):
     return set_on
 
 
+def green(spec, noise, mask, eas, report, used):
+    """Grass on the parks' and gardens' lawns (vegetation on): MI_AP_Grass, the paving material with
+    the grass maps, untinted. Nothing to set (no maps): they keep the terrain material."""
+    src, tex = spec.get("src") or {}, None
+    if src.get("source") == "megascans":
+        tex = mi_textures(src.get("asset"))
+        if not tex:
+            report["warnings"].append(f"{spec['role']}: Megascans {src.get('asset')} not found or has no maps: CC0 used")
+            src = src.get("fallback") or {}
+    if tex is None and src.get("color"):
+        tex = {t: amp.import_texture(src[t], TEX, t) for t in ("color", "normal", "rough")}
+    if tex is None:
+        report["warnings"].append(f"{spec['role']}: no grass maps; park and garden lawns keep the terrain material")
+        return []
+    used.setdefault(spec["role"], "megascans" if src.get("asset") else "cc0")
+    mi = _instance(f"{MATS}/MI_AP_Grass", paving_material(noise, mask))
+    for t, p in (("color", "Color"), ("normal", "Normal"), ("rough", "Rough")):
+        if tex.get(t) is not None:
+            mel.set_material_instance_texture_parameter_value(mi, f"Pave{p}", tex[t])
+    mel.set_material_instance_scalar_parameter_value(mi, "TileXM", float(spec["tile_m"][0]))
+    mel.set_material_instance_scalar_parameter_value(mi, "TileYM", float(spec["tile_m"][1]))
+    for name, v in (("TintA", TINTS["Grass"]), ("TintB", (0.92, 0.95, 0.85))):    # not the stone's warm-to-cool
+        mel.set_material_instance_vector_parameter_value(mi, name, unreal.LinearColor(*v, 1.0))
+    mel.update_material_instance(mi)
+    eal.save_loaded_asset(mi)
+    actors = {ap_import.tagged(a).get("ap:id"): a for a in eas.get_all_level_actors() if "ap:id" in ap_import.tagged(a)}
+    set_on = []
+    for row in spec["slots"]:
+        comps = ap_import.ism_components(actors[row["slot"]]) if row["slot"] in actors else {}
+        for name in row["components"]:
+            c = comps.get(name)
+            if c is None:
+                continue
+            for i in range(c.get_num_materials()):
+                c.set_material(i, mi)
+            set_comp_tag(c, OVERRIDE, True)
+            set_on.append(c)
+    report["green"] = len(set_on)
+    return set_on
+
+
 # --- water ----------------------------------------------------------------------------------------
 
 def sea_material(depth_tex, wave_tex):
@@ -723,6 +765,11 @@ def apply(path, eas, report):
         if d["ground"].get("paving"):
             set_on += paving(d["ground"]["paving"], import_texture(d["ground"]["noise"], "T_AP_MacroNoise", "data"),
                              import_texture(d["ground"]["white_mask"], "T_AP_WhiteMask", "data"), eas, rep, g)
+        rep["sources"].update(g)
+    if d.get("green"):
+        g = {}
+        set_on += green(d["green"], import_texture(d["green"]["noise"], "T_AP_MacroNoise", "data"),
+                        import_texture(d["green"]["white_mask"], "T_AP_WhiteMask", "data"), eas, rep, g)
         rep["sources"].update(g)
     w = d.get("water")
     sea_hidden = []

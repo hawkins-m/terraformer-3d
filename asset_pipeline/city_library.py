@@ -37,6 +37,7 @@ importer gives them the entry's material instances; Interchange would import eve
 """
 import json
 import math
+import re
 import shutil
 import struct
 from pathlib import Path
@@ -576,6 +577,14 @@ def model_fit(w: float, d: float, ext, repeats: bool) -> tuple[str, list[tuple]]
     return "run", out
 
 
+def vertical_fit(p: dict, slot: dict) -> bool:
+    """Does a placed model take its height from the slot (or plan)? Buildings only: anything else
+    (gardens, terraces, colonnades in a landscape slot) scales uniformly, so a flat slot can't
+    squash it. A placement with no slot keeps its plan's height. (Typed structure slots, a sunken
+    garden or a pergola walk, have a typology too: the slot's category decides.)"""
+    return slot.get("category", "building") == "building"
+
+
 def capped_fit(w: float, d: float, ext) -> tuple:
     """The model inside the footprint, its scales at most STRETCH_CAP apart: the tighter axis fits,
     the other is held to the cap (centred: the footprint's rest stays empty)."""
@@ -688,12 +697,15 @@ def use_active_models(store: ProjectStore, gb: dict, index: dict | None, placeme
             how = ("capped", [capped_fit(w, d, ext)])
         r["fit"]["run"] += how[0] == "run"
         r["fit"]["capped"] += how[0] == "capped"
+        tall = vertical_fit(p, s_)
         for i, (ox, oy, kx, ky, turn) in enumerate(how[1]):
             T = np.eye(4)
             T[:3, 3] = [cx + ox, cy + oy, z0]
             if turn:
                 T[:2, :2] = [[0.0, -1.0], [1.0, 0.0]]
-            M = B @ T @ np.diag([kx, ky, h / max(ext[2], 1e-6), 1.0])
+            if not tall:                                # a garden, terrace or quay: never the slot's (often flat) height
+                kx = ky = min(kx, ky)
+            M = B @ T @ np.diag([kx, ky, h / max(ext[2], 1e-6) if tall else kx, 1.0])
             M[:3, 3] -= M[:3, :3] @ np.asarray(mc)
             q = p if i == 0 else dict(p, key=f"{p['key']}_r{i}", run_of=p["key"])
             if how[0] != "fit":
@@ -903,14 +915,35 @@ OUTER_RING = "/Game/AP/Terrain/SM_OuterRing"            # ap terrain ue (terrain
 TERRAIN_MI = "/Game/AP/Terrain/MI_AP_TerrainAuto"
 
 
-def terrain_section(gb: dict) -> dict | None:
+GREEN_TYPES = ("park", "garden")         # open ground slots whose ground meshes take a ground material
+WET = {"pool", "water", "canal", "fountain", "river", "basin"}   # words of a piece that keep its own look
+
+
+def ground_components(slot: dict, index: dict) -> list[str]:
+    """A green slot's ground meshes as the importer names them (ISM_<asset>): its pieces' assets but
+    the placeholder trees' (a crown can share a mesh with a dome) and water."""
+    from .dressing import TREE_RE
+    ground, other = set(), set()
+    for pc in slot.get("pieces", []):
+        aid = (index.get(pc["mesh"]) or {}).get("id")
+        if not aid:
+            continue
+        wet = WET & set(re.split(r"[^a-z]+", f"{pc['piece']} {aid}".lower()))
+        (other if TREE_RE.match(pc["piece"]) or wet else ground).add(aid)
+    return [f"ISM_{a}" for a in sorted(ground - other)]
+
+
+def terrain_section(gb: dict, index: dict | None = None) -> dict | None:
     """The importer's terrain step: the outer ring's greybox slot (it goes when SM_OuterRing is in
-    the project) and the terrain slots that take the auto material."""
+    the project), the terrain slots that take the auto material, and the green slots' ground
+    meshes ([{slot, components}]) that take it too (the dressing's grass over it, with vegetation)."""
     ids = [s["id"] for s in gb["slots"] if s["type"] == "terrain"]
-    if not ids:
+    green = [{"slot": s["id"], "components": c} for s in gb["slots"]
+             if s["type"] in GREEN_TYPES and s.get("category") == "terrain" and (c := ground_components(s, index or {}))]
+    if not ids and not green:
         return None
     outer = next((i for i in ids if i.endswith("outer")), None)
-    return {"outer_slot": outer, "material_slots": [i for i in ids if i != outer],
+    return {"outer_slot": outer, "material_slots": [i for i in ids if i != outer], "ground_slots": green,
             "outer_ring": OUTER_RING, "auto_material": TERRAIN_MI}
 
 
@@ -966,7 +999,7 @@ def add_to_manifest(store: ProjectStore, m: dict, gb: dict, index: dict, out: Pa
     over = read_json(store.root / MATERIAL_OVERRIDES, default={}) or {}
     m["material_overrides"] = {e: v for e, v in over.items() if not e.startswith("_") and e in {a["entry"] for a in assets.values()}}
     m["source"] = "library+greybox"
-    m["terrain"] = terrain_section(gb)
+    m["terrain"] = terrain_section(gb, index)
     held = [h for h in pl["held"] if not h.get("superseded")]     # superseded: a kit or another build stands in its slot
     held_entries = sorted({h["entry"] for h in held})
     m["library"] = {"use_active": use_active, "ground_rule": pl["ground_rule"], "placed": len(pl["placed"]), "parents": pl["parents"],
