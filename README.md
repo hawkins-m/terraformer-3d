@@ -68,8 +68,8 @@ ap site build my-project                                # greybox.blend, about 2
 ap ue build my-project                                  # the greybox in the city level, headless
 ```
 
-Hardware: CPU only. This path needs Linux, Blender and Unreal Engine 5.8, but no GPU, model
-downloads or ComfyUI. A GPU is needed only to open the level in the editor or to render
+Hardware: this path needs Linux, Blender and Unreal Engine 5.8. No AI models, ComfyUI or
+large-VRAM card needed; any graphics card that runs Unreal Engine 5.8 is enough. A GPU is needed only to open the level in the editor or to render
 (`--render`). A generated terrain's Landscape is built with the APLandscape plugin, which works
 with Linux engines only for now (see [Known issues](#known-issues)).
 
