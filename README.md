@@ -55,6 +55,24 @@ them near the shot's camera, exports GLBs, imports into Unreal headless and rend
 It needs an existing project with a shot and library entries; see `scripts/demo.sh`,
 [USAGE.md](USAGE.md) and [RUNBOOK.md](RUNBOOK.md).
 
+### Greybox-only quick start
+
+A planned city as a greybox in Unreal, with no concept frames, models or ComfyUI:
+
+```bash
+ap setup                                                # Blender and Unreal paths
+ap new my-project
+ap site preset my-project grid                          # layout preset (ap site preset --list)
+ap terrain roll my-project --preset coastal-plain --seed 1   # terrain preset (ap terrain presets)
+ap site build my-project                                # greybox.blend, about 20 s on the CPU
+ap ue build my-project                                  # the greybox in the city level, headless
+```
+
+Hardware: CPU only. This path needs Linux, Blender and Unreal Engine 5.8, but no GPU, model
+downloads or ComfyUI. A GPU is needed only to open the level in the editor or to render
+(`--render`). A generated terrain's Landscape is built with the APLandscape plugin, which works
+with Linux engines only for now (see [Known issues](#known-issues)).
+
 ## Requirements
 
 - Linux (verified on Ubuntu 26.04). Windows through WSL2 with an NVIDIA GPU is **beta**
@@ -630,6 +648,7 @@ workspace for artists rather than a web-app look.
   ocean by hand in the editor.
 - Describe the terrain falls back to keyword matching when the local vision model isn't running.
 - The utopia layout preset keeps its old overlaps (the generator as it was before presets).
+- Editing the greybox in Blender and clicking Re-read .blend only rewrites `site/greybox.json`. Approvals, Active versions and builds are kept, and nothing rebuilds or re-plans. On the next `ap ue build`, kit and landmark builds follow their slot's new pose. Typed buildings stay where the city plan (`layout.json`) puts them, and stay greybox if their slot moved away from them. Hand moves in Unreal are kept: a slot only moves back where a committed `greybox.blend` put it, so commit the project's greybox before you edit it.
 
 ## Roadmap
 
