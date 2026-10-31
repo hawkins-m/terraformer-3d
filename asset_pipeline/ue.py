@@ -380,9 +380,12 @@ def verify_samples(gb: dict, index: dict, samples: list[dict]) -> tuple[list[str
     slot_m = {s["id"]: np.asarray(s["matrix"]) for s in gb["slots"]}
     for s in gb["slots"]:
         for p in s["pieces"]:
-            pieces.setdefault((s["id"], index[p["mesh"]]["id"]), []).append(np.asarray(p["matrix_local"]))
+            if p["mesh"] in index:          # (a piece merged into a ground tile isn't: ground_merge)
+                pieces.setdefault((s["id"], index[p["mesh"]]["id"]), []).append(np.asarray(p["matrix_local"]))
     bad, moved = [], set()
     for smp in samples:
+        if smp["slot"] not in slot_m:       # a merged ground tile: no greybox slot of its own
+            continue
         actor = ue_coords.from_ue(smp["actor"])
         if not np.allclose(actor, slot_m[smp["slot"]], atol=1e-3):
             moved.add(smp["slot"])

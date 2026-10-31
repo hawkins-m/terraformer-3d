@@ -103,3 +103,12 @@ def test_the_unreal_tab_reads_and_saves_it(tmp_path, monkeypatch):
     assert c.post("/api/projects/p/ue/merge-ground", json={"mode": "on"}).json() == {"mode": "on", "now": True}
     assert c.post("/api/projects/p/ue/merge-ground", json={"mode": "x"}).status_code == 422
     assert json.loads((store.root / "project.json").read_text())["unreal"]["merge_ground"] == "on"
+
+
+def test_the_import_check_skips_merged_pieces_and_tiles():
+    from asset_pipeline import ue
+    merge = ground_merge.plan(GB)
+    index = {k: v for k, v in INDEX.items() if k not in {m for t in merge["tiles"].values() for m, _ in t["parts"]}}
+    index |= {n: {"id": n.replace(".", "-"), "glb": "", "faces": 1, "bounds": [[0, 0, 0], [1, 1, 1]]} for n in merge["tiles"]}
+    tile = {"slot": "ground-street-x0y0", "asset": "ground-street-x0y0", "actor": {}, "world_cm": [0, 0, 0]}
+    assert ue.verify_samples(GB, index, [tile]) == ([], [])
