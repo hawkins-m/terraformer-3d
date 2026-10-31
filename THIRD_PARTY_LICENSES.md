@@ -77,6 +77,9 @@ extra (google-genai, anthropic) is off by default and not part of the entry.
 - [three.js](https://github.com/mrdoob/three.js) r169 (MIT, `asset_pipeline/ui/static/vendor/three/LICENSE`):
   `three.module.min.js` and `OrbitControls.js` (its import pointed at the local file), for the Layout tab's
   3D city viewer, so the app works offline.
+- [model-viewer](https://github.com/google/model-viewer) 4.4.0 (Apache-2.0, `asset_pipeline/ui/static/vendor/model-viewer/LICENSE`):
+  `model-viewer.min.js` (it bundles its own three.js) for the asset model previews. It would fetch Draco / KTX2
+  decoders from gstatic.com only for compressed GLBs; the pipeline writes none.
 
 ## Code credits
 

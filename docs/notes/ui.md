@@ -187,6 +187,11 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - `/status` carries `loaded` (what Stop jobs would end), so the button is enabled with a model loaded and
   no job running. Test: tests/test_stop_all.py.
 
+## No CDN: vendored browser libraries (2026-10-31)
+- `static/vendor/three` (r169) and `static/vendor/model-viewer` (4.4.0, its own bundled three.js): the UI works
+  offline. Every `<script src>` in index.html is local (tests/test_ui_static.py). model-viewer would still
+  reach gstatic.com for Draco / KTX2 decoders, but only for compressed GLBs, which the pipeline never writes.
+
 ## Layout tab: City in 3D (2026-10-31)
 - `city_view.py` turns the plan into the viewer's scene (buildings `[x y z w d h rot type district]`, draped
   ways, park / paving rings, the heights decimated to 257): written as `site/city3d.json` by `plan_city`, made
@@ -198,3 +203,6 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   orthographic view. It redraws when the status' plan / greybox / layout mtimes change, keeping the camera.
 - Headless Chrome needs `--enable-unsafe-swiftshader --use-angle=swiftshader` for WebGL (tests/test_ui_city3d.py);
   its frame times are software GL, not a GPU's. No WebGL: the plan image in the same box.
+- The Layout tab scrolls (2026-10-31): viewer, catalog (`.city`, at least 460 px, filling what's left), roll group
+  stack with `flex-shrink: 0`. With the tab `overflow: hidden` the catalog was the only part that could shrink,
+  and its list's 120 px floor overflowed under the roll group (its rows unclickable).

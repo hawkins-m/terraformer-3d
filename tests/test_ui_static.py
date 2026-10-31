@@ -64,3 +64,14 @@ def test_the_old_product_name_is_gone():
              and not any(part in (".git", ".claude", "build", "__pycache__") for part in p.parts)]
     hits = [str(p.relative_to(root)) for p in files if p != Path(__file__).resolve() and "Terraformer Pipeline" in p.read_text(errors="ignore")]
     assert not hits, hits
+
+
+def test_every_script_is_served_by_the_app_no_cdn():
+    """The UI works offline: three.js and model-viewer are vendored under static/vendor."""
+    html = (ui_app.STATIC / "index.html").read_text()
+    srcs = re.findall(r'<script[^>]*\ssrc="([^"]+)"', html)
+    assert srcs and all(s.startswith("/static/") for s in srcs), srcs
+    assert '<script type="module" src="/static/vendor/model-viewer/model-viewer.min.js"></script>' in html
+    mv = ui_app.STATIC / "vendor" / "model-viewer"
+    assert (mv / "model-viewer.min.js").stat().st_size > 500_000 and "Apache License" in (mv / "LICENSE").read_text()
+    assert "model-viewer" in (ui_app.STATIC.parents[2] / "THIRD_PARTY_LICENSES.md").read_text()
