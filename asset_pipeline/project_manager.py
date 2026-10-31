@@ -84,7 +84,9 @@ def layout_facts(store: ProjectStore) -> tuple[str, str]:
 
 def _tree_bytes(path: Path, seen: set) -> int:
     n = 0
-    for _, st in disk_usage._walk(path):
+    for p, st in disk_usage._walk(path):
+        if not st.st_ino:          # Windows: os.scandir's stat has no inode (every file was "seen" after the first)
+            st = os.lstat(p)
         k = (st.st_dev, st.st_ino)
         if k not in seen:
             seen.add(k)

@@ -260,3 +260,19 @@ def test_cli(env, trashed, capsys, monkeypatch):
     assert not (env / "ap" / "projects" / "q").exists() and len(trashed) == 1
     cli.main(["project", "delete", "p", "--yes"])
     assert len(trashed) == 2
+
+
+def test_sizes_count_every_file_when_the_walk_has_no_inodes(env, monkeypatch, tmp_path):
+    """Windows: os.scandir's stat has st_ino 0; every file must still count once (not just the first)."""
+    from asset_pipeline import disk_usage
+    d = tmp_path / "tree"
+    for i in range(3):
+        _fill(d / str(i), 4000)
+    real = disk_usage._walk
+
+    def no_inodes(base):
+        for p, st in real(base):
+            yield p, os.stat_result((st.st_mode, 0, 0, st.st_nlink, st.st_uid, st.st_gid, st.st_size,
+                                     int(st.st_atime), int(st.st_mtime), int(st.st_ctime)))
+    monkeypatch.setattr(disk_usage, "_walk", no_inodes)
+    assert pm._tree_bytes(d, set()) >= 12000
