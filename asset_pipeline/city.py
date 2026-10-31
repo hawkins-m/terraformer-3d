@@ -1203,7 +1203,7 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
         from . import city_metro
         out += city_metro.ways(c, f, ok)
         ok_all = ok
-        ok = lambda p: ok_all(p) and float(f.density(*p)) > 0.6 * c.urban_threshold  # noqa: E731
+        ok = lambda p: ok_all(p) and float(f.density(*p)) > 0.6 * c.urban_threshold and city_metro.off_lakefront(f, p)  # noqa: E731
     out += pattern_ways(c, f, ok, ok_river)
     from . import terrain_gen
     for k, w in enumerate(terrain_gen.terrain_lines(L.terrain)):     # the terrain's own river: lowered water
@@ -1401,7 +1401,7 @@ def highways(c: CitySpec, f: Fields) -> list[Way]:
         r0 = (e.radius + e.wall_d + e.moat_w + 20) if e else 0.0      # a walled city: from outside the wall
         if pr.metro:          # into downtown's edge, from inland and along the coast
             from . import city_metro
-            spokes, r0 = city_metro.highway_angles(c, f.t), 0.5 * pr.downtown_m
+            spokes, r0 = city_metro.highway_angles(c, f.t), 0.5 * city_metro.downtown_r(c)
         far = math.hypot(x1 - x0, y1 - y0)
         tt = np.arange(r0, far, STEP_M)
         for k in range(pr.highway_spokes):
@@ -1733,6 +1733,9 @@ def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -
             return []
         d = c.urban_threshold * 0.7
     size = c.block_m[0] + (c.block_m[1] - c.block_m[0]) * (1 - d)
+    if c.preset.metro:          # a metro's own street grid (city_metro.ways) makes the blocks; this only tidies odd faces
+        from . import city_metro
+        size = city_metro.BLOCK_M[0] + (city_metro.BLOCK_M[1] - city_metro.BLOCK_M[0]) * (1 - d)
     hill = _hill_cut(P, f, c, rng)
     if hill == "stop" or depth > 12 or (hill is None and (P.area <= size * size * 1.3 or depth > 9)):
         return [P]
@@ -2420,13 +2423,21 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
             dist = keep(i, b)
             if dist is False:
                 continue
-            for bx in mass_block(b, f, c, rng, dist):
+            if pr.metro:          # a metro's continuous frontage: rowhouses, mid-rises, townhouses
+                from . import city_metro
+                boxes = city_metro.mass_block(b, f, c, rng, dist)
+            else:
+                boxes = mass_block(b, f, c, rng, dist)
+            for bx in boxes:
                 if market_cut.is_empty or not market_cut.contains(Point(bx.x, bx.y)):
                     P.buildings.append(bx)
     core = next((_rings(n)["core"] for n in c.nodes if math.dist(n.center, C) < n.radius), 0.0)
     for kind, b, dist in zoned:
         cx, cy = b.centroid.coords[0]
-        if kind == "tower":          # tallest right at the civic core's edge
+        if pr.metro and kind in ("tower", "midrise"):    # a metro's tower lots, tallest by the river mouth
+            from . import city_metro
+            P.buildings += city_metro.tower_block(b, f, c, rng, dist, kind)
+        elif kind == "tower":          # tallest right at the civic core's edge
             frac = (math.dist((cx, cy), C) - core) / max(pr.downtown_m - core, 1.0)
             P.buildings += tower_block(b, f, c, rng, dist, max(frac, 0.0))
         elif kind == "midrise":      # a metro's mid-rise towers, lower further out
@@ -2447,6 +2458,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         fit_buildings(P, f)
     if pr.clear_overlaps:
         clear_overlaps(P)
+    if pr.metro:              # dead-end streets running out past the last building are cut back
+        from . import city_metro
+        city_metro.trim_stubs(P)
 
     if c.trees:
         P.trees = trees(P, f, rng) + forum_trees

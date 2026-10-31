@@ -39,6 +39,12 @@ LAKESHORE_W = 34.0      # the lakeshore boulevard behind it
 BANK_GREEN_M = 28.0     # the river's green banks either side
 FORK_W = 0.75           # a fork's width, x the main river's
 MOUTH_GAP_M = 170.0     # the river's mouth this far beside downtown's core
+LOCAL_M = 200.0         # local streets between the arterials (the preset's grid_m), and half that downtown
+BLOCK_M = (110.0, 230.0)  # a face bigger than this (dense .. edge) is cut once more (city.subdivide)
+DOWNTOWN_K = 0.5        # the tower cluster's radius, x the density scale (at least the preset's downtown_m)
+MIDRISE_K = 0.75        # then mid-rise towers stepping down over this, x that radius
+ROW_D = 0.22            # continuous frontage from this density; detached houses below it
+STUB_M = 150.0          # a dead-end street running out further than this past the last building is cut back
 
 
 # --- the frame: where downtown is, which way is the sea --------------------------------------
@@ -236,8 +242,8 @@ def _cache(f) -> dict:
         S = scale(c)
         lines = _rays(C, arterial_angles(c, t), 0.0, 3.2 * S)
         if c.preset.highways in ("radial", "both"):
-            lines += _rays(C, highway_angles(c, t), 0.5 * c.preset.downtown_m, 3.2 * S)
-        m = {"C": C, "S": S, "n1": _value_noise(129, 5, rng), "n2": _value_noise(129, 14, rng), "ribbons": lines}
+            lines += _rays(C, highway_angles(c, t), 0.5 * downtown_r(c), 3.2 * S)
+        m = {"C": C, "S": S, "peak": peak(c, t), "n1": _value_noise(129, 5, rng), "n2": _value_noise(129, 14, rng), "ribbons": lines}
         f._metro = m
         m["raster"] = _raster(f, m)
     return m
@@ -291,20 +297,115 @@ def density(f, x, y):
     return np.where(inside, v, 0.0)
 
 
+def downtown_r(c: CitySpec) -> float:
+    """The tower cluster's radius: it grows with the city."""
+    return max(c.preset.downtown_m, DOWNTOWN_K * scale(c))
+
+
+def peak(c: CitySpec, t: TerrainSpec) -> np.ndarray:
+    """Where the tallest towers stand: between downtown's core and the river's mouth (a landlocked
+    city's: towards its river)."""
+    from . import terrain_gen
+    C = np.array(city.main_centre(c), float)
+    lines = river_lines(c, t) if c.nodes else []
+    if not lines:
+        return C
+    if coast(t) == "none":
+        ln = min((ln for ln, _ in lines), key=lambda ln: ln.distance(Point(C)))
+        q = ln.interpolate(ln.project(Point(C)))
+        return C + 0.4 * (np.array([q.x, q.y]) - C)
+    own = terrain_gen.river_line(t)
+    if own is not None:
+        pts = np.array(own.coords)
+        wet = np.nonzero(terrain_gen.inland_of(t, pts[:, 0], pts[:, 1]) <= 0)[0] if t.settings is not None else []
+        mouth = pts[wet[0]] if len(wet) else pts[-1]
+    else:
+        mouth = np.array(next(ln for wid, ln, _ in rivers(c, t) if wid == "river").coords[-1])
+    return C + 0.55 * (mouth - C)
+
+
 def in_downtown(f, x: float, y: float) -> bool:
-    """The tower cluster: downtown_m round the centre, its edge wobbling with the noise."""
+    """The tower cluster round downtown, its edge wobbling with the noise."""
     C = _cache(f)["C"]
-    return math.dist((x, y), C) < f.city.preset.downtown_m * (1 + 0.2 * float(noise(f, x, y)))
+    return math.dist((x, y), C) < downtown_r(f.city) * (1 + 0.15 * float(noise(f, x, y)))
 
 
 def midrise(f, x: float, y: float) -> float | None:
-    """Past the towers, mid-rise towers thin out over another 0.8 x downtown_m: the chance of one
-    here (None: none here)."""
-    dm = f.city.preset.downtown_m
-    dd = math.dist((x, y), _cache(f)["C"]) - dm
-    if not dm or dd < 0 or dd > 0.8 * dm:
+    """Past the towers, a ring of mid-rise towers thinning out: the chance of one here (None: none here)."""
+    dr = downtown_r(f.city)
+    dd = math.dist((x, y), _cache(f)["C"]) - dr
+    if dd < 0 or dd > MIDRISE_K * dr:
         return None
-    return 0.7 * (1 - dd / (0.8 * dm))
+    return 1.0 - 0.6 * dd / (MIDRISE_K * dr)
+
+
+# --- massing ---------------------------------------------------------------------------------
+
+def _frontage(P: Polygon, f, c: CitySpec, rng, lot, depth, storeys, kind, district, gap=0.04) -> list:
+    """Buildings packed along every edge of the block, side by side: lots of lot() metres, `depth`
+    deep (the rest is rear yards), a few left as gaps. Each edge starts `depth` in from its corner
+    (the previous edge's row turns it)."""
+    out = []
+    inner = P.buffer(-1.0)
+    for poly in city._polys(inner):
+        q = np.array(poly.minimum_rotated_rectangle.exterior.coords)[:4]
+        short = min(np.linalg.norm(q[1] - q[0]), np.linalg.norm(q[2] - q[1]))
+        dp = min(depth, 0.5 * short - 1.0)
+        if dp < 6:
+            continue
+        for a, b, n in city._edges(poly, 2 * dp):
+            L_e = float(np.linalg.norm(b - a))
+            u = (b - a) / L_e
+            rot = math.degrees(math.atan2(u[1], u[0]))
+            s = dp
+            while s < L_e - 4:
+                w = min(lot(), L_e - s)
+                if w < 4:
+                    break
+                if rng.random() >= gap:
+                    m = a + (s + w / 2) * u + n * dp / 2
+                    out.append(city._box_on(f, m[0], m[1], w - 0.3, dp, rot, storeys(), c, kind, district))
+                s += w
+    return out
+
+
+def mass_block(P: Polygon, f, c: CitySpec, rng, district) -> list:
+    """A metro block: continuous frontage (mid-rise apartments, rowhouses, townhouses) round rear
+    yards in the inner and middle rings, taller nearer downtown; detached houses with gaps at the edge."""
+    cx, cy = P.centroid.coords[0]
+    d = float(f.density(cx, cy))
+    if d < ROW_D:
+        return city.mass_block(P, f, c, rng, district)         # detached houses (it reads the same density)
+    hz = float(f.height_zone(cx, cy))
+    if d >= city.CORE_D:              # mid-rise apartments
+        top = 4 + round(8 * hz)
+        return _frontage(P, f, c, rng, lambda: rng.uniform(14, 24), 15.0,
+                         lambda: int(rng.integers(max(top - 2, 4), top + 1)), "housing", district, 0.03)
+    if d >= city.TERRACE_D:           # rowhouses and three-flats
+        return _frontage(P, f, c, rng, lambda: rng.uniform(7, 10), 13.0,
+                         lambda: int(rng.integers(3, 5)), "housing", district, 0.04)
+    return _frontage(P, f, c, rng, lambda: rng.uniform(6, 8.5), 11.5,      # townhouses
+                     lambda: int(rng.integers(2, 4)), "housing", district, 0.07)
+
+
+def tower_block(P: Polygon, f, c: CitySpec, rng, district, kind: str) -> list:
+    """A downtown block of tower lots round its edge, tallest by the river mouth (`kind` tower);
+    or a mid-rise tower block stepping down past them (`kind` midrise)."""
+    m = _cache(f)
+    cx, cy = P.centroid.coords[0]
+    dr = downtown_r(c)
+    hi, lo = c.preset.tower_storeys
+    if kind == "tower":
+        t = min(math.dist((cx, cy), m["peak"]) / (1.1 * dr), 1.0)
+        top = hi + (lo - hi) * t ** 0.8
+        lot, depth = (lambda: rng.uniform(26, 40)), 26.0
+    else:
+        t = min(max(math.dist((cx, cy), m["C"]) - dr, 0) / (MIDRISE_K * dr), 1.0)
+        top = lo + (8 - lo) * t
+        lot, depth = (lambda: rng.uniform(20, 30)), 20.0
+    spread = max(3, round(0.25 * top))
+    return _frontage(P, f, c, rng, lot, depth,
+                     lambda: max(6, int(round(top + rng.integers(-spread, spread + 1)))), "tower", district, 0.02)
 
 
 # --- ways and green --------------------------------------------------------------------------
@@ -339,11 +440,97 @@ def ways(c: CitySpec, f, ok) -> list:
         r0 = city.hub_reach(c, nd, a)
         pts = C + np.outer(np.arange(r0, 3.2 * S, city.STEP_M), city._dir(a))
         out += city._clipped(f"diag{k}", "avenue", pts, ok, c.avenue_w, nd.id, min_len=120.0)
+    out += local_streets(c, f, ok)
     thr = c.urban_threshold * 0.5
     runs = _shore_runs(c, f, LAKEFRONT_M + LAKESHORE_W / 2, lambda p: ok(p) and float(f.density(*p)) > thr)
     for i, r in enumerate([r for r in runs if len(r) > 6]):
         out.append(city.Way("lakeshore" if i == 0 else f"lakeshore{i}", "boulevard", LineString(r), LAKESHORE_W, None))
     return out
+
+
+def off_lakefront(f, p) -> bool:
+    """Not in the lakefront park: the grid's streets end at the lakeshore boulevard."""
+    return coast(f.t) == "none" or float(f.inland(*p)) > LAKEFRONT_M + LAKESHORE_W
+
+
+def local_streets(c: CitySpec, f, ok) -> list:
+    """Local streets on the arterial grid's lines, every LOCAL_M between the arterials and every half
+    of that across downtown and its mid-rise ring; only where the city is built up."""
+    pr = c.preset
+    C = np.array(city.main_centre(c), float)
+    x0, y0, x1, y1 = c.bounds
+    reach = math.hypot(x1 - x0, y1 - y0)
+    sp = pr.grid_m or 1600.0
+    t = np.arange(-reach, reach + city.STEP_M, city.STEP_M)
+    thr = c.urban_threshold * 0.9
+    near = downtown_r(c) * (1 + MIDRISE_K)
+    out = []
+    for fam, a in (("a", pr.grid_deg), ("b", pr.grid_deg + 90)):
+        d, n = city._dir(a), city._dir(a + 90)
+        for k, o in enumerate(np.arange(-reach + sp / 2, reach, LOCAL_M / 2)):
+            j = round((o + reach - sp / 2) / (LOCAL_M / 2))
+            if j % round(2 * sp / LOCAL_M) == 0:
+                continue                       # an arterial runs here
+            half = j % 2 == 1                  # the half-way lines: downtown only
+            pts = C + o * n + np.outer(t, d)
+            dd = np.hypot(pts[:, 0] - C[0], pts[:, 1] - C[1])
+            pts = pts[dd < (near if half else 3 * reach)]
+            if len(pts) < 2:
+                continue
+            out += city._clipped(f"local-{fam}{k}", "street", pts,
+                                 lambda p: ok(p) and float(f.density(*p)) > thr and off_lakefront(f, p), c.street_w, None,
+                                 min_len=60.0)
+    return out
+
+
+def trim_stubs(P) -> None:
+    """Cut back local streets and grid avenues whose dead end runs more than STUB_M past the last
+    building (diagonals, highways, the lakeshore and rivers stay); drop one with no building along it.
+    Again until nothing changes: a cut can leave the street it met dangling."""
+    for _ in range(6):
+        n = [(w.id, round(w.line.length, 1)) for w in P.ways]
+        _trim_once(P)
+        if [(w.id, round(w.line.length, 1)) for w in P.ways] == n:
+            return
+
+
+def _trim_once(P) -> None:
+    from scipy.spatial import cKDTree
+    from shapely.ops import substring
+    from shapely.strtree import STRtree
+    if not P.buildings:
+        return
+    kd = cKDTree(np.array([[b.x, b.y] for b in P.buildings]))
+    lines = [w.line for w in P.ways]
+    tree = STRtree(lines)
+
+    def dangling(i, p) -> bool:
+        return not any(j != i and lines[j].distance(Point(p)) < 3.0 for j in tree.query(Point(p).buffer(3.0)))
+    out = []
+    for i, w in enumerate(P.ways):
+        if not (w.kind == "street" or w.id.startswith("grid-")):
+            out.append(w)
+            continue
+        L_ = w.line.length
+        s = np.arange(0.0, L_ + 0.1, 10.0)
+        pts = np.array([w.line.interpolate(v).coords[0] for v in s])
+        near = np.array([len(x) > 0 for x in kd.query_ball_point(pts, 70.0)])
+        e0, e1 = dangling(i, w.line.coords[0]), dangling(i, w.line.coords[-1])
+        if not near.any():
+            if not (e0 or e1):
+                out.append(w)
+            continue
+        a, b = 0.0, L_
+        first, last = s[np.argmax(near)], s[len(near) - 1 - np.argmax(near[::-1])]
+        if e0 and first > STUB_M:
+            a = first - 40.0
+        if e1 and L_ - last > STUB_M:
+            b = last + 40.0
+        if a == 0.0 and b == L_:
+            out.append(w)
+        elif b - a > 20:
+            out.append(city.Way(w.id, w.kind, substring(w.line, a, b), w.width, w.district))
+    P.ways = out
 
 
 def lakefront(c: CitySpec, f, P_ways) -> list[Polygon]:
@@ -382,7 +569,7 @@ def large_parks(c: CitySpec, f) -> list[Polygon]:
         p = C + rng.uniform(0.45, 1.15) * S * city._dir(a)
         w, d = rng.uniform(300, 480), rng.uniform(240, 380)
         q = city._rect(float(p[0]), float(p[1]), w, d, c.preset.grid_deg)
-        if (math.dist(p, C) < c.preset.downtown_m + 0.6 * max(w, d)
+        if (math.dist(p, C) < downtown_r(c) + 0.6 * max(w, d)
                 or any(math.dist(p, n.center) < n.radius + 0.6 * max(w, d) + 40 for n in c.nodes)
                 or any(q.distance(o) < 300 for o in out)
                 or not bool(np.all(f.land(*np.array(q.exterior.coords).T)))
@@ -423,7 +610,7 @@ def industrial_centre(c: CitySpec, f, ways_) -> tuple | None:
     pr = c.preset
     C = np.array(city.main_centre(c), float)
     S = scale(c)
-    lo = max(pr.downtown_m + pr.industrial_m + 150, 0.55 * S)
+    lo = max(downtown_r(c) * (1 + MIDRISE_K) + pr.industrial_m, 0.55 * S)
     cand = [np.array(w.line.interpolate(s).coords[0]) for w in ways_ if w.kind == "river"
             for s in np.arange(0, w.line.length, 40)]
     cand = [p for p in cand if lo < math.dist(p, C) < max(lo + 300, 1.3 * S)

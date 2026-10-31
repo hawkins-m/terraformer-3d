@@ -15,7 +15,7 @@ CATALOG: dict[str, tuple[str, LayoutPreset]] = {
     "classic": ("A modern coastal metro: downtown towers on the shore at a river's mouth, a coast-aligned grid with "
                 "diagonal arterials, heights falling off to suburbs that fray out along the arterials, a forking river, "
                 "a lakefront park, industry on the river.",
-                P(streets="grid", hub="square", tall_at="centre", height_falloff_m=800, downtown_m=380,
+                P(streets="grid", grid_m=1600, hub="square", tall_at="centre", height_falloff_m=900, downtown_m=380,
                   tower_storeys=(55, 18), highways="radial", highway_spokes=3, industrial="highway", industrial_m=280,
                   river_w=55.0, block_parks=0.03, metro=True, clear_overlaps=True)),
     "grid": ("A plain grid of avenues with grid-aligned blocks, a few parks, tallest in the middle.",

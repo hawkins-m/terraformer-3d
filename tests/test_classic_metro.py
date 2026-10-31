@@ -268,3 +268,106 @@ def test_classic_bridges_are_level_decks():
         assert sl["type"] in ("avenue", "highway", "boulevard")                    # the usual slot types
         zs.append(len(sl["pieces"]))
     assert all(zs)
+
+
+# --- classic, tuned: frontage, streets, downtown, edges, the river channel ------------------------
+
+def per_km2(P, f, C, r0, r1) -> float:
+    """Buildings per km2 of land between r0 and r1 from downtown."""
+    x0, y0, x1, y1 = P.layout.city.bounds
+    gx, gy = np.meshgrid(np.arange(x0, x1, 25.0), np.arange(y0, y1, 25.0))
+    gx, gy = gx.ravel(), gy.ravel()
+    gd = np.hypot(gx - C[0], gy - C[1])
+    km2 = float(np.sum(f.land(gx, gy) & (gd >= r0) & (gd < r1))) * 625 / 1e6
+    n = sum(1 for b in P.buildings if r0 <= math.dist((b.x, b.y), C) < r1)
+    return n / km2
+
+
+def test_classic_packs_continuous_frontage_in_the_inner_and_middle_rings(metro):
+    _, A, _, P, f = metro
+    C = city.main_centre(P.layout.city)
+    assert per_km2(P, f, C, 500, 1500) > 800              # was 340-530 before the frontage (76d10c3's previews)
+    housing = [b for b in P.buildings if b.kind == "housing"]
+    assert np.median([b.w for b in housing]) < 12          # narrow lots side by side, not scattered blocks
+    houses = [math.dist((b.x, b.y), C) for b in P.buildings if b.kind == "houses"]
+    assert np.percentile(houses, 25) > np.median([math.dist((b.x, b.y), C) for b in housing])   # detached: the outer ring
+
+
+def test_classic_streets_arterials_every_1600_m_local_every_200(metro):
+    _, A, _, P, f = metro
+    c = P.layout.city
+    assert c.preset.grid_m == 1600
+    n = city._dir(c.preset.grid_deg + 90)
+    C = np.array(city.main_centre(c))
+    offs = {round(float((np.array(w.line.interpolate(0.5, normalized=True).coords[0]) - C) @ n)) % 1600
+            for w in P.ways if w.id.startswith("grid-a")}
+    assert len(offs) == 1                                  # one family of lines, 1.6 km apart
+    local = [w for w in P.ways if w.id.startswith("local-a")]
+    o = sorted({round(float((np.array(w.line.interpolate(0.5, normalized=True).coords[0]) - C) @ n)) for w in local})
+    gaps = np.diff(o)
+    assert local and set(np.round(gaps / 100).astype(int)) <= set(range(1, 17)) and 100 in gaps.round(-1)   # 100 m downtown
+
+
+def test_classic_downtown_scales_tallest_by_the_river_mouth_then_steps_down(metro):
+    from asset_pipeline import city_metro
+    _, A, _, P, f = metro
+    c = P.layout.city
+    sm = c.storey_m
+    towers = [b for b in P.buildings if b.kind == "tower" and b.h > 12 * sm]
+    assert len(towers) >= 150                              # 19-42 before (76d10c3's previews)
+    pk = city_metro.peak(c, P.layout.terrain)
+    dr = city_metro.downtown_r(c)
+    top = sorted(towers, key=lambda b: -b.h)[:10]
+    assert np.median([math.dist((b.x, b.y), pk) for b in top]) < 0.6 * dr
+    C = city.main_centre(c)
+    inner = [b.h for b in towers if math.dist((b.x, b.y), C) < dr]
+    ring = [b.h for b in P.buildings if b.kind == "tower" and dr * 1.15 < math.dist((b.x, b.y), C) < dr * 1.75]
+    assert ring and np.median(ring) < 0.7 * np.median(inner) and np.median(ring) > 6 * sm   # the mid-rise ring
+
+
+def test_classic_cuts_dead_end_stubs_back_to_the_buildings(metro):
+    from scipy.spatial import cKDTree
+    from asset_pipeline import city_metro
+    _, A, _, P, f = metro
+    kd = cKDTree(np.array([[b.x, b.y] for b in P.buildings]))
+    lines = [w.line for w in P.ways]
+    for i, w in enumerate(P.ways):
+        if not (w.kind == "street" or w.id.startswith("grid-")):
+            continue
+        for end in (w.line.coords[0], w.line.coords[-1]):
+            if any(j != i and lines[j].distance(shapely.Point(end)) < 3 for j in range(len(lines))):
+                continue
+            assert kd.query(end)[0] < city_metro.STUB_M + 70, w.id
+    C = city.main_centre(P.layout.city)
+    edge = np.percentile([math.dist((b.x, b.y), C) for b in P.buildings], 90)
+    assert any(w.id.startswith("diag") and math.dist(w.line.coords[-1], C) > edge for w in P.ways)   # diagonals run on out
+
+
+def test_classic_river_is_a_lowered_blue_channel_with_bridges_at_street_level():
+    A, h = shaped(on_terrain("coastal-plain", 3), "classic", 3)
+    P = city.plan(A, h)
+    spec = greybox.build_spec(A, h)
+    hs = greybox.Heights(h, A.terrain.extent_m)
+    slots = {s["id"]: s for s in spec["slots"]}
+    river = next(w for w in P.ways if w.kind == "river" and w.id == "river")
+    sl = slots[f"way-{river.id}"]
+    p = river.line.interpolate(0.5, normalized=True)
+    q = river.line.interpolate(0.51, normalized=True)
+    d = np.array([q.x - p.x, q.y - p.y])
+    n = np.array([-d[1], d[0]]) / np.linalg.norm(d)
+    bank = max(float(hs(*(np.array([p.x, p.y]) + s * (river.width / 2 + 30) * n))) for s in (-1, 1))
+    pts = sl["pieces"][0]["prim"]["pts"]
+    o = np.add(sl["loc"], sl["pieces"][0]["loc"])
+    zs = [o[2] + v[2] for v in pts]
+    assert zs and float(np.median(zs)) < bank - 1.5           # the water lies below the street level beside it
+    crossing = [w for w in P.ways if w.kind == "avenue" and w.line.intersects(river.line)]
+    assert crossing
+    w = crossing[0]
+    x = w.line.intersection(river.line)
+    x = x if x.geom_type == "Point" else x.geoms[0]
+    s = slots[f"way-{w.id}"]
+    o, pts = np.add(s["loc"], s["pieces"][0]["loc"]), s["pieces"][0]["prim"]["pts"]
+    deck = min(pts, key=lambda v: math.dist((o[0] + v[0], o[1] + v[1]), (x.x, x.y)))
+    assert o[2] + deck[2] > float(hs(x.x, x.y)) + 2                # the bridge stays up at street level
+    src = open(greybox.__file__.replace("asset_pipeline/greybox.py", "scripts/blender_greybox.py")).read()
+    assert '"river": (0.07, 0.20, 0.32)' in src                    # previews colour it as water

@@ -284,6 +284,12 @@ World and city mode: greybox and passes, concept frames and their control settin
   pins every other preset's plan digest (small city, coastal plain, other terrains) and greybox slots.
 - Projects saved with the old classic keep its fields (no `metro`) and plan as before; picking classic
   again (or a roll with it) gives the metro. Same slot types: bridges are level `avenue`/`highway` decks.
+- Tuned (2026-10-30): arterials every `grid_m` 1600 m, local streets every 200 m (100 m across downtown
+  and its mid-rise ring) as `local-*` street ways, stopping at the lakeshore; `city_metro.mass_block` packs
+  frontage round rear yards (mid-rises, rowhouses, townhouses; detached houses below `ROW_D`); the tower
+  cluster is `downtown_r` = 0.5 x the density scale, tallest at `peak` (towards the river mouth), then a
+  mid-rise tower ring; `trim_stubs` cuts dead ends back to 150 m past the last building. About 3x the
+  buildings: a scratch metro is ~6-8k buildings. Rivers are coloured as water in `blender_greybox.COLORS`.
 
 ## Hand edits follow into Unreal (2026-10-30)
 - `site/build/built_slots.json` (written by `ap site build`, or by a Re-read of an unedited greybox
