@@ -78,7 +78,7 @@ def choose(placements: list[dict], planned: dict[str, int], ok) -> tuple[list[di
     by_slot: dict[str, list[dict]] = {}
     for p in placements:
         if p.get("slot") is None:
-            held.append(p | {"why": "no greybox slot"})
+            held.append(p | {"why": "its greybox slot was deleted" if p.get("removed_slot") else "no greybox slot"})
             continue
         by_slot.setdefault(p["slot"], []).append(p)
     for sid, ps in sorted(by_slot.items()):
@@ -196,14 +196,62 @@ def prop_groups(slot: dict, prop_pieces: dict[str, str], mains) -> list[tuple[in
 
 
 def world_matrix(p: dict) -> np.ndarray:
-    """A placement's Blender world 4x4: an attached piece's own matrix, else (x, y, z, yaw)."""
+    """A placement's Blender world 4x4: an attached piece's own matrix, else (x, y, z, yaw) and
+    its scale along its own axes (a typed building in a slot resized by hand; follow_slots)."""
     if "matrix" in p:
         return np.asarray(p["matrix"], float)
     a = math.radians(p["yaw"])
     B = np.eye(4)
     B[:2, :2] = [[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]
+    B[:3, :3] = B[:3, :3] * np.asarray(p.get("scale", (1, 1, 1)), float)
     B[:3, 3] = [p["x"], p["y"], p["z"]]
     return B
+
+
+def moved_by(p: dict, D: np.ndarray) -> dict:
+    """A placement moved with its slot's hand edit D (sw_site.slot_delta): its centre, yaw and
+    scale along its own axes (an attached matrix: D @ it)."""
+    q = dict(p)
+    if np.allclose(D, np.eye(4), atol=1e-6):
+        return q
+    if "matrix" in p:
+        q["matrix"] = (D @ np.asarray(p["matrix"], float)).tolist()
+        return q
+    a = math.radians(p["yaw"])
+    k0 = np.asarray(p.get("scale", (1, 1, 1)), float)
+    L = D[:3, :3]
+    ax, ay, az = L @ [math.cos(a), math.sin(a), 0.0], L @ [-math.sin(a), math.cos(a), 0.0], L @ [0.0, 0.0, 1.0]
+    c = D @ [p["x"], p["y"], p["z"], 1.0]
+    k = k0 * [np.linalg.norm(ax), np.linalg.norm(ay), np.linalg.norm(az)]
+    turn = math.degrees(math.atan2(ax[1], ax[0])) - p["yaw"]
+    q.update(x=float(c[0]), y=float(c[1]), z=float(c[2]), yaw=p["yaw"] + (turn + 180.0) % 360.0 - 180.0)
+    q.pop("scale", None)
+    if not np.allclose(k, 1.0, atol=1e-4):
+        q["scale"] = [round(float(v), 6) for v in k]
+    return q
+
+
+def follow_slots(placements: list[dict], moves: dict[str, list]) -> list[dict]:
+    """Typed placements (their "slot" the slot as built that holds them) taken to where their slot
+    is now (sw_site.slot_moves: {built slot: [(slot now, D)]}): moved, turned and resized with
+    it, once more for each duplicate of it (key <key>_<slot>), held when it was deleted
+    ("removed_slot"). Other placements, and slots moves doesn't know, stay as they are."""
+    out = []
+    for p in placements:
+        sid = p.get("slot")
+        if not p.get("typed") or sid not in moves:
+            out.append(p)
+            continue
+        if not moves[sid]:
+            out.append(p | {"slot": None, "removed_slot": sid})
+            continue
+        for now, D in moves[sid]:
+            q = moved_by(p, D) | {"slot": now}
+            if now != sid:
+                q["key"] = f"{p['key']}_{now}".replace("-", "m")
+                q["copy_of"] = p["key"]
+            out.append(q)
+    return out
 
 
 def asset_id(key: str) -> str:
@@ -345,18 +393,25 @@ def city_plan(store: ProjectStore):
     return city.plan(layout, sw_site.plan_terrain(store, layout))
 
 
-def planned_buildings(store: ProjectStore, gb: dict, P=None) -> dict[str, list[tuple]]:
-    """{typed slot id: [(typology, x, y, base z, yaw) of each distinct planned building in it]}.
-    P: the city plan (city_plan), when the caller has it."""
+def planned_buildings(store: ProjectStore, gb: dict, P=None, moves=None) -> dict[str, list[tuple]]:
+    """{typed slot id: [(typology, x, y, base z, yaw) of each distinct planned building in it]},
+    where the slot is now (moved, resized, duplicated by hand: follow_slots). P: the city plan
+    (city_plan), moves: sw_site.slot_moves, when the caller has them."""
     from . import library_instances
+    from .stages import sw_site
     P = P or city_plan(store)
-    typed = [s for s in gb["slots"] if s.get("typology")]
+    built, to = moves or sw_site.slot_moves(store, gb)
+    typed = [s for s in built if s.get("typology")]
     out: dict[str, dict] = {}
     for b in P.typed:
         x, y, z, *_ = library_instances.footprint(b)
         sid = slot_of_point(typed, b.typology, x, y)
-        if sid:
-            out.setdefault(sid, {})[(b.typology, round(x), round(y))] = (b.typology, x, y, z, b.rot)
+        if not sid:
+            continue
+        p = {"typed": True, "slot": sid, "key": "", "x": x, "y": y, "z": z, "yaw": b.rot}
+        for q in follow_slots([p], to):
+            if q["slot"]:
+                out.setdefault(q["slot"], {})[(b.typology, round(x), round(y))] = (b.typology, q["x"], q["y"], q["z"], q["yaw"])
     return {sid: list(v.values()) for sid, v in out.items()}
 
 
@@ -820,18 +875,22 @@ def ground_all(store: ProjectStore, placements: list[dict], ground, rule: str, b
 
 def base_placements(store: ProjectStore, gb: dict) -> tuple[list[dict], dict, dict, dict]:
     """The plan's own building placements, before models and heights: typed buildings' instance
-    builds, slots' single builds and representative builds, variants applied. (placements,
+    builds (moved with their slot's hand edits in Blender: follow_slots), slots' single builds
+    and representative builds, variants applied. (placements,
     entries {entry: job.json}, planned buildings {typed slot: [...]}, variants.assignments)."""
     from .look import _candidates
     cands, _, entries = _candidates(store, None, math.inf)
     P = city_plan(store)
     cands += model_placements(store, P, cands)
-    typed = [s for s in gb["slots"] if s.get("typology")]
+    from .stages import sw_site
+    moves = sw_site.slot_moves(store, gb)          # the plan's buildings stand where their slot is now
+    typed = [s for s in moves[0] if s.get("typology")]
     for p in cands:
         if p.get("slot") is None:
             p["typed"] = True
             p["slot"] = slot_of_point(typed, p.get("typology"), p["x"], p["y"])
-    buildings = planned_buildings(store, gb, P)
+    cands = follow_slots(cands, moves[1])
+    buildings = planned_buildings(store, gb, P, moves)
     cands += model_slot_placements(store, gb, cands, buildings)
     reps = representative_placements(store, gb, cands, buildings)
     for p in reps:

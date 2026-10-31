@@ -648,7 +648,7 @@ workspace for artists rather than a web-app look.
   ocean by hand in the editor.
 - Describe the terrain falls back to keyword matching when the local vision model isn't running.
 - The utopia layout preset keeps its old overlaps (the generator as it was before presets).
-- Editing the greybox in Blender and clicking Re-read .blend only rewrites `site/greybox.json`. Approvals, Active versions and builds are kept, and nothing rebuilds or re-plans. On the next `ap ue build`, kit and landmark builds follow their slot's new pose. Typed buildings stay where the city plan (`layout.json`) puts them, and stay greybox if their slot moved away from them. Hand moves in Unreal are kept: a slot only moves back where a committed `greybox.blend` put it, so commit the project's greybox before you edit it.
+- Editing the greybox in Blender and clicking Re-read .blend only rewrites `site/greybox.json` (it reports "N moved, N resized, N removed, N added"). Approvals, Active versions and builds are kept, and nothing rebuilds or re-plans. On the next `ap ue build` every build follows its slot's new pose, typed city buildings included; a deleted slot's builds are held, and a duplicated slot gets copies of its source's builds. Moving a single building's meshes inside a block of several doesn't move that building (move the block, or all of its meshes). A duplicated landmark or kit slot stays greybox until an entry claims it. Hand moves in Unreal are kept: a slot only moves back where a committed `greybox.blend` put it, so commit the project's greybox before you edit it.
 
 ## Roadmap
 

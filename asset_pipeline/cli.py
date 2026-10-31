@@ -650,6 +650,8 @@ def cmd_site_extract(a) -> None:
     data = sw_site.extract(store)
     for f in data["fixed"]:
         print(f"fixed: {f}")
+    if data["slot_edits"] is not None:
+        print(f"hand edits since the build: {sw_site.edits_line(data['slot_edits'])}")
     _print_site(store)
 
 

@@ -15,6 +15,7 @@ function renderSite() {
     `${esc(s.blend)} · <strong>${sum.edited ? "edited in Blender" : "as built"}</strong>` +
     (sum.stale ? " · <span class=\"error\">changed since last read: Re-read .blend</span>" : "") +
     `<br>${sum.slots} slots: ${Object.entries(sum.types).map(([t, n]) => `${n} ${esc(t)}`).join(", ")}` +
+    (sum.slot_edits ? `<br>Hand edits since the build: ${esc(sum.slot_edits)}` : "") +
     (sum.untagged.length ? `<br><span class="error">${sum.untagged.length} untagged meshes</span>` : "");
 
   const pv = $("#site-previews"); pv.replaceChildren();

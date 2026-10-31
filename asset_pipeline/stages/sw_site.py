@@ -10,12 +10,14 @@ Layout under the project:
     site/greybox.blend           built, then hand-edited (.prev.blend: the one before a rebuild)
     site/greybox.json            slots + shots + untagged meshes, read from the .blend
     site/build.json              sha256 of the .blend as last built or written by the pipeline
-    site/build/                  spec.json + terrain.npy handed to Blender, blender.log
+    site/build/                  spec.json + terrain.npy handed to Blender, blender.log,
+                                 built_slots.json (every slot as built: what hand edits are measured from)
     site/city.json + city_plan.png   city mode: the plan's stats and a top-down plan
 """
 import hashlib
 import json
 import math
+import re
 import shutil
 import threading
 import time
@@ -35,6 +37,8 @@ SCRIPT = config.REPO_ROOT / "scripts" / "blender_greybox.py"
 BLENDER_TERRAIN_MAX = 337   # samples per side of the greybox terrain mesh (~7 m on 2.4 km)
 BLENDER_TERRAIN_STEP_M = 8.0  # finer than this isn't needed; larger sites get more samples
 BLENDER_TERRAIN_CAP = 1009
+MOVE_M, TURN_DEG, SIZE_TOL = 0.05, 0.1, 0.01   # a slot edit smaller than this is no edit
+MERGED_KINDS = {"ribbon", "poly"}  # pieces Blender merges into one mesh per slot and piece (blender_greybox MERGED)
 
 
 class SiteEdited(ValueError):
@@ -312,14 +316,16 @@ def build(store: ProjectStore, force: bool = False) -> dict:
         raise RuntimeError(f"blender wrote no greybox (see {work / 'blender.log'})")
     tmp.replace(b)
     _record(store, built=time.strftime("%Y-%m-%dT%H:%M:%S"))
-    data = extract(store)
+    data = extract(store, rebase=True)
     store.log_run({"stage": "site.build", "slots": len(data["slots"]), "shots": len(data["shots"]),
                    "pieces": sum(len(s["pieces"]) for s in data["slots"]), "seconds": round(time.time() - t, 1)})
     return data
 
 
-def extract(store: ProjectStore) -> dict:
-    """Read the tagged objects of greybox.blend into site/greybox.json."""
+def extract(store: ProjectStore, rebase: bool = False) -> dict:
+    """Read the tagged objects of greybox.blend into site/greybox.json, with its slot_edits
+    against the greybox as built (slot_edits). rebase: this is the greybox as built (build); an
+    unedited one with no built_slots.json yet is too."""
     b = blend_path(store)
     if not b.is_file():
         raise FileNotFoundError(f"no {b} (run `ap site build`)")
@@ -333,8 +339,13 @@ def extract(store: ProjectStore) -> dict:
     data = json.loads(out.read_text())
     if data["fixed"] and not was_edited:
         _record(store)  # the pipeline's own fixes don't count as hand edits
+    sources = {s["id"]: s.pop("source") for s in data["slots"] if s.get("source")}
     data["slots"] = [Slot.model_validate(s).model_dump(mode="json") for s in data["slots"]]
     data["shots"] = [Shot.model_validate(s).model_dump(mode="json") for s in data["shots"]]
+    if rebase or not (was_edited or (work / "built_slots.json").is_file()):   # (as built: one built before the file)
+        write_json(work / "built_slots.json", {"slots": {s["id"]: _as_built(s) for s in data["slots"]}})
+    built = built_slots(store)
+    data["slot_edits"] = slot_edits(built, data["slots"], sources) if built is not None else None
     data["blend_sha256"] = _sha(b)
     data["geometry_sha256"] = geometry_sha(data)
     write_json(site_dir(store) / "greybox.json", data)
@@ -353,6 +364,141 @@ def material_of(slot: dict, materials: list):
 def geometry_sha(data: dict) -> str:
     """Hash of the slots alone (not the cameras): what every shot's passes depend on."""
     return hashlib.sha256(json.dumps(data["slots"], sort_keys=True).encode()).hexdigest()
+
+
+# --- hand edits: every slot against the greybox as built ---------------------------------------
+
+def _as_built(slot: dict) -> dict:
+    return {"typology": slot.get("typology"), "matrix": slot["matrix"], "bbox": slot["bbox"],
+            "pieces": {p["name"]: p["matrix_local"] for p in slot["pieces"]}}
+
+
+def _pose(loc, rot_z: float, scale=None) -> list[list[float]]:
+    a = math.radians(rot_z)
+    M = np.eye(4)
+    M[:2, :2] = [[math.cos(a), -math.sin(a)], [math.sin(a), math.cos(a)]]
+    M[:3, :3] = M[:3, :3] * np.asarray(scale or (1, 1, 1), float)
+    M[:3, 3] = loc
+    return M.tolist()
+
+
+def built_slots(store: ProjectStore) -> dict | None:
+    """{slot id: {typology, matrix, bbox (None when unknown), pieces {name: matrix_local}}}: the
+    greybox as last built (site/build/built_slots.json); for one built before that file, the
+    spec Blender built it from. None: never built."""
+    work = site_dir(store) / "build"
+    data = read_json(work / "built_slots.json", default=None)
+    if data is not None:
+        return data["slots"]
+    spec = read_json(work / "spec.json", default=None)
+    if spec is None:
+        return None
+    return {s["id"]: {"typology": s.get("typology"), "matrix": _pose(s["loc"], s["rot_z"]), "bbox": None,
+                      "pieces": {(f"{s['id']}.{p['piece']}" if p["prim"]["kind"] in MERGED_KINDS else p["name"]):
+                                 np.eye(4).tolist() if p["prim"]["kind"] in MERGED_KINDS
+                                 else _pose(p["loc"], p["rot_z"], p.get("scale")) for p in s["pieces"]}}
+            for s in spec["slots"]}
+
+
+def _piece_move(built: dict, slot: dict) -> np.ndarray:
+    """The move all of a slot's pieces share in its own frame (its child meshes moved together in
+    Blender, the slot's empty left where it was); identity when they don't all share one."""
+    rel = []
+    for p in slot["pieces"]:
+        b = built["pieces"].get(p["name"]) or built["pieces"].get(re.sub(r"\.\d{3}$", "", p["name"]))
+        if b is not None:
+            rel.append(np.asarray(p["matrix_local"], float) @ np.linalg.inv(np.asarray(b, float)))
+    if rel and all(np.allclose(r, rel[0], atol=1e-3) for r in rel):
+        return rel[0]
+    return np.eye(4)
+
+
+def slot_delta(built: dict, slot: dict) -> np.ndarray:
+    """D: the hand edit of a slot as a world transform, from the slot as built (or the slot it was
+    duplicated from) to the slot now: D @ (a world point of the built slot) = where it is now."""
+    return (np.asarray(slot["matrix"], float) @ _piece_move(built, slot)
+            @ np.linalg.inv(np.asarray(built["matrix"], float)))
+
+
+def delta_kind(D: np.ndarray, at) -> tuple[bool, bool]:
+    """(moved: the slot's origin `at` (as built) shifted, or the slot turned; resized: scaled
+    along any axis)."""
+    k = np.linalg.norm(D[:3, :3], axis=0)
+    turn = math.degrees(math.atan2(D[1, 0] / k[0], D[0, 0] / k[0]))
+    shift = (D @ [*at, 1.0])[:3] - np.asarray(at, float)
+    return bool(np.linalg.norm(shift) > MOVE_M or abs(turn) > TURN_DEG), bool(np.any(np.abs(k - 1) > SIZE_TOL))
+
+
+def origin(sid: str, sources: dict, built: dict) -> str | None:
+    """The built slot a new slot was duplicated from: its source tag (a copy of a copy: that
+    one's), else its id without Blender-style -<n> suffixes; None for a slot made from scratch."""
+    seen = set()
+    while sid not in built and sid not in seen:
+        seen.add(sid)
+        nxt = sources.get(sid) or (re.sub(r"-\d+$", "", sid) if re.search(r"-\d+$", sid) else None)
+        if nxt is None:
+            return None
+        sid = nxt
+    return sid if sid in built else None
+
+
+def slot_edits(built: dict, slots: list[dict], sources: dict) -> dict:
+    """The greybox's hand edits against the greybox as built: slot ids moved, resized, removed
+    (deleted in Blender), added {new id: the built slot it was duplicated from, or None}."""
+    moved, resized, added = [], [], {}
+    for s in slots:
+        if s["id"] not in built:
+            if s.get("category") != "terrain":      # (the terrain and sea Blender makes, not in an old spec)
+                added[s["id"]] = origin(s["id"], sources, built)
+            continue
+        b = built[s["id"]]
+        m, r = delta_kind(slot_delta(b, s), np.asarray(b["matrix"], float)[:3, 3])
+        moved += [s["id"]] * m
+        resized += [s["id"]] * r
+    now = {s["id"] for s in slots}
+    return {"moved": moved, "resized": resized, "removed": sorted(set(built) - now), "added": added}
+
+
+def edits_line(edits: dict | None) -> str:
+    """"N moved, N resized, N removed, N added" (Re-read .blend's summary)."""
+    e = edits or {}
+    return ", ".join(f"{len(e.get(k) or ())} {k}" for k in ("moved", "resized", "removed", "added"))
+
+
+def slot_moves(store: ProjectStore, gb: dict) -> tuple[list[dict], dict[str, list[tuple[str, np.ndarray]]]]:
+    """Where each slot as built is now: (the slots as built [{id, typology, matrix, bbox}], {built
+    slot id: [(slot id now, D)]}): itself (unless deleted) and each duplicate of it, D its
+    slot_delta. Placements made for the greybox as built (the city plan's typed buildings) follow
+    with D. Never built: the slots as they are, no moves."""
+    built = built_slots(store)
+    if built is None:
+        return [s for s in gb["slots"]], {}
+    now = {s["id"]: s for s in gb["slots"]}
+    added = (gb.get("slot_edits") or {}).get("added")
+    if added is None:
+        added = {sid: origin(sid, {}, built) for sid in now if sid not in built}
+    def delta(b, slot):                     # under the edit thresholds (float noise in the .blend): none
+        D = slot_delta(b, slot)
+        return D if any(delta_kind(D, np.asarray(b["matrix"], float)[:3, 3])) else np.eye(4)
+    out: dict[str, list] = {sid: [] for sid in built}
+    for sid in built:
+        if sid in now:
+            out[sid].append((sid, delta(built[sid], now[sid])))
+    for sid, src in sorted(added.items()):
+        if src in built and sid in now:
+            out[src].append((sid, delta(built[src], now[sid])))
+    slots = []
+    for sid, b in built.items():
+        box = b["bbox"]
+        if box is None:                     # (built before built_slots.json: the bbox now, moved back)
+            if sid not in now:
+                continue
+            lo, hi = np.asarray(now[sid]["bbox"], float)
+            inv = np.linalg.inv(out[sid][0][1])
+            pts = np.array([(inv @ [x, y, z, 1.0])[:3] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])])
+            box = [pts.min(0).tolist(), pts.max(0).tolist()]
+        slots.append({"id": sid, "typology": b["typology"], "matrix": b["matrix"], "bbox": box})
+    return slots, out
 
 
 _greybox_memo = threading.local()
@@ -452,9 +598,12 @@ def summary(store: ProjectStore) -> dict:
         types[s["type"]] = types.get(s["type"], 0) + 1
         for p in s["pieces"]:
             pieces[p["piece"]] = pieces.get(p["piece"], 0) + 1
+    e = data.get("slot_edits")
+    was_edited = edited(store)
     return {"slots": len(data["slots"]), "types": dict(sorted(types.items())),
             "pieces": dict(sorted(pieces.items())), "shots": [s["id"] for s in data["shots"]],
-            "untagged": data["untagged"], "edited": edited(store), "stale": stale(store)}
+            "untagged": data["untagged"], "edited": was_edited, "stale": stale(store),
+            "slot_edits": edits_line(e) if e and (was_edited or any(e.values())) else None}
 
 
 def plan_overlap(store: ProjectStore, shot: str) -> dict:

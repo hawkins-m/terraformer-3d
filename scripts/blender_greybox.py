@@ -11,12 +11,13 @@
   - one camera per shot.
   Tags (custom properties) are the contract with extract and the hand edits:
     slot:   ap_id, ap_type, ap_category, ap_kit, ap_district, ap_material, ap_typology
+            (ap_source: the id a duplicated slot was copied from, set by extract)
     piece:  ap_piece
     camera: ap_shot, ap_tier, ap_district, ap_notes, ap_res_x, ap_res_y
 --extract: tagged objects -> JSON (slots with world matrix, bbox, pieces; shots).
   - Untagged meshes are listed.
   - Untagged cameras become shots named after the object.
-  - Duplicate ids (a duplicated building) get a suffix.
+  - Duplicate ids (a duplicated building) get a suffix; the copy keeps its source id (ap_source).
   - The .blend is saved only when ids or camera tags had to be fixed.
 --add-shot: create or replace the camera for one shot (ShotSpec JSON), save.
 """
@@ -442,6 +443,7 @@ def extract(out):
                 i += 1
             sid = f"{base}-{i}"
             fixed.append(f"{o.name}: duplicate id {o['ap_id']} -> {sid}")
+            o["ap_source"] = str(o.get("ap_source", "")) or base
             o["ap_id"] = sid
         seen.add(sid)
         meshes = ([o] if o.type == "MESH" else []) + \
@@ -463,7 +465,7 @@ def extract(out):
                       "material": str(o.get("ap_material", "")) or None,
                       "typology": str(o.get("ap_typology", "")) or None,
                       "matrix": rows(o.matrix_world), "bbox": [[round(v, 4) for v in lo], [round(v, 4) for v in hi]],
-                      "pieces": pieces})
+                      "pieces": pieces, "source": str(o.get("ap_source", "")) or None})
     def has_slot(o):
         while o:
             if "ap_id" in o:

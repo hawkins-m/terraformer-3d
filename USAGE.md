@@ -251,8 +251,13 @@ ap site show my-project --pieces             # slots, kit pieces with counts, sh
 - New meshes need those tags, or must be parented to a slot.
 - Cameras are shots (`ap_shot`; an untagged camera is adopted under its name).
 
-After saving, run `ap site extract my-project`. `ap site build` then refuses to replace
-the edited file unless `--force`; the old file is kept as `greybox.prev.blend`.
+After saving, run `ap site extract my-project` (*Re-read .blend*). It prints the hand edits
+since the build: `N moved, N resized, N removed, N added`. On the next `ap ue build` every
+building follows its slot, typed city buildings too: a moved, turned or resized slot (its Empty,
+or all its meshes together) takes its builds along, a deleted one places none (they are held), and
+a duplicate gets copies of its source's builds. Builds are only placed, never rebuilt or deleted.
+`ap site build` then refuses to replace the edited file unless `--force`; the old file is kept as
+`greybox.prev.blend`, and a rebuild makes the new greybox the one edits are measured from.
 
 **Shots.**
 ```

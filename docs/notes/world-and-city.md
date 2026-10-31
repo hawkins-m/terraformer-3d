@@ -275,3 +275,18 @@ World and city mode: greybox and passes, concept frames and their control settin
 - New slot types: `highway`, `interchange` (flat paving), `moat` (water piece `moat-water`), `culdesac`,
   `river`, `canal` ways, `tower`, `industrial`, `bastion`; inner walls are `innerwall-*` slots typed `wall`.
 - Presets other than utopia set `clear_overlaps`; utopia keeps its old overlaps on purpose (locked frames).
+
+## Hand edits follow into Unreal (2026-10-30)
+- `site/build/built_slots.json` (written by `ap site build`, or by a Re-read of an unedited greybox
+  built before it existed) is the greybox as built; `sw_site.slot_edits` diffs every slot against it
+  on Re-read (`greybox.json` `slot_edits`). Older projects fall back to `build/spec.json` (no bbox:
+  a deleted slot's builds are then held as "no greybox slot").
+- `slot_delta` D = S_now @ C @ S_built^-1, C the move all of a slot's child meshes share (a viewport
+  click selects meshes, not the Empty); partial piece moves count as none. Below 5 cm / 0.1 deg / 1 %
+  D is identity: a re-saved .blend shifts matrices by ~1e-5.
+- Typed buildings are matched to slots by the *built* bbox, then `city_library.follow_slots` moves
+  them with D (placement `scale` along their own axes; `world_matrix` applies it). Duplicates are
+  `ap_source`-tagged by extract (else the `-<n>` suffix); copies are keyed `<key>_<slot>`, same GLB.
+- Measured on a ~490-slot city copy: plan 11 s, Re-read 7 s; untouched placements agree within 1 mm
+  (yaw may wrap by 360 between runs).
+
