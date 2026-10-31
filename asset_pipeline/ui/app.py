@@ -20,7 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
 from .. import config, library_entries, oscompat, review, silhouette, ue, versions, vlm
-from ..comfy import service as comfy_service
+from ..comfy import fallback as comfy_fallback, service as comfy_service
 from . import messages
 from ..comfy.client import ComfyError, connect
 from ..jobs import Fixable, JobQueue
@@ -801,9 +801,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         try:
             stats = connect(timeout_s=2).health()
         except ComfyError as e:
-            return {"up": False, "url": url, "error": str(e)} | svc
+            return {"up": False, "url": url, "error": str(e), "notice": comfy_fallback.notice()} | svc
         dev = (stats.get("devices") or [{}])[0]
-        return {"up": True, "url": url, "device": dev.get("name")} | svc
+        return {"up": True, "url": url, "device": dev.get("name"), "notice": comfy_fallback.notice()} | svc
 
     @app.post("/api/comfy/start")
     def comfy_start():
@@ -2162,7 +2162,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         from .. import procs
         return {"progress": prog, "comfy": _comfy_up(), "comfy_service": gate.state,
                 "loaded": [x["what"] for x in procs.loaded()],          # what Stop jobs would also end
-                "comfy_error": gate.error, "layout_mtime": mt(sd / "layout.json"),
+                "comfy_error": gate.error, "comfy_notice": comfy_fallback.notice(), "layout_mtime": mt(sd / "layout.json"),
                 "plan_mtime": mt(sd / "city_plan.png"), "greybox_mtime": mt(sd / "greybox.json")}
 
     started: dict[int, float] = {}      # job id -> when this server first saw it running

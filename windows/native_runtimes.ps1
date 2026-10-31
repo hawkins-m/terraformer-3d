@@ -16,8 +16,8 @@
 param(
     [Parameter(Mandatory = $true)][ValidateSet("comfyui", "proxy")][string]$Action,
     [string]$Target = "",
-    [string]$ProxyVersion = "0.1.6",
-    [string]$ComfyUrl = "https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z"
+    [string]$ProxyVersion = "",     # both come from [tools] in config/backends.toml (the installer passes them)
+    [string]$ComfyUrl = ""
 )
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"     # Invoke-WebRequest is many times slower with the progress bar
@@ -43,6 +43,7 @@ function Storage {
 if ($Action -eq "proxy") {
     $uv = Find-Uv
     if (-not $uv) { Fail "uv is not installed (install.bat installs it)." }
+    if (-not $ProxyVersion) { Fail "give -ProxyVersion (tools.comfy_api_proxy_version in config/backends.toml)." }
     $envDir = Join-Path (Storage) "envs\comfy-api-proxy"
     $exe = Join-Path $envDir "Scripts\comfy-api-proxy.exe"
     if (-not (Test-Path (Join-Path $envDir "Scripts\python.exe"))) {
@@ -69,6 +70,7 @@ $parent = Split-Path $root -Parent
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
 $archive = Join-Path $parent "ComfyUI_windows_portable_nvidia.7z"
 if (-not (Test-Path $archive)) {
+    if (-not $ComfyUrl) { Fail "give -ComfyUrl (tools.comfyui_portable_url in config/backends.toml)." }
     Say "Downloading the ComfyUI portable build (about 2 GB): $ComfyUrl"
     Invoke-WebRequest -Uri $ComfyUrl -OutFile "$archive.part" -UseBasicParsing
     Move-Item -Force "$archive.part" $archive

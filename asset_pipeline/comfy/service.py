@@ -34,6 +34,7 @@ from urllib.parse import urlparse
 import httpx
 
 from .. import config, gpu as gpu_mod, oscompat
+from . import fallback
 
 PROXY_SCRIPT = config.REPO_ROOT / "scripts" / "comfy_api_proxy.sh"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -111,7 +112,7 @@ def proxy_up(s: dict | None = None) -> bool:
 def ready(s: dict | None = None) -> bool:
     """ComfyUI answers (and the proxy is up when the backend is sdk)."""
     s = s or settings()
-    return healthy(s) and (s["backend"] != "sdk" or proxy_up(s))
+    return healthy(s) and (s["backend"] != "sdk" or bool(fallback.active()) or proxy_up(s))
 
 
 # --- processes ------------------------------------------------------------------------------
@@ -165,6 +166,8 @@ def status(s: dict | None = None) -> dict:
            "state": "running" if up else ("starting" if managed or lpid else "stopped")}
     if s["backend"] == "sdk":
         out["proxy"] = {"url": s["sdk_url"], "up": proxy_up(s)}
+        if (note := fallback.notice()):
+            out["notice"] = note
     return out
 
 
@@ -228,9 +231,25 @@ def start(log=print, on_line=None, cancel=None, s: dict | None = None) -> dict:
             time.sleep(1.0)
         _stream(logp, pos, on_line)
         log(f"ComfyUI answering at {s['url']} after {time.time() - t0:.0f} s")
-    if s["backend"] == "sdk" and not proxy_up(s):
-        start_proxy(s, log)
+    if s["backend"] == "sdk":
+        _start_sdk_path(s, log)
     return status(s)
+
+
+def _start_sdk_path(s: dict, log) -> None:
+    """The proxy for the sdk backend. On native Windows a proxy that won't start, or an SDK that
+    can't reach ComfyUI through it, switches to direct HTTP (fallback.py) instead of failing."""
+    try:
+        if not proxy_up(s):
+            start_proxy(s, log)
+    except RuntimeError as e:
+        if not fallback.applies():
+            raise
+        fallback.record(str(e))
+        log(f"{fallback.NOTICE}: {e}")
+        return
+    if fallback.applies() and not fallback.check(s["sdk_url"], s["url"]):
+        log(f"{fallback.NOTICE}: {fallback.active()['reason']}")
 
 
 def _stream(path: Path, pos: int, on_line) -> int:

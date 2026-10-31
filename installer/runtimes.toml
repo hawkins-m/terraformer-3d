@@ -19,7 +19,7 @@ label = "ComfyUI on this computer"
 stage = "before-models"             # the model downloads go into its models folder
 when = ["component:comfyui"]
 command = ["scripts/install_comfyui.sh", "{comfyui.service.cwd}"]
-command_windows = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "windows/native_runtimes.ps1", "-Action", "comfyui", "-Target", "{comfyui.service.cwd}"]
+command_windows = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "windows/native_runtimes.ps1", "-Action", "comfyui", "-Target", "{comfyui.service.cwd}", "-ComfyUrl", "{tools.comfyui_portable_url}"]
 weight = 10
 [runtime.component]                 # offered only when no ComfyUI was found (asset_pipeline/installer.py)
 title = "Install ComfyUI (local)"
@@ -33,7 +33,7 @@ id = "comfy-api-proxy"
 label = "the Comfy API proxy"
 when = ["comfyui.backend=sdk"]
 command = ["scripts/comfy_api_proxy.sh", "install"]
-command_windows = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "windows/native_runtimes.ps1", "-Action", "proxy"]
+command_windows = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "windows/native_runtimes.ps1", "-Action", "proxy", "-ProxyVersion", "{tools.comfy_api_proxy_version}"]
 weight = 1
 
 [[runtime]]

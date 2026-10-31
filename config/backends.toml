@@ -12,6 +12,12 @@ venv = ""
 [tools]
 # Blender executable: env AP_BLENDER > the user config > "blender" on PATH.
 blender = "blender"
+# Versions and download URLs of the external tools the installer fetches, defined once here.
+# comfy-api-proxy version for scripts/comfy_api_proxy.sh and windows/native_runtimes.ps1
+# (PROXY_VERSION overrides it for the script):
+comfy_api_proxy_version = "0.1.6"
+# ComfyUI portable build (NVIDIA) that windows/native_runtimes.ps1 downloads on native Windows:
+comfyui_portable_url = "https://github.com/comfyanonymous/ComfyUI/releases/latest/download/ComfyUI_windows_portable_nvidia.7z"
 
 [comfyui]
 # The ComfyUI the pipeline uses (AP_COMFY_URL overrides).

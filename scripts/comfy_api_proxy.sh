@@ -7,8 +7,8 @@
 set -euo pipefail
 source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/ap_root.sh"
 ENV="$AP_ROOT/envs/comfy-api-proxy"
-VERSION="${PROXY_VERSION:-0.1.6}"
 here="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")"
+VERSION="${PROXY_VERSION:-$(python3 "$here/ap_config.py" tools.comfy_api_proxy_version)}"
 COMFYUI_URL="${COMFYUI_URL:-$(python3 "$here/ap_config.py" comfyui.url 2>/dev/null || echo http://127.0.0.1:8188)}"
 COMFY_PORTS="$(python3 "$here/ap_config.py" comfyui.ports 2>/dev/null || echo 8188)"
 PROXY_PORT="${PROXY_PORT:-8190}"

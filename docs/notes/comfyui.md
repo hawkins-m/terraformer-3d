@@ -32,8 +32,16 @@ The ComfyUI installs, launchers and service commands, and the comfy-sdk backend.
 ## Comfy SDK backend (verified 2026-10-15)
 - `AP_COMFY_BACKEND=httpx|sdk` (else `[comfyui] backend`; repo default `sdk`). This machine keeps
   `httpx` in `$AP_ROOT/backends.local.toml`, which is merged over `config/backends.toml`.
-- `sdk` = comfy-sdk 0.5.0 through comfy-api-proxy 0.1.6 (`scripts/comfy_api_proxy.sh`, own venv
+- `sdk` = comfy-sdk 0.5.0 through comfy-api-proxy (version in `[tools] comfy_api_proxy_version`, 0.1.6; `scripts/comfy_api_proxy.sh`, own venv
   `$AP_ROOT/envs/comfy-api-proxy`, port 8190: its default 8189 is the H3 instance here).
+- **Native Windows (beta)** defaults to `sdk` too, with an automatic fallback (`asset_pipeline/comfy/fallback.py`):
+  a proxy that isn't installed, won't start or doesn't answer, or an SDK that can't reach ComfyUI through it,
+  makes `connect()` return the httpx client. The reason goes to `$AP_ROOT/logs/comfy-backend.log`, and
+  "SDK path unavailable, using direct HTTP" shows in the Status box (`comfy_notice`, `/api/comfy` `notice`) and in
+  `ap doctor`. Every `connect()` re-probes, so the sdk path returns by itself. Not applied on Linux, nor
+  when `AP_COMFY_BACKEND` is set (the live parity test forces a backend).
+- Tool versions and URLs the installer fetches live in `[tools]` of `config/backends.toml`
+  (`comfy_api_proxy_version`, `comfyui_portable_url`); `runtimes.toml` passes them to `windows/native_runtimes.ps1`.
 - The proxy forwards `Job.cancel()` to `POST /api/jobs/{id}/cancel`, which ComfyUI 0.24 lacks:
   the job keeps running. `SdkComfyClient.cancel_prompt` then does the /queue delete or
   /interrupt itself (verified live: interrupted, job canceled 3 s later).

@@ -61,7 +61,18 @@ Tick each step. When one fails, stop and send what's listed under [If a step fai
 - [ ] On the **Frames** tab, click **Generate missing frames** (or generate for one shot).
 - Expected: two concept frames for the shot after a minute or two.
 
-## 7. Unreal build
+## 7. Which ComfyUI backend ran
+
+Terraformer talks to ComfyUI through the official Comfy SDK (the "sdk" backend) when it can, and
+switches to plain HTTP by itself when it can't. Do this with ComfyUI running (after step 6).
+
+- [ ] In the Status box (left side of the app), look for the line **SDK path unavailable, using
+      direct HTTP**. Then run `ap doctor` again and look for the same line under ComfyUI.
+- Report which one you had: **no notice** = the SDK path ran; **notice shown** = direct HTTP ran
+  (everything should still work, but tell us). Copy the reason from
+  `%LOCALAPPDATA%\terraformer\logs\comfy-backend.log` (that file only exists after a fallback).
+
+## 8. Unreal build
 
 - [ ] Close the Unreal Editor if it's open.
 - [ ] On the **Unreal** tab, click **Create UE project**, then **Build city in Unreal**.
@@ -74,7 +85,7 @@ Tick each step. When one fails, stop and send what's listed under [If a step fai
 Send these (a zip is fine):
 
 1. Which step, what you clicked, and what you saw (a screenshot of the message helps).
-2. The output of `ap doctor` (copy the Command Prompt text).
+2. The output of `ap doctor` and which backend ran (SDK or direct HTTP, step 7) (copy the Command Prompt text).
 3. The log folder: `%LOCALAPPDATA%\terraformer\logs` (all of it; it has the app, installer and
    ComfyUI logs).
 4. For a Blender or Unreal step: the newest `*.log` files in

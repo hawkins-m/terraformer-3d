@@ -221,8 +221,7 @@ def detect() -> dict[str, str]:
     else:
         d["comfy_url"] = cur_url
     d["comfy_backend"] = config.get("comfyui.backend") or "sdk"
-    if oscompat.IS_WINDOWS and not config.user().get("comfyui", {}).get("backend"):
-        d["comfy_backend"] = "httpx"           # native Windows (beta): comfy-api-proxy is untested there
+    # native Windows keeps the sdk default too: comfy/fallback.py switches to direct HTTP when it can't run
     d["sdk_url"] = config.get("comfyui.sdk_url") or "http://127.0.0.1:8190"
     if Path("~/ComfyUI/main.py").expanduser().is_file() and not config.user().get("comfyui", {}).get("service", {}).get("cwd"):
         d["comfy_cwd"] = "~/ComfyUI"

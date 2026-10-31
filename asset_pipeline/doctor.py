@@ -15,6 +15,7 @@ from dataclasses import asdict, dataclass, field
 import httpx
 
 from . import config, gpu, needs, oscompat, preflight, setup, wsl
+from .comfy import fallback
 
 # feature -> what it is in plain words (the UI says "<what> needs <check>")
 FEATURES = {
@@ -141,7 +142,10 @@ def check_comfy() -> list[Check]:
         name = backend_name()
     except ValueError as e:
         return [_c("comfy", "ComfyUI", False, str(e), "Set the backend to sdk or httpx in `ap setup`.", ["comfy"])]
-    if name == "sdk" and not setup.proxy_installed():
+    no_proxy = name == "sdk" and not setup.proxy_installed()
+    if no_proxy and fallback.applies():                 # native Windows: direct HTTP, with a notice (below)
+        fallback.record("comfy-api-proxy isn't installed")
+    elif no_proxy:
         out.append(_c("comfy_proxy", "Comfy API proxy (sdk backend)", False, "comfy-api-proxy isn't installed",
                       "scripts/comfy_api_proxy.sh install   (or switch the backend to httpx in `ap setup`)", ["comfy"]))
     up = setup._probe_comfy(c["url"], timeout=2.0)
@@ -157,14 +161,17 @@ def check_comfy() -> list[Check]:
                           f"launch it: {launch['message']}",
                           "Install ComfyUI (README step 2) and set its launch command in `ap setup`, or start it "
                           "yourself.", ["comfy"]))
-        return out
+        return out + _sdk_notice()
     ver = (up.get("system") or {}).get("comfyui_version", "?")
-    if out:                                           # no proxy: ComfyUI itself answers; the proxy is the fix above
-        out.append(_c("comfy", f"ComfyUI ({name})", True, f"ComfyUI {ver} answers at {c['url']}"))
+    if no_proxy:                                      # no proxy: ComfyUI itself answers; the proxy is the fix above
+        out.append(_c("comfy", f"ComfyUI ({'httpx' if fallback.active() else name})", True,
+                      f"ComfyUI {ver} answers at {c['url']}"))
         out.append(check_comfy_models(c["url"]))
-        return out
+        return out + _sdk_notice()
     try:
         connect(timeout_s=5).health()
+        if fallback.active():                           # connect() fell back to direct HTTP
+            name = "httpx"
         via = f" through the proxy at {c.get('sdk_url')}" if name == "sdk" else ""
         out.append(_c("comfy", f"ComfyUI ({name})", True, f"ComfyUI {ver} at {c['url']}{via}"))
     except (ComfyError, ValueError, httpx.HTTPError) as e:
@@ -177,7 +184,17 @@ def check_comfy() -> list[Check]:
             out.append(_c("comfy", f"ComfyUI ({name})", False, msg, "Check the address in `ap setup`.", ["comfy"]))
         return out
     out.append(check_comfy_models(c["url"]))
-    return out
+    return out + _sdk_notice()
+
+
+def _sdk_notice() -> list[Check]:
+    """Native Windows: the sdk backend fell back to direct HTTP (comfy/fallback.py), and why."""
+    a = fallback.active()
+    if not a:
+        return []
+    return [_c("comfy_sdk_fallback", "Comfy SDK path", True, f"{fallback.NOTICE} ({a.get('reason', '')})",
+               "Start ComfyUI (the proxy starts with it), or rerun windows\\install.bat to install the proxy. "
+               "Reason is logged in logs\\comfy-backend.log.", ["comfy"], warn=True)]
 
 
 def _comfy_fix(files: list[str]) -> str:

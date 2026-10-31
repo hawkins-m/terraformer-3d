@@ -378,6 +378,7 @@ async function comfyDialog() {
     body.innerHTML = `<div class="form"><span class="lbl">URL:</span><code>${esc(s.url || "")}</code>
         <span class="lbl">State:</span><span class="${s.up ? "status-ok" : svc ? "" : "error"}" id="comfy-dlg-state">${esc(state)}</span>
         ${s.device ? `<span class="lbl">Device:</span><span>${esc(s.device)}</span>` : ""}
+        ${s.notice ? `<span class="lbl">Backend:</span><span class="hint">${esc(s.notice)}</span>` : ""}
         ${svc && svc.note ? `<span class="lbl">Log:</span><span class="mono">${esc(svc.note)}</span>` : ""}</div>
       ${!s.up && !svc && s.start_error ? `<p class="error">Last start failed: ${esc(s.start_error)}</p>` : ""}
       ${!s.up && !svc && !s.start_error && s.error ? `<p class="hint">${esc(s.error)}</p>` : ""}
@@ -428,8 +429,9 @@ function renderComfyControls() {
   const up = statusData && statusData.comfy, svc = data ? data.jobs.find(j => j.lane === "service" && isActive(j)) : null;
   const known = statusData && statusData.comfy != null;
   const want = !known ? "" : svc ? `busy:${svc.kind}` : up ? "up" : `down:${statusData.comfy_error || ""}`;
-  if (box.dataset.state === want) return;
-  box.dataset.state = want; box.replaceChildren();
+  const notice = known ? statusData.comfy_notice || "" : "";
+  if (box.dataset.state === want + "|" + notice) return;
+  box.dataset.state = want + "|" + notice; box.replaceChildren();
   if (!known) return;
   const btn = (label, fn) => { const b = document.createElement("button"); b.type = "button"; b.className = "small";
     b.textContent = label; b.onclick = fn; box.append(b); return b; };
@@ -446,6 +448,7 @@ function renderComfyControls() {
       s.textContent = "last start failed"; box.append(s);
     }
   }
+  if (notice) { const n = document.createElement("span"); n.className = "hint"; n.textContent = notice; box.append(n); }
 }
 async function vlmDialog() {
   const d = dialog({title: "Vision LLM status", body: `<p>Checking…</p>`, buttons: [

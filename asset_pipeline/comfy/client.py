@@ -181,5 +181,9 @@ def connect(timeout_s: float | None = None) -> ComfyClient:
     t = timeout_s if timeout_s is not None else c.get("timeout_s", 900)
     if backend_name() == "httpx":
         return ComfyClient(c["url"], t)
+    sdk_url = os.environ.get("AP_COMFY_SDK_URL") or c.get("sdk_url")
+    from . import fallback
+    if fallback.applies() and not fallback.check(sdk_url):      # native Windows: direct HTTP when sdk can't run
+        return ComfyClient(c["url"], t)
     from .sdk_client import SdkComfyClient
-    return SdkComfyClient(c["url"], os.environ.get("AP_COMFY_SDK_URL") or c.get("sdk_url"), t)
+    return SdkComfyClient(c["url"], sdk_url, t)
