@@ -63,6 +63,7 @@ def test_comfyui_not_running_is_a_note_while_it_can_be_started(box, monkeypatch,
     assert _by(rep)["comfy"]["level"] == "fail" and not rep["features"]["comfy"]["ok"]
 
 
+@pytest.mark.posix        # native Windows falls back to direct HTTP instead (tests/test_comfy_fallback.py)
 def test_sdk_needs_the_proxy_installed_but_not_running(box, monkeypatch):
     monkeypatch.setattr(setup, "proxy_installed", lambda: None)
     rep = doctor.report()
