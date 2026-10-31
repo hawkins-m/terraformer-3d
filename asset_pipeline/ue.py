@@ -332,6 +332,34 @@ def run_script(store: ProjectStore, script: str, args: dict, what: str) -> dict:
     return rep
 
 
+def build_hlods(store: ProjectStore, map_: str) -> dict:
+    """A World Partition level's HLODs (a large / metro city: ap_import puts its slots in an
+    instancing HLOD layer), with the engine's WorldPartitionHLODsBuilder commandlet, headless.
+    Returns {ok, seconds, actors (HLOD actors in the level after it), log_errors}."""
+    up = init(store)
+    log = work_dir(store) / "hlods.log"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.unlink(missing_ok=True)
+    cmd = [str(editor_cmd()), str(up), map_.split(".")[0], "-run=WorldPartitionBuilderCommandlet",
+           "-Builder=WorldPartitionHLODsBuilder", "-AllowCommandletRendering", "-unattended", "-nosplash",
+           "-NoTraceServer", "-stdout", "-FullStdOutLogOutput", "-NoLogTimes"]
+    t0 = time.time()
+    out = {"ok": True}
+    try:
+        blender.run_logged(cmd, log, "UE HLOD build", cwd=up.parent, track="headless Unreal")
+    except RuntimeError as e:   # exits 1 whenever anything logged an error: judged by its summary below
+        out["error"] = str(e).splitlines()[0]
+    text = log.read_text(errors="replace") if log.exists() else ""
+    built = re.findall(r"#### Built (\d+) HLOD actors", text)       # the builder's own summary line
+    out["actors"] = int(built[-1]) if built else None
+    out["ok"] = bool(out["actors"])
+    if not out["ok"] and "error" not in out:
+        out["error"] = "the builder made no HLOD actors" if built else "no HLOD builder summary in the log"
+    out["seconds"] = round(time.time() - t0, 1)
+    out["log_errors"] = log_errors(log)
+    return out
+
+
 def log_errors(log: Path, limit: int = 20) -> list[str]:
     """Distinct error lines of an editor log (engine noise about the trace server excluded)."""
     seen = []
@@ -534,13 +562,20 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
     on Vulkan adapter `adapter` (0 = GPU 0; 1 = GPU 1, ComfyUI's: only while it's down), or the
     other one when pick_gpu finds `adapter` busy. The report says which ("adapter")."""
     adapter = pick_gpu(adapter)
-    up = init(store)
     work = work_dir(store)
     report = work / f"{name}_report.json"
     report.unlink(missing_ok=True)
     args_file = work / f"{name}_args.json"
     write_json(args_file, {"map": map_, "out_dir": str(out), "report": str(report), "timeout_s": timeout_s,
                            "shots": shots})
+    rep = _full_editor(store, "ap_shot_render.py", args_file, report, work / f"{name}.log", adapter, "UE shot render")
+    rep["adapter"] = adapter
+    return rep
+
+
+def _full_editor(store: ProjectStore, script: str, args_file: Path, report: Path, log: Path, adapter: int, what: str) -> dict:
+    """Run unreal/<script> in the full editor offscreen on Vulkan adapter `adapter`; its report."""
+    up = init(store)
     editor = full_editor(editor_cmd())
     cmd = [str(editor), str(up), "-RenderOffscreen", f"-graphicsadapter={adapter}", "-unattended", "-nosplash", "-NoTraceServer",
            # -ExecutePythonScript would quit the editor right after the script returns (before
@@ -548,13 +583,12 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
            # textures build synchronously on load: asynchronously, freshly imported ones render as
            # the grey placeholder checker (and a tint read off their lowest mip goes wrong)
            "-NoSound", "-dpcvars=Editor.AsyncTextureCompilation=0",
-           f"-ExecCmds=py {oscompat.short_path(SCRIPTS / 'ap_shot_render.py')}", "-stdout",
+           f"-ExecCmds=py {oscompat.short_path(SCRIPTS / script)}", "-stdout",
            "-FullStdOutLogOutput", "-NoLogTimes"]
     os.environ["AP_UE_ARGS"] = str(args_file)
-    log = work / f"{name}.log"
     log.unlink(missing_ok=True)
     try:
-        blender.run_logged(cmd, log, "UE shot render", cwd=up.parent, track="headless Unreal")
+        blender.run_logged(cmd, log, what, cwd=up.parent, track="headless Unreal")
     except RuntimeError:
         pass  # judged by the report
     finally:
@@ -562,8 +596,39 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
     rep = read_json(report)
     if rep is None:
         tail = log.read_text(errors="replace").splitlines()[-25:] if log.exists() else []
-        raise RuntimeError("UE shot render wrote no report:\n" + "\n".join(tail))
+        raise RuntimeError(f"{what} wrote no report:\n" + "\n".join(tail))
     rep["log_errors"] = log_errors(log)
+    return rep
+
+
+def downtown_camera(store: ProjectStore) -> dict:
+    """A viewport camera over downtown for ap_frame_rate: 700 m south of the city's main centre,
+    300 m above its ground, looking at it (UE cm and degrees; Blender's Y is UE's -Y)."""
+    import math
+    from . import city
+    from .greybox import Heights
+    from .stages import sw_site
+    lay = sw_site.load_layout(store)
+    cx, cy = city.main_centre(lay.city)
+    h = sw_site.site_heights(store)
+    z = Heights(h, lay.terrain.extent_m)(cx, cy) if h is not None else 0.0
+    back, up = 700.0, 300.0
+    return {"location": [cx * 100, -(cy - back) * 100, (z + up) * 100],
+            "rotation": [-math.degrees(math.atan2(up, back)), -90.0, 0.0]}
+
+
+def frame_rate(store: ProjectStore, adapter: int = 0, measure_s: int = 20, timeout_s: int = 3600) -> dict:
+    """The editor's frame rate over downtown in the city level (ap_frame_rate.py), the full editor
+    offscreen on Vulkan adapter `adapter` (pick_gpu: the other one when it's busy)."""
+    adapter = pick_gpu(adapter)
+    work = work_dir(store)
+    work.mkdir(parents=True, exist_ok=True)
+    report = work / "ap_frame_rate_report.json"
+    report.unlink(missing_ok=True)
+    args_file = work / "ap_frame_rate_args.json"
+    write_json(args_file, {"map": city_map(store).split(".")[0], "report": str(report), "camera": downtown_camera(store),
+                           "measure_s": measure_s, "timeout_s": timeout_s})
+    rep = _full_editor(store, "ap_frame_rate.py", args_file, report, work / "ap_frame_rate.log", adapter, "UE frame rate")
     rep["adapter"] = adapter
     return rep
 

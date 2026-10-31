@@ -901,6 +901,26 @@ def base_placements(store: ProjectStore, gb: dict) -> tuple[list[dict], dict, di
     return cands + reps, entries, buildings, assign
 
 
+def far_slots(store: ProjectStore, gb: dict) -> tuple[set[str], float | None]:
+    """A large or metro city's detail by distance (city_size.detail_radius): the slots lying wholly
+    farther than the radius from every shot camera and from downtown. Their library builds (TRELLIS
+    models included) aren't placed, so they keep their stand-ins. A standard city: none."""
+    from . import city, city_size
+    from .stages import sw_site
+    lay = sw_site.load_layout(store)
+    radius = city_size.detail_radius(lay.city)
+    if radius is None:
+        return set(), None
+    near = np.array([[s["matrix"][0][3], s["matrix"][1][3]] for s in gb["shots"]] + [list(city.main_centre(lay.city))], float)
+    far = set()
+    for s in gb["slots"]:
+        lo, hi = np.asarray(s["bbox"][0][:2], float), np.asarray(s["bbox"][1][:2], float)
+        gap = np.maximum(np.abs(near - (lo + hi) / 2) - (hi - lo) / 2, 0)      # each point to the slot's box
+        if float(np.min(np.hypot(gap[:, 0], gap[:, 1]))) > radius:
+            far.add(s["id"])
+    return far, radius
+
+
 def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | None = None, fitter=None,
          log=print, unplaced: dict | None = None) -> dict:
     """{placed (with attached pieces), replaced, held, entries (materials), missing_children,
@@ -928,7 +948,12 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     kit_pl, kit_reps = kit_assembly.placements(store, gb, index, bounds, fitter)
     for p in kit_pl:
         entries[p["entry"]] = (Path("3d/library") / p["entry"] / "procedural" / "job.json").as_posix()
-    placed, replaced, held = choose(singles + kit_pl, {sid: len(v) for sid, v in buildings.items()}, ok)
+    far, radius = far_slots(store, gb)
+    beyond = lambda p: p.get("slot") in far  # noqa: E731
+    why_far = {"why": f"beyond the detail radius ({radius:.0f} m from a shot camera or downtown): the stand-in stays"} if far else {}
+    cands = singles + kit_pl
+    placed, replaced, held = choose([p for p in cands if not beyond(p)], {sid: len(v) for sid, v in buildings.items()}, ok)
+    held += [p | why_far for p in cands if beyond(p)]
     ground, rule = Ground.from_project(store), settings(store).ground_rule
     ground_all(store, placed, ground, rule, bounds)          # parents first: their pieces follow them
     kids, kid_entries, missing = assembly.child_placements(store, placed)
@@ -938,6 +963,9 @@ def plan(store: ProjectStore, gb: dict, use_active: bool = False, index: dict | 
     ground_all(store, kids + props + extra, ground, rule, bounds)
     drop: dict[str, set] = {}
     for p in extra + props:                       # one model per prop entry: all its pieces, or none
+        if beyond(p):
+            held.append(p | why_far)
+            continue
         if not ok(p["entry"]) or replaced.get(p["slot"]) == "whole":
             held.append(p | ({"why": "not approved"} if not ok(p["entry"]) else {"why": "its slot is replaced whole", "superseded": True}))
             continue

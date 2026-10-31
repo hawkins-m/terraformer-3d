@@ -174,7 +174,7 @@ def plan(layout: SiteLayout, P, tile: np.ndarray) -> Background:
     B.half = -B.far["x0"]
     half = B.half
     x0, y0, x1, y1 = c.bounds
-    city = shp_box(x0, y0, x1, y1).buffer(CITY_CLEAR_M)
+    city = shp_box(x0, y0, x1, y1).buffer(CITY_CLEAR_M, join_style="mitre")
     # highways and rivers, carried on from the plan
     for w in P.ways:
         if w.kind == "highway":

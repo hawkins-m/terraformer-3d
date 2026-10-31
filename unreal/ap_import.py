@@ -13,9 +13,13 @@ What it builds (all under /Game/AP):
     Materials/Instances/MI_mat_<id>          one instance per layout material (stone, brick...),
                                              applied to the slots tagged with it
     Library/<id>/SM_<id>, MI_<id>            one Nanite static mesh + material instance per asset
-    Maps/<Name>                              the level:
+    Maps/<Name>                              the level (a large / metro city, manifest "size":
+                                             Maps/<Name><Size>, a World Partition level whose
+                                             slots are in its <Map>_HLODLayer_Instanced, an instancing
+                                             HLOD layer; `ap ue build` then builds its HLODs):
         AP_<district>_<slot>   one actor per slot, an InstancedStaticMeshComponent
-                               "ISM_<asset>" per asset it uses (instances relative to it)
+                               "ISM_<asset>" per asset it uses (instances relative to it;
+                               hierarchical ones with manifest "instancing": "hism")
         AP_Shot_<shot>         one CineCameraActor per shot (filmback + focal length)
         AP_Env_*               sun, sky light, atmosphere, fog (created once if missing); with
                                args "lighting" (look.city_lighting) also post (white balance,
@@ -343,11 +347,11 @@ def ism_components(actor):
     return {c.get_name(): c for c in actor.get_components_by_class(unreal.InstancedStaticMeshComponent)}
 
 
-def add_ism(actor, name):
+def add_ism(actor, name, cls=None):
     sds = unreal.get_engine_subsystem(unreal.SubobjectDataSubsystem)
     root = sds.k2_gather_subobject_data_for_instance(actor)[0]
     handle, fail = sds.add_new_subobject(
-        unreal.AddNewSubobjectParams(parent_handle=root, new_class=unreal.InstancedStaticMeshComponent))
+        unreal.AddNewSubobjectParams(parent_handle=root, new_class=cls or unreal.InstancedStaticMeshComponent))
     if str(fail):
         raise RuntimeError(f"{actor.get_actor_label()}: can't add {name}: {fail}")
     sds.rename_subobject(handle, unreal.Text(name))
@@ -390,7 +394,36 @@ def resets(slot_id: str, args) -> bool:
     return bool(args.get("reset_layout")) and (only is None or slot_id in only)
 
 
+def hlod_layer(map_):
+    """The instancing HLOD layer a new World Partition level comes with (<Map>_HLODLayer_Instanced,
+    its default): its HLODs are the slots' own meshes instanced per cell, cheap to build headless.
+    A layer made by hand here was "invalid" to the HLOD builder (0 HLOD actors, 2026-10-31)."""
+    path = f"{map_}_HLODLayer_Instanced"
+    return eal.load_asset(path) if eal.does_asset_exist(path) else None
+
+
+def partitioned(man, eas, report):
+    """A World Partition level: the slots and library builds in its instancing HLOD layer, the
+    environment and the shot cameras always loaded (not streamed with cells)."""
+    layer = hlod_layer(man["map"])
+    if layer is None:
+        report["warnings"].append(f"no {man['map']}_HLODLayer_Instanced: the slots keep the world's default HLOD layer")
+    n = 0
+    for a in eas.get_all_level_actors():
+        tg = tagged(a)
+        if tg.get("ap:source") not in ("pipeline", "pipeline-lib"):
+            continue
+        if "ap:env" in tg or "ap:shot" in tg:
+            a.set_editor_property("is_spatially_loaded", False)
+        elif layer is not None:
+            a.set_editor_property("hlod_layer", layer)
+            n += 1
+    report["world_partition"] = {"hlod_layer": layer.get_path_name() if layer else None, "actors_in_hlod": n}
+
+
 def place_slots(man, meshes, eas, by_tag, args, report, mats=None):
+    # a large / metro city: hierarchical instances (per-cluster culling and LODs) for every stand-in
+    cls = unreal.HierarchicalInstancedStaticMeshComponent if man.get("instancing") == "hism" else None
     for s in man["slots"]:
         actor = by_tag.get(("ap:id", s["id"]))
         if actor is None:
@@ -407,8 +440,12 @@ def place_slots(man, meshes, eas, by_tag, args, report, mats=None):
         actor.set_folder_path(s["folder"])
         have = ism_components(actor)
         want = {f"ISM_{c['asset']}": c for c in s["components"]}
+        if cls is not None:            # HLODs take static components only (movable: 0 HLOD actors, 2026-10-31)
+            actor.root_component.set_mobility(unreal.ComponentMobility.STATIC)
         for name, c in want.items():
-            ism = have.get(name) or add_ism(actor, name)
+            ism = have.get(name) or add_ism(actor, name, cls)
+            if cls is not None:
+                ism.set_mobility(unreal.ComponentMobility.STATIC)
             ism.set_static_mesh(meshes[c["asset"]])
             ism.clear_instances()
             ism.add_instances([tr(t) for t in c["instances"]], False, False)
@@ -903,7 +940,9 @@ def main(args):
     # the level is loaded first, so replacing a mesh updates every reference to it
     if eal.does_asset_exist(man["map"]):
         les.load_level(man["map"])
-    elif not les.new_level(man["map"]):
+        import ap_wp
+        report["actors_loaded"] = ap_wp.load_all_actors()   # a World Partition level loads none by itself
+    elif not les.new_level(man["map"], is_partitioned_world=bool(man.get("world_partition"))):
         raise RuntimeError(f"can't create level {man['map']}")
     master = master_material()
     meshes = {}
@@ -962,8 +1001,17 @@ def main(args):
         else:
             report["prune_refused"] = len(orphans)
     library_readback(man, eas, report)
+    if man.get("world_partition"):
+        partitioned(man, eas, report)
     eal.save_directory("/Game/AP", only_if_is_dirty=False, recursive=True)
     les.save_current_level()
+    if man.get("world_partition"):
+        # each actor is its own package (__ExternalActors__); in the commandlet, changes to existing
+        # ones (instances, HLOD layer) aren't marked dirty and save_current_level skips them: save them all
+        pkgs = {a.get_outermost() for a in eas.get_all_level_actors()
+                if tagged(a).get("ap:source") in ("pipeline", "pipeline-lib")}
+        unreal.EditorLoadingAndSavingUtils.save_packages(list(pkgs), False)
+        report["world_partition"]["actor_packages_saved"] = len(pkgs)
     report["checks"] = checks(man, meshes, eas)
     report["checks"]["nanite_off"] += [k for k, m in lib_meshes.items() if not m.get_editor_property("nanite_settings").enabled]
     if report.get("terrain_outer"):              # the outer ring stands in for that slot's greybox

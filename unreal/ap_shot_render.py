@@ -12,11 +12,14 @@ Then each AP_Shot_<id> camera is captured with AutomationLibrary.take_high_res_s
 """
 import json
 import os
-import subprocess
+import sys
 import time
 import traceback
 
 import unreal
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # its sibling scripts
+from ap_shaders import compiling  # noqa: E402
 
 args = json.load(open(os.environ["AP_UE_ARGS"]))
 state = {"t0": time.time(), "quiet_since": None, "task": None, "current": None, "busy": False,
@@ -38,15 +41,6 @@ def finish(error=None):
         json.dump(report, f, indent=1)
     log(f"done ok={report['ok']}")
     unreal.SystemLibrary.quit_editor()
-
-
-def compiling():
-    if os.name == "nt":          # native Windows: tasklist names the workers' image
-        r = subprocess.run(["tasklist", "/FI", "IMAGENAME eq ShaderCompileWorker.exe", "/FO", "CSV", "/NH"],
-                           capture_output=True, text=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-        return "ShaderCompileWorker" in (r.stdout or "")
-    r = subprocess.run(["pgrep", "-c", "-f", "ShaderCompileWorker"], capture_output=True, text=True)
-    return int((r.stdout or "0").strip() or 0) > 0
 
 
 def cameras():

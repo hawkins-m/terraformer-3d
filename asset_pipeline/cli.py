@@ -1430,6 +1430,12 @@ def cmd_ue(a) -> None:
             print(f"failed: {s}")
         if rep.get("error"):
             print(f"error: {rep['error']}")
+    elif a.action == "fps":
+        rep = ue.frame_rate(store, adapter=a.gpu)
+        if rep.get("error"):
+            print(f"error: {rep['error']}")
+        print(f"editor over downtown ({ue.city_map(store).split('.')[0]}, GPU {rep['adapter']}): {rep.get('fps_mean')} fps mean, "
+              f"{rep.get('fps_p5')} fps at the 95th-percentile frame ({rep.get('frames')} frames)")
     elif a.action == "look":
         from . import look
         if len(a.shots) != 1:
@@ -2183,10 +2189,12 @@ def main(argv: list[str] | None = None) -> None:
     p.set_defaults(fn=cmd_library_remove_ground)
     p = sub.add_parser("ue", help="world mode phase 5: Unreal Engine 5.8 project, import, renders")
     p.add_argument("action", choices=["build", "init", "import", "stale", "render", "look", "pull-layout", "backup",
-                                      "scan-assets"],
+                                      "scan-assets", "fps"],
                    help="build: the whole city headless (backup, export with library builds, terrain, dressing, import, "
                         "light, optional --render; keeps hand moves unless --reset-layout); scan-assets: find Megascans "
-                        "in the UE project and propose the dressing library (--apply saves it)")
+                        "in the UE project and propose the dressing library (--apply saves it); fps: the editor's frame "
+                        "rate over downtown (full editor offscreen, --gpu)")
+    p.add_argument("--gpu", type=int, default=0, metavar="N", help="fps: the Vulkan adapter (default 0; the other when busy)")
     p.add_argument("project")
     p.add_argument("shots", nargs="*", help="render: only these shots; look: the look preset's name "
                                             "(site/look_tests/NAME.json: a shot rebuilt in a level of its own)")

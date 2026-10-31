@@ -143,6 +143,9 @@ def manifest(gb: dict, index: dict, layout=None, project: str = "") -> dict:
            "sequence": {"name": f"LS_{name}", "fps": FPS, "seconds_per_shot": SECONDS_PER_SHOT,
                         "shots": [s["id"] for s in shots]},
            "map": f"/Game/AP/Maps/{name}"}
+    size = layout.city.size if layout is not None and layout.city is not None else "standard"
+    if size != "standard":     # a large / metro city (city_size): its own World Partition level, HISM, HLODs
+        out.update(map=f"/Game/AP/Maps/{name}{size.title()}", size=size, instancing="hism", world_partition=True)
     if layout is not None:
         out["materials"] = [{"id": m.id, "words": m.words, **material_pbr(m.words)} for m in layout.materials]
         t = layout.terrain

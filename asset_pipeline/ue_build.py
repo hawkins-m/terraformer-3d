@@ -72,7 +72,7 @@ def render_gpu(comfy_up: bool, vram: dict[int, float]) -> tuple[int | None, str]
 # the stages the UI shows (Jobs panel), in run order, and the build step each one covers
 STAGES = ["backup", "export", "terrain", "dressing", "lighting", "import", "check"]
 STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "landscape": "terrain", "dressing": "dressing", "lighting": "lighting",
-            "level read": "import", "import": "import", "check": "check", "render": "render"}
+            "level read": "import", "import": "import", "hlods": "import", "check": "check", "render": "render"}
 
 
 def generated_landscape(store: ProjectStore, log=print) -> dict:
@@ -248,6 +248,11 @@ def _build(store: ProjectStore, use_active: bool = False, reset_layout: bool = F
                                             expect=expect, reset_only=reset_only, lighting=light,
                                             dressing=s7_export.export_dir(store) / "dressing.json"))
     warnings += rep.get("warnings", [])
+    hlod = None
+    if man.get("world_partition") and rep.get("ok") is not False:   # a large / metro city's level: its HLODs
+        hlod = step("hlods", lambda: ue.build_hlods(store, man["map"]))
+        if not hlod["ok"]:
+            warnings.append(f"HLOD build failed: {hlod.get('error') or '; '.join(hlod['log_errors'][:2])}")
     if rep.get("prune_refused") is not None:
         warnings.append(f"prune refused: {rep['prune_refused']} orphans, expected {expect}")
     if rep.get("lighting_kept"):
@@ -290,11 +295,12 @@ def _build(store: ProjectStore, use_active: bool = False, reset_layout: bool = F
            "shots": None if shots is None else len(shots.get("shots", [])), "warnings": warnings,
            "placement": placement, "active_models": lib.get("active_models", []), "stretch_fits": lib.get("stretch_fits", []),
            "unplaced": lib.get("unplaced"),
-           "dressing": dress.summary(drec, rep),
+           "dressing": dress.summary(drec, rep), "size": man.get("size", "standard"),
+           "hlods": None if hlod is None else {k: hlod.get(k) for k in ("ok", "seconds", "actors")},
            "steps": steps, "seconds": round(time.time() - t0, 1)}
     _record_times(store, steps, lib, rep)
     store.log_run({"stage": "ue.build", **{k: v for k, v in out.items() if k not in ("warnings", "held_entries", "placement", "active_models", "stretch_fits",
-                                                                                    "dressing", "unplaced")},
+                                                                                    "dressing", "unplaced", "hlods")},
                    "unplaced_swapped": None if out["unplaced"] is None else out["unplaced"]["placed"],
                    "placement_ok": None if placement is None else placement["ok"]})
     return out

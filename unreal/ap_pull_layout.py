@@ -5,10 +5,14 @@ Writes every actor tagged ap:id / ap:shot / ap:env with its label, tags, folder 
 transform ({"loc" cm, "rot" [roll, pitch, yaw], "scale"}); cameras add their lens.
 """
 import json
+import os
 import sys
 import traceback
 
 import unreal
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # its sibling scripts
+import ap_wp  # noqa: E402
 
 
 def transform(a):
@@ -22,6 +26,7 @@ def main(args):
     les = unreal.get_editor_subsystem(unreal.LevelEditorSubsystem)
     if not les.load_level(args["map"]):
         raise RuntimeError(f"can't load {args['map']}")
+    ap_wp.load_all_actors()               # a World Partition level (a large / metro city)
     eas = unreal.get_editor_subsystem(unreal.EditorActorSubsystem)
     out = []
     for a in eas.get_all_level_actors():
