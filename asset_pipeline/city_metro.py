@@ -28,7 +28,7 @@ import shapely.prepared
 from shapely.geometry import LineString, Point, Polygon
 from shapely.ops import unary_union
 
-from . import city
+from . import city, city_size
 from .schema import CitySpec, SiteLayout, TerrainSpec
 
 SCALE_K = 0.62          # the density's half-life distance, x half the bounds' short side
@@ -509,7 +509,7 @@ def cap_towers(P, c: CitySpec) -> None:
         b = max(near, key=lambda b: b.h)
         b.h += 1.3 * hi - b.h
     tall = sorted((b for b in P.buildings if b.kind == "tower" and b.h > 12 * c.storey_m), key=lambda b: -b.h)
-    for b in tall[TOWER_CAP:]:
+    for b in tall[int(TOWER_CAP * city_size.factor(c)):]:
         b.h = 11 * c.storey_m + 0.3
 
 
@@ -666,14 +666,19 @@ def large_parks(c: CitySpec, f) -> list[Polygon]:
     u, _ = axes(c, f.t)
     inland = math.degrees(math.atan2(-u[1], -u[0]))
     want = int(rng.integers(2, 5))
+    k = city_size.factor(c)
+    if k != 1:                        # a large / metro city (city_size): more of them, a little bigger
+        want = int(round(want * k * k))
     rivers_ = unary_union([ln.buffer(w / 2 + BANK_GREEN_M) for ln, w in river_lines(c, f.t)]) if c.nodes else Polygon()
     out: list[Polygon] = []
-    for _ in range(60):
+    for _ in range(60 if k == 1 else int(60 * k * k)):
         if len(out) >= want:
             break
         a = (inland + rng.uniform(-80, 80)) if coast(f.t) != "none" else rng.uniform(0, 360)
         p = C + rng.uniform(0.45, 1.15) * S * city._dir(a)
         w, d = rng.uniform(300, 480), rng.uniform(240, 380)
+        if k != 1:
+            w, d = w * math.sqrt(k), d * math.sqrt(k)
         q = city._rect(float(p[0]), float(p[1]), w, d, c.preset.grid_deg)
         if (math.dist(p, C) < downtown_r(c) + 0.6 * max(w, d)
                 or any(math.dist(p, n.center) < n.radius + 0.6 * max(w, d) + 40 for n in c.nodes)

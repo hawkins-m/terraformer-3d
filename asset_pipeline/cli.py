@@ -587,13 +587,29 @@ def cmd_site_roll(a) -> None:
         r = city_roll.step(store, -1 if a.step == "previous" else 1)
         print(f"roll {r['pos'] + 1} of {r['count']}: seed {r['seed']}, {r['stats']['buildings']} buildings")
         return
-    r = city_roll.roll(store, a.seed, keep, preset=a.preset, layout_seed=a.layout_seed, keep_shape=a.keep_shape)
+    r = city_roll.roll(store, a.seed, keep, preset=a.preset, layout_seed=a.layout_seed, keep_shape=a.keep_shape,
+                       size=a.size)
     print(f"rolled a city: seed {r['seed']}{f' (keeping {', '.join(r['keep'])})' if r['keep'] else ''}, "
           f"{r['stats']['buildings']} buildings{f', {r['tries']} tries' if r['tries'] > 1 else ''}; "
           f"plan {city_roll.rolls_path(store).parent / 'city_plan.png'}")
     for w in r["stats"]["warnings"]:
         print("warning:", w)
-    print(f"reproduce it: ap site roll {a.project} --seed {r['seed']}" + (f" --keep {','.join(r['keep'])}" if r["keep"] else ""))
+    print(f"reproduce it: ap site roll {a.project} --seed {r['seed']}" + (f" --keep {','.join(r['keep'])}" if r["keep"] else "")
+          + (f" --size {a.size}" if a.size else ""))
+
+
+def cmd_site_size(a) -> None:
+    from . import city_size
+    if a.list or not a.size:
+        for z in city_size.summary():
+            print(f"{z['name']:9s} {z['label']}" + (f", about {z['across_m'] / 1000:.0f} km across" if z["across_m"] else ", the city as it is")
+                  + (" (experimental)" if z["experimental"] else ""))
+        return
+    store = ProjectStore.open(a.project)
+    st = city_size.set_size(store, a.size, background=a.background, detail_radius_m=a.detail_radius)
+    print(f"city size {a.size}: {st['buildings']} buildings; plan {store.root / 'site' / 'city_plan.png'}")
+    for w in st["warnings"]:
+        print("warning:", w)
 
 
 def cmd_site_preset(a) -> None:
@@ -1854,7 +1870,18 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--layout-seed", type=int, help="the preset's own seed (outline, organic avenues); default the layout's own")
     p.add_argument("--keep-shape", action="store_true",
                    help="keep the current outline and districts (wall, towns, civic sites): new streets only")
+    p.add_argument("--size", choices=["standard", "large", "metro"],
+                   help="city size: standard, large (~8 km across) or metro (~14 km); default the layout's own")
     p.set_defaults(fn=cmd_site_roll)
+    p = sisub.add_parser("size", help="city mode: set the city size (standard, large ~8 km, metro ~14 km), reshape and re-plan")
+    p.add_argument("project", nargs="?")
+    p.add_argument("size", nargs="?", choices=["standard", "large", "metro"], help="omit to list the sizes")
+    p.add_argument("--background", action=argparse.BooleanOptionalAction, default=None,
+                   help="a low-cost background region round the city out to ~3x its size (forest, farms, villages, hills)")
+    p.add_argument("--detail-radius", type=float, metavar="M",
+                   help="large / metro: library builds stand within this of a shot camera or downtown, stand-ins beyond (0: the setting)")
+    p.add_argument("--list", action="store_true", help="list the sizes")
+    p.set_defaults(fn=cmd_site_size)
     p = sisub.add_parser("preset", help="city mode: set the layout preset (the city's overall shape) and re-plan")
     p.add_argument("project", nargs="?")
     p.add_argument("name", nargs="?", help="the preset name; omit to list them")

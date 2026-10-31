@@ -9,7 +9,7 @@ dependencies = [
     "fastapi",
     "uvicorn[standard]",
     "httpx",
-    "pydantic>=2",
+    "pydantic>=2.11",
     "pillow",
     "numpy",
     "shapely>=2",

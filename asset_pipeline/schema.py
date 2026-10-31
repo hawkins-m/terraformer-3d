@@ -633,6 +633,9 @@ class LayoutPreset(BaseModel):
     metro: bool = False
 
 
+CitySize = Literal["standard", "large", "metro"]
+
+
 class CitySpec(BaseModel):
     """City-scale layout mode: civic nodes, terrain-following avenues, organic blocks and
     parcels between them, and a density field from dense mid-rise cores to low-rise
@@ -671,6 +674,16 @@ class CitySpec(BaseModel):
     aerial_pitch: float = Field(default=40.0, ge=20, le=85)  # wide-aerial of a walled city: deg down
     preset: LayoutPreset = Field(default_factory=LayoutPreset)   # the overall shape ("utopia": as before presets)
     layout_seed: int = Field(default=0, ge=0)   # the preset's own draws (outline, organic avenues), apart from `seed`
+    # city size (city_size.py): standard (as before), large (~8 km across), metro (~14 km). Left out of
+    # layout.json while standard, so every project saved before sizes stays byte for byte as it was
+    size: CitySize = Field(default="standard", exclude_if=lambda v: v == "standard")
+    # the standard city a large / metro one was scaled from (bounds, terrain), so going back restores it
+    sized_from: dict | None = Field(default=None, exclude_if=lambda v: v is None)
+    # a low-cost background region round the city out to ~3x its size (city_background.py)
+    background: bool = Field(default=False, exclude_if=lambda v: not v)
+    # library builds (TRELLIS included) stand within this of a shot camera or downtown; beyond it the
+    # stand-in (large / metro only; None: the [city] detail_radius_m setting)
+    detail_radius_m: float | None = Field(default=None, gt=0, exclude_if=lambda v: v is None)
 
 
 Tier = Literal["wide", "medium", "tight"]

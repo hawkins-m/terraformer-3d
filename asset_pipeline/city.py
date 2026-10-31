@@ -354,12 +354,22 @@ def with_preset(layout: SiteLayout) -> SiteLayout:
     """The layout with its preset's walls made explicit: a wall (and moat) round the outline
     when the city has no enclosure of its own; its node layouts and slope limit. Unchanged (the
     same object) when the preset changes none of these, as "utopia" doesn't."""
+    from . import city_size
     c = layout.city
+    k = city_size.factor(c) if c is None or not (c.sized_from or {}).get("preset_scaled") else 1.0
     if c is None or (c.preset.walls == "none" and not c.preset.organic_nodes and c.preset.max_slope is None
-                     and not c.preset.metro):
+                     and not c.preset.metro and k == 1):
         return layout
     L = layout.model_copy(deep=True)
     c, pr = L.city, L.city.preset
+    if k != 1:                    # a large / metro city (city_size): what doesn't follow the bounds grows too
+        pr.outline_m = pr.outline_m and round(pr.outline_m * k, 1)
+        pr.highway_ring_m = pr.highway_ring_m and round(pr.highway_ring_m * k, 1)
+        pr.downtown_m = round(pr.downtown_m * k, 1)
+        pr.suburbs_m = round(pr.suburbs_m * k, 1)
+        pr.industrial_m = round(pr.industrial_m * math.sqrt(k), 1)
+        pr.highway_spokes = min(12, pr.highway_spokes + int(round(k)) - 1)
+        c.sized_from = c.sized_from | {"preset_scaled": True}     # once: the plan's layout isn't scaled again
     if pr.metro:                  # a metro's grid is turned to the coast at downtown
         from . import city_metro
         pr.grid_deg = city_metro.grid_deg(L)

@@ -35,7 +35,7 @@ import numpy as np
 
 from . import city_shape, layout_presets
 from .project import ProjectStore, read_json, write_json
-from .schema import CivicNode, LayoutPreset, SiteLayout
+from .schema import CivicNode, LayoutPreset, SiteLayout, TerrainSpec
 
 GROUPS = {"size": "City size", "civic": "Civic nodes", "density": "Density", "streets": "Street pattern",
           "green": "Green space", "waterfront": "Waterfront"}
@@ -266,11 +266,14 @@ def set_terrain(store: ProjectStore, settings, log=print, shots: bool = True, re
     if layout.terrain.heightmap and not replace_heightmap:
         raise HeightmapInUse(f"the terrain is a heightmap ({layout.terrain.heightmap}): a generated terrain replaces it "
                              "(replace_heightmap / --replace-heightmap)")
-    L = layout.model_copy(deep=True)
+    from . import city_size
+    L = city_size.sized(layout, "standard").model_copy(deep=True)    # a large / metro city: its standard one, scaled again below
     x0, y0, x1, y1 = L.city.bounds
     s = settings.model_copy(update={"centre": ((x0 + x1) / 2, (y0 + y1) / 2)}) if settings.centre == (0.0, 0.0) else settings
     L.terrain = terrain_gen.with_settings(L.terrain, s)
     L = SiteLayout.model_validate(L.model_dump(mode="json"))
+    if layout.city.size != "standard":
+        L = city_size.sized(L, layout.city.size)
     if city_shape.has_recipe(L.city.preset.name):
         try:
             L = city_shape.shape(L, sw_site.plan_ground(store, L), L.city.preset.name, L.city.seed)
@@ -295,13 +298,19 @@ def _keep_shape_of(layout: SiteLayout, own: SiteLayout) -> SiteLayout:
 
 
 def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True,
-         preset: str | None = None, layout_seed: int | None = None, keep_shape: bool = False) -> dict:
+         preset: str | None = None, layout_seed: int | None = None, keep_shape: bool = False,
+         size: str | None = None) -> dict:
     """Roll the city rules (the groups in `keep` stay) with `seed` (None: a random one, rolled
     again while the plan fails the housing-share check), save, re-plan and remember it. `preset`
     / `layout_seed`: the city's shape (None: the layout's own; preset "random": one drawn from each
-    seed tried). Returns {seed, keep, stats, tries, history}."""
+    seed tried). `size`: the city size (city_size.py; None: the layout's own). The rules are rolled
+    on the standard city, then scaled to the size. Returns {seed, keep, stats, tries, history}."""
+    from . import city_size
     from .stages import sw_site
     own = _layout_or_starter(store)
+    size = city_size.check(size) if size is not None else own.city.size
+    background, detail = own.city.background, own.city.detail_radius_m
+    own = city_size.sized(own, "standard")
     if preset is not None and preset != layout_presets.RANDOM:
         layout_presets.get(preset)           # an unknown name fails before anything is saved
     keep = set(keep)
@@ -318,6 +327,9 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
         if keep_shape:
             base = _keep_shape_of(base, own)
         layout, rules = rolled(base, s, keep)
+        if size != "standard":
+            layout = city_size.sized(layout, size)
+        layout.city.background, layout.city.detail_radius_m = background, detail
         shaped = not keep_shape and "civic" not in keep and city_shape.has_recipe(layout.city.preset.name)
         if shaped:
             try:
@@ -339,6 +351,8 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
     if shots:
         sw_site.set_city_shots(store)
     h = _remember(store, {"seed": s, "rules": rules, "keep": sorted(keep), "warnings": stats.get("warnings", []),
+                          **({"size": size, "sized_from": layout.city.sized_from, "terrain": layout.terrain.model_dump(mode="json")}
+                             if size != "standard" else {}),
                           "preset": layout.city.preset.model_dump(), "layout_seed": layout.city.layout_seed,
                           **({"shape": {"enclosure": layout.city.enclosure.model_dump(mode="json") if layout.city.enclosure else None,
                                         "towns": [tw.model_dump(mode="json") for tw in layout.city.towns],
@@ -357,7 +371,11 @@ def step(store: ProjectStore, delta: int, log=print, shots: bool = True) -> dict
     if not h["rolls"] or not 0 <= pos < len(h["rolls"]):
         raise ValueError("no previous roll" if delta < 0 else "no next roll")
     r = h["rolls"][pos]
-    layout = apply_rules(_layout_or_starter(store), r["rules"], r["seed"])
+    from . import city_size
+    layout = apply_rules(city_size.sized(_layout_or_starter(store), "standard"), r["rules"], r["seed"])
+    if r.get("size"):       # a large / metro roll: its grown terrain and the standard city it came from
+        layout.city.size, layout.city.sized_from = r["size"], r["sized_from"]
+        layout.terrain = TerrainSpec.model_validate(r["terrain"])
     if "preset" in r:       # rolls from before presets keep the layout's own shape
         layout.city.preset = LayoutPreset.model_validate(r["preset"])
         layout.city.layout_seed = int(r.get("layout_seed", 0))
