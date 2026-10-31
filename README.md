@@ -1,5 +1,7 @@
 # Terraformer
 
+[![tests](https://github.com/hawkins-m/terraformer-3d/actions/workflows/tests.yml/badge.svg)](https://github.com/hawkins-m/terraformer-3d/actions/workflows/tests.yml)
+
 **A city layout in, a lit Unreal Engine 5.8 scene out: a local 3D environment pipeline on ComfyUI and open-weights models.**
 
 ![Terraformer's main window: the starter city's Shots tab, with a shot-pass render running in its job window](docs/images/terraformer-main.png)
