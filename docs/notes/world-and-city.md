@@ -311,3 +311,39 @@ World and city mode: greybox and passes, concept frames and their control settin
 - Measured on a ~490-slot city copy: plan 11 s, Re-read 7 s; untouched placements agree within 1 mm
   (yaw may wrap by 360 between runs).
 
+
+## City sizes and the background region (2026-10-31)
+- `CitySpec.size` (`city_size.py`): standard / large (~8 km across) / metro (~14 km). A size scales the
+  standard city's bounds, nodes and terrain (coast, hills, mountains, river, plateau x k; hill radius and
+  meander x sqrt k), grows the tile to the bounds + 1.5 km (2017 samples up to ~6.5 m spacing, else 4033)
+  and refits its z range, then reshapes (the preset's recipe with the city seed) and re-plans. The
+  standard bounds, terrain and nodes are kept in `sized_from`, so standard restores them exactly and a
+  resize never compounds. New CitySpec fields are `exclude_if` their defaults: a standard layout.json,
+  spec and city3d.json are byte for byte as before (`tests/test_city_size.py` pins classic too).
+- Gates are `k != 1` (`city_size.factor`): `city.with_preset` scales outline_m, highway ring, downtown_m,
+  suburbs, industrial radius and adds round(k) - 1 highway spokes, once (`sized_from["preset_scaled"]`:
+  the plan's own layout isn't scaled again); classic's large parks x k^2 (x sqrt k in size), tower cap x k.
+  Most of classic already follows the bounds (density scale, downtown radius, river forks, arterials).
+- Re-running `site size` at the same size used to scale the already-scaled nodes again (the city lost
+  its housing): the same size now changes flags only.
+- `city_background.py`: the far terrain is the project's own generator over the whole region at ~30-35 m
+  (its noise is grid-indexed, so it only matches the tile at the edge: the tile's edge heights fade into
+  it over 1.5 km), hills rising to 260 m at the region's edge; grid lines meet the tile's edge so the
+  greybox's `npz_mesh` cut-out lines up. A city clearance with round corners let clumps into the bounds'
+  corners: the buffer is mitred.
+- Greybox collection instancing (large / metro): Blender 5.2 refused a collection as a Geometry Nodes
+  modifier input (`id properties not supported`), so each mesh has its own node group copy with the
+  Collection Info set on the node. Cycles gives GN instances the instancer's object colour: the ID pass
+  still decodes per slot. The export follows `ap_instances` to the prototype mesh (else every point cloud
+  became a GLB).
+- Unreal, World Partition (large / metro, level `<Name><Size>`):
+  - a commandlet loads none of a partitioned level's actors: the import found nothing and made every slot
+    again (3,386 actors after three builds). `ap_wp.load_all_actors` loads them by their actor descs
+    (`get_actor_descs` is None on a plain level). Changes to existing actors aren't marked dirty there and
+    `save_current_level` skips their external packages: the import saves them explicitly.
+  - HLODs: a layer made by hand was "invalid" (not in the partition's HLOD setup); use the level's own
+    `<Map>_HLODLayer_Instanced`. Slot actors (plain Actor + ISM) were never HLOD-relevant: they were
+    movable; static mobility on the root and the instance components fixed it (0 -> 724 HLOD actors on the
+    large scratch city). The template's Merged parent layer bakes 8192 px textures per cell (89 of 724 in
+    29 min): the import clears the parent so only instancing HLODs build. The builder crashes with
+    `-nullrhi`; it renders (adapter 0).

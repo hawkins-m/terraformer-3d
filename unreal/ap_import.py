@@ -406,6 +406,11 @@ def partitioned(man, eas, report):
     """A World Partition level: the slots and library builds in its instancing HLOD layer, the
     environment and the shot cameras always loaded (not streamed with cells)."""
     layer = hlod_layer(man["map"])
+    if layer is not None and layer.get_editor_property("parent_layer") is not None:
+        # the template's Merged parent bakes 8192 px textures per cell: 89 of 724 HLODs took 29 min
+        # on a large city. Instancing alone (the stand-ins' own meshes) builds in about a minute
+        layer.set_editor_property("parent_layer", None)
+        eal.save_loaded_asset(layer)
     if layer is None:
         report["warnings"].append(f"no {man['map']}_HLODLayer_Instanced: the slots keep the world's default HLOD layer")
     n = 0

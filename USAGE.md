@@ -369,7 +369,28 @@ new city: random city rules within believable ranges plus a new seed, then the u
   uses them; *Apply layout* re-plans with them and keeps the rules, seed and shots. Every field
   is in `site/layout.json` (`city.preset`) for hand edits.
 
+**City size** (Layout tab, under the terrain; `ap site size`, `ap site roll --size`): *Standard* is
+the city as it always was; *Large* (about 8 km across) and *Metro* (about 14 km) scale it up, its
+terrain with it (the coast, hills and river spread out, the tile grows to cover the city plus 1.5 km),
+then shape and plan it again. Classic grows its downtown, rings, street grid, river, parks and highways;
+other presets their footprint. The size is kept per project; *Standard* restores the city exactly as it
+was. A heightmap terrain can't grow.
+- *Background region*: open country round the city out to about 3x its size: forest, farmland,
+  villages along the highways, the rivers carried on, hills to the horizon (`site/background_plan.png`).
+  Everything in it is instanced or merged, so it costs little in Blender, Unreal and the 3D viewer.
+- What keeps a large city workable: the greybox instances repeated pieces (collection instances on
+  points: the .blend follows the unique meshes, not the building count); Unreal gets the city in a
+  level of its own (`<Name>Large` / `<Name>Metro`), World Partition with HLODs, hierarchical instanced
+  stand-ins; library builds (TRELLIS models too) stand only within the *Detail radius* of a shot camera
+  or downtown (default 2500 m, `[city] detail_radius_m`), stand-ins beyond; the 3D viewer culls by chunk
+  and drops far-off houses.
+- `ap ue fps my-project --gpu 1`: the editor's frame rate over downtown (full editor, offscreen).
+
 ```
+ap site size --list                                  # the sizes
+ap site size my-project metro --background          # resize, reshape and re-plan
+ap site size my-project large --detail-radius 3000
+ap site roll my-project --size large                 # a random city at this size
 ap site roll my-project                              # a random city; prints its seed
 ap site roll my-project --seed 2024 --keep size,waterfront
 ap site roll my-project --preset grid --layout-seed 3
