@@ -129,9 +129,15 @@ def plan_city(store: ProjectStore) -> dict:
     h = plan_terrain(store, layout)
     P = city.plan(layout, h)
     save_image(city.plan_image(P, h), site_dir(store) / "city_plan.png")
+    bg = None
+    if layout.city.background:            # the region round the city: its own map (city_background)
+        from .. import city_background
+        bg = city_background.plan(P.layout, P, h)
+        save_image(city_background.plan_image(bg, P.layout, P), site_dir(store) / "background_plan.png")
+        P.stats["background"] = bg.counts()
     write_json(site_dir(store) / "city.json", P.stats)
     from .. import city_view
-    city_view.scene(store, P, h)          # the Layout tab's 3D viewer (site/city3d.json)
+    city_view.scene(store, P, h, bg)      # the Layout tab's 3D viewer (site/city3d.json)
     return P.stats
 
 
@@ -294,7 +300,8 @@ def build(store: ProjectStore, force: bool = False) -> dict:
     t = time.time()
     h = terrain(store, layout)
     hp = plan_terrain(store, layout) if layout.terrain.far else h
-    spec = greybox.build_spec(layout, h, plan_heights=hp)
+    keep: dict = {}
+    spec = greybox.build_spec(layout, h, plan_heights=hp, keep=keep)
     work = site_dir(store) / "build"
     work.mkdir(parents=True, exist_ok=True)
     small = _downsample(h, max(BLENDER_TERRAIN_MAX, min(BLENDER_TERRAIN_CAP,
@@ -304,6 +311,10 @@ def build(store: ProjectStore, force: bool = False) -> dict:
     if layout.terrain.far:                    # the terrain beyond the tile (terrain_build): far ring + outer ring
         fd = store.root / layout.terrain.far
         spec["terrain"]["far"] = [str(fd / n) for n in ("far.npz", "outer.npz") if (fd / n).is_file()]
+    elif keep.get("background") is not None:  # the background region's coarse terrain round the tile
+        from .. import city_background
+        city_background.save_far(keep["background"], work / "background_far.npz")
+        spec["terrain"]["far"] = [str(work / "background_far.npz")]
     spec["terrain"]["resolution"] = int(small.shape[0])
     if spec.get("city"):
         write_json(site_dir(store) / "city.json", spec["city"])

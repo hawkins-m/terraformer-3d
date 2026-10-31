@@ -604,8 +604,10 @@ def expand_rows(layout: SiteLayout) -> list[Plot]:
     return plots
 
 
-def build_spec(layout: SiteLayout, heights: np.ndarray, plan_heights: np.ndarray | None = None) -> dict:
-    """The greybox build spec (JSON-able). `heights` is the terrain (rows north -> south)."""
+def build_spec(layout: SiteLayout, heights: np.ndarray, plan_heights: np.ndarray | None = None,
+               keep: dict | None = None) -> dict:
+    """The greybox build spec (JSON-able). `heights` is the terrain (rows north -> south). keep: a
+    dict that gets the city's background region (city_background.Background) when it has one."""
     city_plan = None
     if layout.city is not None:
         from . import city
@@ -684,12 +686,24 @@ def build_spec(layout: SiteLayout, heights: np.ndarray, plan_heights: np.ndarray
         sb = new(pid, p.type, (x, y, hs(x, y)), p.rot, p.kit, p.district or district_at(layout, x, y), **tags)
         {"temple": _temple, "block": _block, "villa": _villa, "rotunda": _rotunda,
          "cloister": _cloister, "portico": _portico, "forum_gate": _forum_gate, "fountain": _fountain}[p.type](sb, p, kit)
+    bg = None
     if city_plan is not None:
         city.add_slots(city_plan, new, hs)
-    return {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},
-            "sea_level": layout.sea_level, "slots": slots,
-            "shots": [s.effective().model_dump(mode="json") for s in layout.shots],   # with the user's nudges
-            "city": city_plan.stats if city_plan is not None else None}
+        if layout.city.background:            # the low-cost region round the city (city_background)
+            from . import city_background
+            bg = city_background.plan(layout, city_plan, heights)
+            city_background.add_slots(bg, new, hs, t.extent_m)
+            if keep is not None:
+                keep["background"] = bg
+    out = {"terrain": {"extent_m": t.extent_m, "resolution": int(heights.shape[0])},
+           "sea_level": layout.sea_level, "slots": slots,
+           "shots": [s.effective().model_dump(mode="json") for s in layout.shots],   # with the user's nudges
+           "city": city_plan.stats if city_plan is not None else None}
+    if bg is not None:
+        out["background"] = bg.counts()
+    if layout.city is not None and layout.city.size != "standard":
+        out["instancing"] = True              # repeated pieces as collection instances (blender_greybox)
+    return out
 
 
 def piece_counts(spec: dict) -> dict[str, int]:

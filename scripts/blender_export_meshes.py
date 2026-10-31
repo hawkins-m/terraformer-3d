@@ -34,7 +34,9 @@ def slot_of(o):
     return None
 
 
-meshes = sorted({o.data.name for o in bpy.context.scene.objects if o.type == "MESH" and slot_of(o)})
+# an instancer (a large / metro greybox: blender_greybox.Instancer) stands for the mesh it instances
+meshes = sorted({o["ap_instances"] if "ap_instances" in o else o.data.name
+                 for o in bpy.context.scene.objects if o.type == "MESH" and slot_of(o)})
 print("EXPORT_TOTAL", len(meshes), flush=True)   # the UI counts GLBs against it
 # Each mesh goes out from an empty scene of its own: the exporter walks the whole scene even
 # with use_selection, which took ~3.5 s a mesh on an 80k-object city greybox (0.09 s here;

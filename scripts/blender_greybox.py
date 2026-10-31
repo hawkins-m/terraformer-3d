@@ -50,7 +50,10 @@ COLORS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0
           "housing": (0.66, 0.58, 0.50), "houses": (0.74, 0.66, 0.56), "street": (0.50, 0.49, 0.46),
           "park": (0.20, 0.34, 0.12), "market": (0.70, 0.55, 0.30), "quay": (0.60, 0.58, 0.54),
           "tree": (0.10, 0.24, 0.08), "lawn": (0.16, 0.30, 0.10), "gravel": (0.40, 0.36, 0.29),
-          "plinth": (0.80, 0.78, 0.72), "basin-kerb": (0.66, 0.64, 0.60), "paving": (0.62, 0.60, 0.56)}
+          "plinth": (0.80, 0.78, 0.72), "basin-kerb": (0.66, 0.64, 0.60), "paving": (0.62, 0.60, 0.56),
+          # the background region (city_background)
+          "forest": (0.09, 0.20, 0.07), "field:crop": (0.55, 0.50, 0.24), "field:fallow": (0.40, 0.36, 0.20),
+          "village": (0.72, 0.62, 0.50), "village:roof": (0.45, 0.22, 0.16)}
 WATER = {"pool-water", "court-pool", "canal"}
 MERGED = {"ribbon", "poly"}       # unique per piece: merged into one mesh per slot
 
@@ -320,6 +323,95 @@ def shot_camera(s, cam_obj=None):
     return cam_obj
 
 
+class Instancer:
+    """Large and metro cities (spec "instancing"): a slot's repeated pieces of one mesh are one
+    point-cloud object whose Geometry Nodes modifier instances that mesh's collection on its points
+    (collection instances), with each piece's turn and scale as point attributes. The .blend then
+    holds one object per slot and mesh, not one per piece: its size and build time follow the
+    unique meshes and slots, not the building count. The prototypes live in AP_prototypes, excluded
+    from the view layer; Cycles gives instances their instancer's object colour, so the ID pass
+    still colours them by slot. extract() reads every point back as a piece."""
+
+    def __init__(self):
+        self.root = bpy.data.collections.new("AP_prototypes")
+        bpy.context.scene.collection.children.link(self.root)
+        bpy.context.view_layer.layer_collection.children["AP_prototypes"].exclude = True
+        self.colls = {}
+        self.group = self._node_group()
+        self.n_objects = 0
+
+    def _node_group(self):
+        ng = bpy.data.node_groups.new("AP_instance_points", "GeometryNodeTree")
+        ng.interface.new_socket("Geometry", in_out="INPUT", socket_type="NodeSocketGeometry")
+        ng.interface.new_socket("Geometry", in_out="OUTPUT", socket_type="NodeSocketGeometry")
+        n = ng.nodes
+        gi, go = n.new("NodeGroupInput"), n.new("NodeGroupOutput")
+        ci = n.new("GeometryNodeCollectionInfo")
+        ci.transform_space = "ORIGINAL"
+        iop = n.new("GeometryNodeInstanceOnPoints")
+        rot, sca = n.new("GeometryNodeInputNamedAttribute"), n.new("GeometryNodeInputNamedAttribute")
+        for a, name in ((rot, "ap_rot"), (sca, "ap_scale")):
+            a.data_type = "FLOAT_VECTOR"
+            a.inputs["Name"].default_value = name
+        ci.name = "AP_collection"
+        L = ng.links
+        L.new(gi.outputs["Geometry"], iop.inputs["Points"])
+        L.new(ci.outputs[0], iop.inputs["Instance"])
+        er = n.new("FunctionNodeEulerToRotation")
+        L.new(rot.outputs["Attribute"], er.inputs[0])
+        L.new(er.outputs[0], iop.inputs["Rotation"])
+        L.new(sca.outputs["Attribute"], iop.inputs["Scale"])
+        L.new(iop.outputs[0], go.inputs[0])
+        return ng
+
+    def node_group(self, me):
+        """The mesh's collection (its prototype) and a node group instancing it (one per mesh)."""
+        ng = self.colls.get(me.name)
+        if ng is None:
+            c = bpy.data.collections.new(f"AP_inst_{me.name}")
+            self.root.children.link(c)
+            c.objects.link(bpy.data.objects.new(f"proto.{me.name}", me))
+            ng = self.colls[me.name] = self.group.copy()
+            ng.name = f"AP_instance_{me.name}"
+            ng.nodes["AP_collection"].inputs["Collection"].default_value = c
+        return ng
+
+    def points(self, name, me, ps):
+        pm = bpy.data.meshes.new(f"{name}.points")
+        pm.vertices.add(len(ps))
+        pm.vertices.foreach_set("co", np.array([p["loc"] for p in ps], np.float32).ravel())
+        rot = np.zeros((len(ps), 3), np.float32)
+        rot[:, 2] = np.radians([p["rot_z"] for p in ps])
+        sca = np.array([p.get("scale", (1.0, 1.0, 1.0)) for p in ps], np.float32)
+        for nm, v in (("ap_rot", rot), ("ap_scale", sca)):
+            pm.attributes.new(nm, "FLOAT_VECTOR", "POINT").data.foreach_set("vector", v.ravel())
+        o = bpy.data.objects.new(name, pm)
+        m = o.modifiers.new("AP_instances", "NODES")
+        m.node_group = self.node_group(me)
+        o["ap_instances"] = me.name
+        self.n_objects += 1
+        return o
+
+
+def instance_matrices(o):
+    """An instancer's points as 4x4 world matrices (its points' turn and scale), and their mesh."""
+    me = o.data
+    n = len(me.vertices)
+    co = np.zeros(n * 3, np.float32)
+    me.vertices.foreach_get("co", co)
+    rot, sca = np.zeros(n * 3, np.float32), np.zeros(n * 3, np.float32)
+    me.attributes["ap_rot"].data.foreach_get("vector", rot)
+    me.attributes["ap_scale"].data.foreach_get("vector", sca)
+    co, rot, sca = co.reshape(n, 3), rot.reshape(n, 3), sca.reshape(n, 3)
+    c, s = np.cos(rot[:, 2]), np.sin(rot[:, 2])
+    M = np.zeros((n, 4, 4))
+    M[:, 0, 0], M[:, 0, 1], M[:, 1, 0], M[:, 1, 1] = c * sca[:, 0], -s * sca[:, 1], s * sca[:, 0], c * sca[:, 1]
+    M[:, 2, 2], M[:, 3, 3] = sca[:, 2], 1.0
+    M[:, :3, 3] = co
+    W = np.array(o.matrix_world) @ M
+    return W, bpy.data.meshes[o["ap_instances"]]
+
+
 def build(spec_path, out):
     spec = json.load(open(spec_path))
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -360,6 +452,7 @@ def build(spec_path, out):
 
     meshes = {}
     n_pieces = 0
+    inst = Instancer() if spec.get("instancing") else None
     for s in spec["slots"]:
         coll = collection(f"AP_{s['district']}" if s.get("district") else "AP_site")
         e = bpy.data.objects.new(s["id"], None)
@@ -396,6 +489,7 @@ def build(spec_path, out):
             o.color = (*COLORS.get(piece, col), 1)
             coll.objects.link(o)
             n_pieces += 1
+        runs = {}                     # instancing: (piece, mesh key) -> its pieces in this slot
         for p in s["pieces"]:
             if p["prim"]["kind"] in MERGED:
                 continue
@@ -405,6 +499,9 @@ def build(spec_path, out):
                 name = f"{p['piece']}#{hashlib.sha1(key.encode()).hexdigest()[:6]}"
                 me = meshes[key] = make_mesh(p["prim"], name)
                 me.materials.append(mat)
+            if inst is not None:
+                runs.setdefault((p["piece"], key), []).append(p)
+                continue
             o = bpy.data.objects.new(p["name"], me)
             o.parent = e
             o.location = p["loc"]
@@ -415,19 +512,36 @@ def build(spec_path, out):
             o.color = (*(COLORS["pool"] if p["piece"] in WATER else COLORS.get(p["piece"], COLORS.get(p["piece"].split(":")[0], col))), 1)
             coll.objects.link(o)
             n_pieces += 1
+        for (piece, key), ps in runs.items():
+            o = inst.points(f"{s['id']}.{piece}", meshes[key], ps)
+            o.parent = e
+            o["ap_piece"] = piece
+            o.color = (*(COLORS["pool"] if piece in WATER else COLORS.get(piece, COLORS.get(piece.split(":")[0], col))), 1)
+            coll.objects.link(o)
+            n_pieces += len(ps)
     for s in spec.get("shots", []):
         shot_camera(s)
     cams = [o for o in sc.objects if o.type == "CAMERA"]
     if cams:
         sc.camera = cams[0]
     bpy.ops.wm.save_as_mainfile(filepath=out, compress=True)
-    log(f"built {out}: {len(spec['slots']) + 2} slots, {n_pieces} pieces, {len(meshes)} meshes, {len(cams)} cameras")
+    log(f"built {out}: {len(spec['slots']) + 2} slots, {n_pieces} pieces, {len(meshes)} meshes, {len(cams)} cameras"
+        + (f", {inst.n_objects} instancers" if inst is not None else ""))
 
 
 # --- extract ------------------------------------------------------------------------------
 
 def rows(m):
-    return [[round(v, 6) for v in r] for r in m]
+    return [[round(float(v), 6) for v in r] for r in m]
+
+
+def _mesh_box(me):
+    """A mesh's bounding box corners (8)."""
+    co = np.zeros(len(me.vertices) * 3, np.float32)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    lo, hi = co.min(0), co.max(0)
+    return [(x, y, z) for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
 
 
 def extract(out):
@@ -451,6 +565,18 @@ def extract(out):
         inv = o.matrix_world.inverted()
         pieces, lo, hi = [], [math.inf] * 3, [-math.inf] * 3
         for m in meshes:
+            if "ap_instances" in m:       # a large / metro greybox's instancer: every point is a piece
+                W, me = instance_matrices(m)
+                L = np.array(inv) @ W
+                piece = str(m.get("ap_piece", "mass"))
+                pieces += [{"name": f"{m.name}#{i}", "piece": piece, "mesh": me.name, "matrix_local": rows(L[i])}
+                           for i in range(len(L))]
+                bb = np.array(_mesh_box(me))
+                pts = np.einsum("nij,kj->nki", W, np.c_[bb, np.ones(len(bb))])[..., :3].reshape(-1, 3)
+                if len(pts):
+                    lo = [min(a, float(b)) for a, b in zip(lo, pts.min(0))]
+                    hi = [max(a, float(b)) for a, b in zip(hi, pts.max(0))]
+                continue
             pieces.append({"name": m.name, "piece": str(m.get("ap_piece", "mass")), "mesh": m.data.name,
                            "matrix_local": rows(inv @ m.matrix_world)})
             for c in m.bound_box:
@@ -472,7 +598,8 @@ def extract(out):
                 return True
             o = o.parent
         return False
-    untagged = sorted(o.name for o in sc.objects if o.type == "MESH" and not has_slot(o))
+    untagged = sorted(o.name for o in sc.objects if o.type == "MESH" and not has_slot(o)
+                      and not o.name.startswith("proto."))       # (an instancing greybox's prototypes)
     shots, shot_ids = [], set()
     for o in sorted((o for o in sc.objects if o.type == "CAMERA"), key=lambda o: o.name):
         sid = str(o.get("ap_shot", "")) or slug(o.name)

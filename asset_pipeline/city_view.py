@@ -81,9 +81,10 @@ def _moved(row: list, D: np.ndarray) -> list:
     return [_r(p[0]), _r(p[1]), _r(p[2]), _r(w * k[0]), _r(d * k[1]), _r(h * k[2]), _r(rot + turn), *row[7:]]
 
 
-def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None) -> dict:
-    """The viewer's scene for the project's city (planned now unless P and its heights are given);
-    written to site/city3d.json."""
+def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None, bg=None) -> dict:
+    """The viewer's scene for the project's city (planned now unless P and its heights are given;
+    bg: its background region, made here when the city has one and none is given); written to
+    site/city3d.json."""
     from .greybox import Heights
     from .stages import sw_site
     if P is None:
@@ -92,6 +93,9 @@ def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None) -> dic
             raise ValueError("the layout has no city spec")
         heights = sw_site.plan_terrain(store, layout)
         P = city.plan(layout, heights)
+    if bg is None and P.layout.city.background:
+        from . import city_background
+        bg = city_background.plan(P.layout, P, heights)
     L = P.layout
     c, t = L.city, L.terrain
     hs = Heights(heights, t.extent_m)
@@ -147,8 +151,44 @@ def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None) -> dic
            "terrain": {"n": int(hd.shape[0]), "z": [_r(v) for v in hd.ravel()]},
            "buildings": rows, "ways": ways, "parks": parks, "paving": paving, "water": moat,
            "edited": moves is not None}
+    if c.size != "standard":
+        out["size"] = c.size
+    if bg is not None:
+        out["background"] = background(bg, hs, t.extent_m)
     write_json(path(store), out)
     return out
+
+
+BG_TERRAIN_N = 257
+
+
+def background(bg, hs, extent_m: float) -> dict:
+    """The background region for the viewer: its coarse terrain (rows north -> south, the tile cut
+    out by the viewer), forest clumps [x, y, z, w, h], fields (ring, crop), village houses
+    [x, y, z, w, d, h, rot] and ways, all draped."""
+    core = extent_m / 2
+
+    def z(x, y):
+        x, y = np.asarray(x, float), np.asarray(y, float)
+        return np.where((np.abs(x) < core) & (np.abs(y) < core), hs.many(x, y), bg.z(x, y))
+    h = bg.far["h"][::-1]
+    step = max(1, math.ceil((h.shape[0] - 1) / (BG_TERRAIN_N - 1)))
+    hd = h[::step, ::step]
+    fx = np.array([f[0] for f in bg.forest]) if bg.forest else np.zeros(0)
+    fy = np.array([f[1] for f in bg.forest]) if bg.forest else np.zeros(0)
+    fz = z(fx, fy) if len(fx) else []
+    houses = [hh for v in bg.villages for hh in v]
+    hz = z([hh[0] for hh in houses], [hh[1] for hh in houses]) if houses else []
+    ways = []
+    for _, kind, ln, w in bg.ways:
+        pts = city._drape(z, list(ln.coords), city.WATER_LIFT if kind in WATER else 0.4, 40.0)
+        ways.append({"kind": kind, "w": _r(w), "pts": [[_r(a), _r(b), _r(zz)] for a, b, zz in pts]})
+    return {"half": _r(bg.half), "terrain": {"n": int(hd.shape[0]), "span": _r(bg.far["cell"] * step * (hd.shape[0] - 1)),
+                                             "z": [_r(v) for v in hd.ravel()]},
+            "forest": [v for (x, y, w, hh), zz in zip(bg.forest, fz) for v in (_r(x), _r(y), _r(zz), _r(w), _r(hh))],
+            "fields": [[[[_r(x), _r(y)] for x, y in q.exterior.coords[:-1]]], int(crop)] for q, crop in bg.fields],
+            "houses": [v for (x, y, w, d, rot, hh), zz in zip(houses, hz) for v in (_r(x), _r(y), _r(zz), _r(w), _r(d), _r(hh), _r(rot))],
+            "ways": ways}
 
 
 def load(store: ProjectStore) -> dict:

@@ -19,7 +19,7 @@ plans byte for byte as before (tests/test_city_size.py pins it).
 """
 import math
 
-from .schema import CitySize, SiteLayout, TerrainSpec
+from .schema import CitySize, CivicNode, SiteLayout, TerrainSpec
 
 # name: (label, about this across, m; None: the city as it is)
 SIZES: dict[str, tuple[str, float | None]] = {
@@ -75,6 +75,8 @@ def _base(layout: SiteLayout) -> SiteLayout:
     L = layout.model_copy(deep=True)
     L.city.bounds = tuple(c.sized_from["bounds"])
     L.terrain = TerrainSpec.model_validate(c.sized_from["terrain"])
+    if "nodes" in c.sized_from:
+        L.city.nodes = [CivicNode.model_validate(n) for n in c.sized_from["nodes"]]
     L.city.size, L.city.sized_from = "standard", None
     return SiteLayout.model_validate(L.model_dump(mode="json"))
 
@@ -118,7 +120,8 @@ def sized(layout: SiteLayout, size: str) -> SiteLayout:
     k = max(1.0, target / across(base.city.bounds))
     L = base.model_copy(deep=True)
     c = L.city
-    c.sized_from = {"bounds": list(base.city.bounds), "terrain": base.terrain.model_dump(mode="json")}
+    c.sized_from = {"bounds": list(base.city.bounds), "terrain": base.terrain.model_dump(mode="json"),
+                    "nodes": [n.model_dump(mode="json") for n in base.city.nodes]}
     c.size = size
     c.bounds = tuple(round(v * k) for v in base.city.bounds)
     c.nodes = [n.model_copy(update={"center": (round(n.center[0] * k, 1), round(n.center[1] * k, 1))}) for n in c.nodes]
@@ -149,10 +152,10 @@ def set_size(store, size: str, background: bool | None = None, detail_radius_m: 
     from . import city_roll
     from .stages import sw_site
     layout = city_roll._layout_or_starter(store)
-    was = (layout.city.size, layout.city.bounds)
-    L = sized(layout, size)
-    if (L.city.size, L.city.bounds) != was:
-        L = shaped(store, L)
+    if check(size) == layout.city.size:      # the same size: the city stays as it is (flags only)
+        L = layout.model_copy(deep=True)
+    else:
+        L = shaped(store, sized(layout, size))
     if background is not None:
         L.city.background = bool(background)
     if detail_radius_m is not None:
