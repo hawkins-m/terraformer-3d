@@ -290,6 +290,12 @@ World and city mode: greybox and passes, concept frames and their control settin
   cluster is `downtown_r` = 0.5 x the density scale, tallest at `peak` (towards the river mouth), then a
   mid-rise tower ring; `trim_stubs` cuts dead ends back to 150 m past the last building. About 3x the
   buildings: a scratch metro is ~6-8k buildings. Rivers are coloured as water in `blender_greybox.COLORS`.
+- Third pass (2026-10-31): local streets every 100 m along the coast and 200 m across it (Chicago-like
+  long blocks); middle-ring blocks are two rows back to back with an alley (`_rows`, `ALLEY_M`, `YARD_M`);
+  downtown blocks pick full-block / podium + slim towers / L / stepped / plaza / lots, a landmark or more
+  by the river mouth; `cap_towers` keeps at most `TOWER_CAP` (500) towers over 12 storeys; a suburb floor
+  (`SUBURB_Q`, noisy) spreads 1-2 storey detached houses out past v1's extent. ~4.5-8k buildings,
+  200-340 towers on the scratch seeds.
 
 ## Hand edits follow into Unreal (2026-10-30)
 - `site/build/built_slots.json` (written by `ap site build`, or by a Re-read of an unedited greybox

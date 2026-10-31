@@ -2445,6 +2445,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
             P.buildings += tower_block(b, f, c, rng, dist, frac, (pr.tower_storeys[1], 9))
         else:
             P.buildings += shed_block(b, f, c, dist)
+    if pr.metro:
+        from . import city_metro
+        city_metro.cap_towers(P, c)
     for nd in c.nodes:
         if hub_kind(c, nd) == "mall":     # the mall, in the middle of its car park (the plaza of type lot)
             side = 2 * MALL_FRAC * SQUARE_K * _rings(nd)["core"] * 0.95

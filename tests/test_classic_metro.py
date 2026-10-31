@@ -371,3 +371,41 @@ def test_classic_river_is_a_lowered_blue_channel_with_bridges_at_street_level():
     assert o[2] + deck[2] > float(hs(x.x, x.y)) + 2                # the bridge stays up at street level
     src = open(greybox.__file__.replace("asset_pipeline/greybox.py", "scripts/blender_greybox.py")).read()
     assert '"river": (0.07, 0.20, 0.32)' in src                    # previews colour it as water
+
+
+# --- classic, third pass: downtown variety, back-to-back rows, the outer ring, the tower cap -------
+
+def test_classic_downtown_mixes_block_types_and_heights(metro):
+    from asset_pipeline import city_metro
+    _, A, _, P, f = metro
+    c = P.layout.city
+    dr = city_metro.downtown_r(c)
+    C = city.main_centre(c)
+    tw = [b for b in P.buildings if b.kind == "tower" and math.dist((b.x, b.y), C) < dr]
+    assert any(min(b.w, b.d) > 55 for b in tw)                     # full-block towers and podiums
+    assert any(max(b.w, b.d) <= 31 and b.h > 20 * c.storey_m for b in tw)    # slim towers
+    hs = np.array([b.h for b in tw if b.h > 6 * c.storey_m])
+    assert hs.std() / hs.mean() > 0.35                             # heights vary strongly
+    hi = c.preset.tower_storeys[0] * c.storey_m
+    marks = [b for b in tw if b.h > 1.1 * hi]
+    assert 1 <= len(marks) <= 0.1 * len(tw)                        # a few landmarks, most lower
+    pk = city_metro.peak(c, P.layout.terrain)
+    assert np.median([math.dist((b.x, b.y), pk) for b in marks]) < 0.6 * dr   # by the river mouth
+
+
+def test_classic_middle_ring_is_two_rows_back_to_back(metro):
+    _, A, _, P, f = metro
+    C = city.main_centre(P.layout.city)
+    mid = [b for b in P.buildings if b.kind == "housing" and city.TERRACE_D * 0.6 < float(f.density(b.x, b.y)) < city.CORE_D]
+    deep = [b for b in mid if b.d >= 20]
+    assert len(deep) > 0.6 * len(mid)                              # deep rows to the alley, not a thin perimeter
+
+
+def test_classic_towers_are_capped_and_the_suburbs_spread(metro):
+    from asset_pipeline import city_metro
+    _, A, _, P, f = metro
+    c = P.layout.city
+    assert sum(1 for b in P.buildings if b.kind == "tower" and b.h > 12 * c.storey_m) <= city_metro.TOWER_CAP
+    C = city.main_centre(c)
+    houses = [math.dist((b.x, b.y), C) for b in P.buildings if b.kind == "houses"]
+    assert np.percentile(houses, 90) > 1.4 * city_metro.scale(c)   # detached houses spread out before open land

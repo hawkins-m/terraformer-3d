@@ -45,6 +45,10 @@ DOWNTOWN_K = 0.5        # the tower cluster's radius, x the density scale (at le
 MIDRISE_K = 0.75        # then mid-rise towers stepping down over this, x that radius
 ROW_D = 0.22            # continuous frontage from this density; detached houses below it
 STUB_M = 150.0          # a dead-end street running out further than this past the last building is cut back
+ALLEY_M = 5.0           # the alley down the middle of a rowhouse block
+YARD_M = 6.0            # the rear yards against it
+TOWER_CAP = 500         # towers over 12 storeys in one city at most (cost)
+SUBURB_Q = (1.65, 2.6)  # detached houses spread out to here (x the density scale, on the noisy distance) before open land
 
 
 # --- the frame: where downtown is, which way is the sea --------------------------------------
@@ -279,6 +283,9 @@ def _raster(f, m) -> tuple:
             dens = dens + 0.3 * nd.weight * np.exp(-(np.hypot(x - nd.center[0], y - nd.center[1]) / (0.35 * S)) ** 2) * (1 - dens)
     dens = dens + 0.15 * np.exp(-np.maximum(f.inland(x, y), 0) / 250) * np.exp(-(d / (1.4 * S)) ** 2)   # the lakefront
     dens = dens + 0.05 * noise(f, x, y)
+    qs = q * (1 - 0.22 * noise(f, x, y)) * (1 - 0.12 * noise(f, x, y, "n1"))    # fingers of suburb, not a ring
+    sub = c.urban_threshold * (1.3 + 0.25 * noise(f, x, y)) * (1 - city._smooth(*SUBURB_Q, qs))
+    dens = np.maximum(dens, sub)          # the suburbs: detached houses spreading out, an irregular edge
     edge = np.minimum.reduce([x - x0, x1 - x, y - y0, y1 - y])
     dens = dens * city._smooth(0, 250, edge)
     dens = dens * (1 - city._smooth(0.5 * c.max_slope, c.max_slope, f.slope(x, y)))
@@ -369,43 +376,141 @@ def _frontage(P: Polygon, f, c: CitySpec, rng, lot, depth, storeys, kind, distri
     return out
 
 
+def _rows(P: Polygon, f, c: CitySpec, rng, lot, depth, storeys, district) -> list | None:
+    """A long block built as two rows back to back, split by an alley down its middle: lots of lot()
+    metres along each long side, `depth` deep, small rear yards against the alley. None when the
+    block isn't a long narrow one (the caller packs its edges instead)."""
+    rot, L_, S_ = city._long_axis(P)
+    if S_ > 2 * (depth + YARD_M) + ALLEY_M + 25 or S_ < 2 * 10 + ALLEY_M or L_ < 40:
+        return None
+    u, n = city._dir(rot), city._dir(rot + 90)
+    cx, cy = P.minimum_rotated_rectangle.centroid.coords[0]
+    dp = min(depth, S_ / 2 - ALLEY_M / 2 - YARD_M)
+    inner = P.buffer(-0.8)
+    out = []
+    for side in (-1, 1):
+        off = S_ / 2 - 1.5 - dp / 2
+        s_ = -L_ / 2 + 1.5
+        while s_ < L_ / 2 - 5:
+            w = min(lot(), L_ / 2 - 1.5 - s_)
+            if w < 5:
+                break
+            m = np.array([cx, cy]) + (s_ + w / 2) * u + side * off * n
+            if rng.random() >= 0.03 and inner.contains(city._rect(m[0], m[1], w - 0.3, dp, rot)):
+                out.append(city._box_on(f, m[0], m[1], w - 0.3, dp, rot, storeys(), c, "housing", district))
+            s_ += w
+    return out
+
+
 def mass_block(P: Polygon, f, c: CitySpec, rng, district) -> list:
-    """A metro block: continuous frontage (mid-rise apartments, rowhouses, townhouses) round rear
-    yards in the inner and middle rings, taller nearer downtown; detached houses with gaps at the edge."""
+    """A metro block: courtyard apartments round the core; in the middle ring rowhouses or walk-ups
+    in two rows back to back with an alley between (a block that isn't long and narrow packs its
+    edges instead); detached houses with gaps at the edge."""
     cx, cy = P.centroid.coords[0]
     d = float(f.density(cx, cy))
-    if d < ROW_D:
-        return city.mass_block(P, f, c, rng, district)         # detached houses (it reads the same density)
+    if d < ROW_D:                     # detached houses of one or two storeys (city.mass_block reads the same density)
+        m = _cache(f)
+        if "houses_c" not in m:
+            m["houses_c"] = c.model_copy(update={"storeys": (c.storeys[0], c.storeys[1], 1, 2)})
+        return city.mass_block(P, f, m["houses_c"], rng, district)
     hz = float(f.height_zone(cx, cy))
     if d >= city.CORE_D:              # mid-rise apartments
         top = 4 + round(8 * hz)
         return _frontage(P, f, c, rng, lambda: rng.uniform(14, 24), 15.0,
                          lambda: int(rng.integers(max(top - 2, 4), top + 1)), "housing", district, 0.03)
-    if d >= city.TERRACE_D:           # rowhouses and three-flats
-        return _frontage(P, f, c, rng, lambda: rng.uniform(7, 10), 13.0,
-                         lambda: int(rng.integers(3, 5)), "housing", district, 0.04)
-    return _frontage(P, f, c, rng, lambda: rng.uniform(6, 8.5), 11.5,      # townhouses
-                     lambda: int(rng.integers(2, 4)), "housing", district, 0.07)
+    if d >= city.TERRACE_D:           # walk-ups and three-flats
+        lot, depth, st = (lambda: rng.uniform(8, 12)), 34.0, (lambda: int(rng.integers(3, 5)) + round(2 * hz))
+    else:                             # rowhouses
+        lot, depth, st = (lambda: rng.uniform(6, 8.5)), 30.0, (lambda: int(rng.integers(2, 4)))
+    rows = _rows(P, f, c, rng, lot, depth, st, district)
+    return rows if rows is not None else _frontage(P, f, c, rng, lot, 13.0, st, "housing", district, 0.05)
+
+
+def _box(f, c, x, y, w, d, rot, storeys, district):
+    return city._box_on(f, x, y, w, d, rot, max(1, int(round(storeys))), c, "tower", district)
 
 
 def tower_block(P: Polygon, f, c: CitySpec, rng, district, kind: str) -> list:
-    """A downtown block of tower lots round its edge, tallest by the river mouth (`kind` tower);
-    or a mid-rise tower block stepping down past them (`kind` midrise)."""
+    """A downtown block (`kind` tower) as one of: a full-block tower, a low podium with one or two
+    slim towers, an L of two wings round a forecourt, a stepped setback tower, an open plaza, or
+    tower lots round its edge; heights vary strongly, a few landmarks by the river mouth. A mid-rise
+    block past them (`kind` midrise): a full-block slab or lots round the edge, stepping down."""
     m = _cache(f)
     cx, cy = P.centroid.coords[0]
     dr = downtown_r(c)
     hi, lo = c.preset.tower_storeys
-    if kind == "tower":
-        t = min(math.dist((cx, cy), m["peak"]) / (1.1 * dr), 1.0)
-        top = hi + (lo - hi) * t ** 0.8
-        lot, depth = (lambda: rng.uniform(26, 40)), 26.0
-    else:
+    rot, L_, S_ = city._long_axis(P)
+    if kind == "midrise":
         t = min(max(math.dist((cx, cy), m["C"]) - dr, 0) / (MIDRISE_K * dr), 1.0)
         top = lo + (8 - lo) * t
-        lot, depth = (lambda: rng.uniform(20, 30)), 20.0
-    spread = max(3, round(0.25 * top))
-    return _frontage(P, f, c, rng, lot, depth,
-                     lambda: max(6, int(round(top + rng.integers(-spread, spread + 1)))), "tower", district, 0.02)
+        if rng.random() < 0.45:
+            fit = city._fit(P, L_ - 6, S_ - 6, rot, 2.0)
+            if fit is not None:
+                return [_box(f, c, fit[0], fit[1], fit[2], fit[3], rot, top * rng.uniform(0.6, 1.0), district)]
+        return _frontage(P, f, c, rng, lambda: rng.uniform(20, 30), 20.0,
+                         lambda: max(6, round(top * rng.uniform(0.55, 1.05))), "tower", district, 0.02)
+    t = min(math.dist((cx, cy), m["peak"]) / (1.1 * dr), 1.0)
+    landmark = t < 0.35 and rng.random() < 0.3
+    H = (hi * rng.uniform(1.15, 1.5) if landmark
+         else lo + (hi - lo) * (1 - t) ** 1.5 * rng.uniform(0.3, 1.0))      # most well below the peak
+    kinds = ["full", "slim", "L", "stepped", "plaza", "lots"]
+    pick = kinds[int(rng.choice(6, p=[0.22, 0.26, 0.14, 0.18, 0.06, 0.14]))] if not landmark else "slim"
+    out: list = []
+    if pick == "plaza":
+        return out
+    if pick == "full":
+        fit = city._fit(P, L_ - 6, S_ - 6, rot, 2.0)
+        if fit is not None:
+            return [_box(f, c, fit[0], fit[1], fit[2], fit[3], rot, H, district)]
+        pick = "lots"
+    if pick == "stepped":
+        for k, (fr, hf) in enumerate(((1.0, 0.35), (0.7, 0.7), (0.42, 1.0))):
+            fit = city._fit(P, (L_ - 6) * fr, (S_ - 6) * fr, rot, 2.0)
+            if fit is not None:
+                out.append(_box(f, c, fit[0], fit[1], fit[2], fit[3], rot, max(H * hf, 4), district))
+        return out
+    if pick == "slim":
+        pod = city._fit(P, L_ - 6, S_ - 6, rot, 2.0)
+        if pod is not None:
+            out.append(_box(f, c, pod[0], pod[1], pod[2], pod[3], rot, rng.integers(3, 6), district))
+            u = city._dir(rot)
+            n_ = 1 if (landmark or L_ < 70 or rng.random() < 0.5) else 2
+            side = min(30.0, 0.45 * S_)
+            for k in range(n_):
+                x, y = np.array(pod[:2]) + ((k - (n_ - 1) / 2) * 0.45 * pod[2]) * u
+                out.append(_box(f, c, float(x), float(y), side, side, rot, H * (1 if k == 0 else rng.uniform(0.5, 0.8)), district))
+            return out
+        pick = "lots"
+    if pick == "L":
+        rect = np.array(P.minimum_rotated_rectangle.exterior.coords)[:4]
+        u, n = city._dir(rot), city._dir(rot + 90)
+        C0 = rect.mean(axis=0)
+        wd = min(24.0, 0.4 * S_)
+        sx, sy = rng.choice([-1, 1]), rng.choice([-1, 1])
+        a = C0 + sy * (S_ / 2 - wd / 2 - 3) * n
+        b = C0 + sx * (L_ / 2 - wd / 2 - 3) * u
+        inner = P.buffer(-1.0)
+        for (x, y), w, d_, hh in ((a, L_ - 6, wd, H), (b + sy * wd / 2 * n, wd, S_ - 6 - wd, H * rng.uniform(0.45, 0.8))):
+            if inner.contains(city._rect(x, y, w, d_, rot)):
+                out.append(_box(f, c, x, y, w, d_, rot, hh, district))
+        if out:
+            return out
+    return _frontage(P, f, c, rng, lambda: rng.uniform(26, 40), 26.0,
+                     lambda: max(6, round(H * rng.uniform(0.4, 1.0))), "tower", district, 0.02)
+
+
+def cap_towers(P, c: CitySpec) -> None:
+    """At least one landmark by the river mouth (the tallest near it is raised when none was drawn);
+    at most TOWER_CAP towers over 12 storeys (cost): the lowest of the rest come down to 11."""
+    hi = c.preset.tower_storeys[0] * c.storey_m
+    pk, dr = peak(c, P.layout.terrain), downtown_r(c)
+    near = [b for b in P.buildings if b.kind == "tower" and math.dist((b.x, b.y), pk) < 0.5 * dr]
+    if near and not any(b.h > 1.1 * hi for b in near):
+        b = max(near, key=lambda b: b.h)
+        b.h += 1.3 * hi - b.h
+    tall = sorted((b for b in P.buildings if b.kind == "tower" and b.h > 12 * c.storey_m), key=lambda b: -b.h)
+    for b in tall[TOWER_CAP:]:
+        b.h = 11 * c.storey_m + 0.3
 
 
 # --- ways and green --------------------------------------------------------------------------
@@ -454,8 +559,9 @@ def off_lakefront(f, p) -> bool:
 
 
 def local_streets(c: CitySpec, f, ok) -> list:
-    """Local streets on the arterial grid's lines, every LOCAL_M between the arterials and every half
-    of that across downtown and its mid-rise ring; only where the city is built up."""
+    """Local streets on the arterial grid's lines: along the coast every half LOCAL_M, across it every
+    LOCAL_M (every half across downtown and its mid-rise ring), so blocks are long and narrow; only
+    where the city is built up."""
     pr = c.preset
     C = np.array(city.main_centre(c), float)
     x0, y0, x1, y1 = c.bounds
@@ -471,7 +577,7 @@ def local_streets(c: CitySpec, f, ok) -> list:
             j = round((o + reach - sp / 2) / (LOCAL_M / 2))
             if j % round(2 * sp / LOCAL_M) == 0:
                 continue                       # an arterial runs here
-            half = j % 2 == 1                  # the half-way lines: downtown only
+            half = j % 2 == 1 and fam == "b"   # along the coast every 100 m; across it every 200 (100 downtown)
             pts = C + o * n + np.outer(t, d)
             dd = np.hypot(pts[:, 0] - C[0], pts[:, 1] - C[1])
             pts = pts[dd < (near if half else 3 * reach)]
