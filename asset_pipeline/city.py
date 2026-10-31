@@ -356,7 +356,7 @@ def with_preset(layout: SiteLayout) -> SiteLayout:
     same object) when the preset changes none of these, as "utopia" doesn't."""
     from . import city_size
     c = layout.city
-    k = city_size.factor(c) if c is None or not (c.sized_from or {}).get("preset_scaled") else 1.0
+    k = city_size.factor(c) if not (getattr(c, "sized_from", None) or {}).get("preset_scaled") else 1.0
     if c is None or (c.preset.walls == "none" and not c.preset.organic_nodes and c.preset.max_slope is None
                      and not c.preset.metro and k == 1):
         return layout

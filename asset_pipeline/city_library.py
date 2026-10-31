@@ -907,7 +907,10 @@ def far_slots(store: ProjectStore, gb: dict) -> tuple[set[str], float | None]:
     models included) aren't placed, so they keep their stand-ins. A standard city: none."""
     from . import city, city_size
     from .stages import sw_site
-    lay = sw_site.load_layout(store)
+    try:
+        lay = sw_site.load_layout(store)
+    except FileNotFoundError:                 # no layout (a library-only project): everywhere
+        return set(), None
     radius = city_size.detail_radius(lay.city)
     if radius is None:
         return set(), None

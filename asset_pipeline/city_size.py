@@ -37,7 +37,7 @@ SPEC_K = ("shore_m", "headland_width_m", "hill_from_m", "hill_to_m", "coast_wave
           "bay_lateral_m", "bay_width_m", "city_radius_m")
 SETTINGS_K = ("city_r_m", "mountains_at_m", "mountains_w_m", "plateau_r_m", "island_r_m", "river_offset_m")
 SETTINGS_SQRT_K = ("hill_r_m", "river_meander_m")
-EXPERIMENTAL = ("large", "metro")   # labelled experimental in the UI (Unreal builds measured over 20 min)
+EXPERIMENTAL = ("metro",)   # labelled experimental in the UI: its Unreal build took 21.6 min on the scratch city (large 2.8)
 
 
 def names() -> list[str]:
@@ -57,7 +57,7 @@ def across(bounds) -> float:
 
 def factor(c) -> float:
     """How much bigger than its standard city this city is (1.0 for standard)."""
-    if c is None or c.size == "standard" or not c.sized_from:
+    if getattr(c, "size", "standard") == "standard" or not getattr(c, "sized_from", None):
         return 1.0
     return across(c.bounds) / across(c.sized_from["bounds"])
 
@@ -74,7 +74,7 @@ def default_detail_radius() -> float:
 def detail_radius(c) -> float | None:
     """How far from a shot camera or downtown library builds stand in a large / metro city (None:
     a standard city, everywhere): the project's own, else the setting."""
-    if c is None or c.size == "standard":
+    if getattr(c, "size", "standard") == "standard":
         return None
     return float(c.detail_radius_m or default_detail_radius())
 

@@ -1433,7 +1433,7 @@ def cmd_ue(a) -> None:
     elif a.action == "fps":
         rep = ue.frame_rate(store, adapter=a.gpu)
         if rep.get("error"):
-            print(f"error: {rep['error']}")
+            raise SystemExit(f"error: {rep['error'].strip().splitlines()[-1]}")
         print(f"editor over downtown ({ue.city_map(store).split('.')[0]}, GPU {rep['adapter']}): {rep.get('fps_mean')} fps mean, "
               f"{rep.get('fps_p5')} fps at the 95th-percentile frame ({rep.get('frames')} frames)")
     elif a.action == "look":

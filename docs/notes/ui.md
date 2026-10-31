@@ -206,3 +206,11 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - The Layout tab scrolls (2026-10-31): viewer, catalog (`.city`, at least 460 px, filling what's left), roll group
   stack with `flex-shrink: 0`. With the tab `overflow: hidden` the catalog was the only part that could shrink,
   and its list's 120 px floor overflowed under the roll group (its rows unclickable).
+
+## 3D viewer at large sizes (2026-10-31)
+- Over C3D_LOD_FROM (15k) buildings, or with a background region, instances are chunked on a 1.5 km grid
+  (frustum culled per chunk) and houses / rowhouses / forest clumps drop out past C3D_FAR from the camera
+  (top-down: by the view's width); the label counts what's hidden. The far terrain and the tile are tinted
+  by the background's forest and fields (c3dCover), so ground keeps its look once clumps drop.
+- Headless Chrome reaches the real GPU with `--use-angle=vulkan --enable-features=Vulkan
+  --ignore-gpu-blocklist` (RADV); measure with requestAnimationFrame + `gl.finish()` per frame.

@@ -54,10 +54,10 @@ def finish(error=None):
 def unthrottle():
     """Realtime viewport, no background throttling, no frame cap, no vsync: what worked goes in the report."""
     done = []
-    perf = unreal.get_default_object(unreal.EditorPerformanceSettings)
-    for prop in ("throttle_cpu_when_not_foreground", "use_less_cpu_when_in_background"):
+    cls = getattr(unreal, "EditorPerformanceSettings", None)       # not exposed to Python in 5.8: the cvar below
+    for prop in ("throttle_cpu_when_not_foreground", "use_less_cpu_when_in_background") if cls else ():
         try:
-            perf.set_editor_property(prop, False)
+            unreal.get_default_object(cls).set_editor_property(prop, False)
             done.append(prop)
         except Exception:  # noqa: BLE001 (a name this engine doesn't have)
             pass

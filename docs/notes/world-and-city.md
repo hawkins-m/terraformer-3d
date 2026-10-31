@@ -347,3 +347,21 @@ World and city mode: greybox and passes, concept frames and their control settin
     large scratch city). The template's Merged parent layer bakes 8192 px textures per cell (89 of 724 in
     29 min): the import clears the parent so only instancing HLODs build. The builder crashes with
     `-nullrhi`; it renders (adapter 0).
+- Measured on the scratch classic city (coastal plain, seed 3), large and metro with their background
+  region; Unreal builds on a fresh UE project, greybox build includes the plan and extract:
+
+  | | Standard | Large | Metro |
+  |---|---|---|---|
+  | across / terrain tile | 4.1 / 8 km | 8 / 11 km | 14 / 17 km |
+  | buildings (plan) | 4,878 | 18,243 | 59,150 |
+  | greybox pieces / objects / unique meshes | 19.3k / one per piece / 9 | 79k / 1,312 instancers / 12 | 173k / 3,435 instancers / 12 |
+  | greybox build (Blender alone) | 13 s, 16 MB | 30 s, 50 MB | 89 s (5.6 s), 79 MB |
+  | Unreal build (`ap ue build`) | 2.4 min | 2.8 min | 21.6 min (import 17.7: 1,053 GLBs) |
+  | level | 28 MB .umap | 12 KB .umap + 85 MB actors, 407 HLODs | 12 KB + 199 MB, 955 HLODs |
+  | editor over downtown (GPU 1) | 120 fps (cap) | 120 (cap) | 120 (cap), GPU ~85 % busy |
+  | 3D viewer, orbiting (R9700, Vulkan) | 60 fps (vsync) | 60 | 60, also the whole city |
+
+  Metro's Unreal time is the import of 1,053 stand-in meshes, nearly all unique draped pieces (streets,
+  fields, ways: one GLB per slot), not the instances; it is labelled experimental in the UI
+  (`city_size.EXPERIMENTAL`). The editor's own 120 fps cap holds with the cvars off; GPU load is the
+  better gauge. Software GL (swiftshader): metro's viewer 1.5 fps at the whole city, 3.0 with its LOD.
