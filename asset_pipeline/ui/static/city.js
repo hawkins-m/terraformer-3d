@@ -66,6 +66,7 @@ const isDirty = name => !!(cityDrafts[name] && cityDrafts[name].dirty.size);
 // --- rendering ------------------------------------------------------------------------------
 function renderCatalog() {
   renderRoll();
+  guarded(city3dRefresh);
   const wrap = $("#catalog");
   wrap.hidden = !catalogData || !catalogData.city;
   if (wrap.hidden) return;

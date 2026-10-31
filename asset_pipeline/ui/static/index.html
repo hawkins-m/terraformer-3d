@@ -126,6 +126,23 @@
           <button type="button" id="city-apply" class="default" title="Shows what it will run first (Ctrl+Enter)">Update plan, greybox &amp; passes…</button>
           <button type="button" id="city-replan" title="Re-plan the city from the catalog (F5)">Update city plan</button>
         </div>
+        <fieldset id="city3d" hidden><legend>City in 3D</legend>
+          <div class="row c3d-bar">
+            <button type="button" id="city3d-top" class="small" aria-pressed="false" title="Switch between the 3D view and a top-down plan view (the 2D map)">Top-down</button>
+            <button type="button" id="city3d-reset" class="small" title="Frame the whole city again">Frame city</button>
+            <label class="check"><input type="checkbox" data-c3d-show="buildings" checked> Buildings</label>
+            <label class="check"><input type="checkbox" data-c3d-show="roads" checked> Roads</label>
+            <label class="check"><input type="checkbox" data-c3d-show="nature" checked> Nature</label>
+            <label class="check"><input type="checkbox" data-c3d-show="water" checked> Water</label>
+            <label>Colour: <select id="city3d-color"><option value="type">by type</option><option value="height">by height</option></select></label>
+            <span id="city3d-legend" class="c3d-legend"></span>
+          </div>
+          <div id="city3d-view" class="c3d-view" aria-label="The city in 3D: drag to orbit, right-drag to pan, wheel to zoom">
+            <div id="city3d-tip" class="c3d-tip" hidden></div>
+            <span id="city3d-label" class="c3d-label"></span>
+          </div>
+          <p class="hint" id="city3d-info" role="status" style="margin:4px 0 0"></p>
+        </fieldset>
         <p id="city-none" class="hint">No layout yet: <button type="button" id="city-init" class="small">Start from the starter city</button>
           <span id="city-none-own"><button type="button" class="help-q" title="This project has no city layout yet. To lay out the site yourself in Blender, use the starter layout in the Greybox tab." aria-label="More about starting a layout">?</button></span></p>
         <p id="city-own" class="hint" hidden>Your own layout: build and edit it in the Greybox tab. <button type="button" class="help-q" title="This project's layout is site/layout.json (the starter layout or your own), not a generated city: build and edit it in the Greybox tab." aria-label="More about your own layout">?</button></p>
@@ -429,6 +446,7 @@
 <script src="/static/plan.js"></script>
 <script src="/static/edit.js"></script>
 <script src="/static/city.js"></script>
+<script src="/static/city3d.js"></script>
 <script src="/static/site.js"></script>
 <script src="/static/frames.js"></script>
 <script src="/static/unreal.js"></script>

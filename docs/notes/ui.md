@@ -186,3 +186,15 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   and Unreal, and their memory would read 0. ComfyUI is never touched (its jobs get the usual interrupt).
 - `/status` carries `loaded` (what Stop jobs would end), so the button is enabled with a model loaded and
   no job running. Test: tests/test_stop_all.py.
+
+## Layout tab: City in 3D (2026-10-31)
+- `city_view.py` turns the plan into the viewer's scene (buildings `[x y z w d h rot type district]`, draped
+  ways, park / paving rings, the heights decimated to 257): written as `site/city3d.json` by `plan_city`, made
+  again on `GET .../site/city3d` when its `sig` (layout, greybox, built slots, heightmap mtimes) changed. Re-read
+  .blend's hand edits are applied per slot (`sw_site.slot_moves`; `city_view.slot_id` = `add_slots`' grouping).
+- `city3d.js` loads three.js r169 from `static/vendor/three` by dynamic `import()` (a classic script, so the
+  `node --check` of all scripts still works; vendor/ isn't in that cat). One InstancedMesh per type, merged
+  ribbons and polygons, Z-up; OrbitControls for the 3D camera and a second one (no rotate) for the top-down
+  orthographic view. It redraws when the status' plan / greybox / layout mtimes change, keeping the camera.
+- Headless Chrome needs `--enable-unsafe-swiftshader --use-angle=swiftshader` for WebGL (tests/test_ui_city3d.py);
+  its frame times are software GL, not a GPU's. No WebGL: the plan image in the same box.

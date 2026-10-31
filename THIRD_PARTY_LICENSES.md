@@ -72,6 +72,12 @@ Installed from PyPI by `pip install`, not vendored: fastapi (MIT), uvicorn (BSD-
 scipy (BSD-3-Clause), python-multipart (Apache-2.0), pyyaml (MIT), comfy-sdk (MIT). The optional `paid`
 extra (google-genai, anthropic) is off by default and not part of the entry.
 
+## Vendored browser code
+
+- [three.js](https://github.com/mrdoob/three.js) r169 (MIT, `asset_pipeline/ui/static/vendor/three/LICENSE`):
+  `three.module.min.js` and `OrbitControls.js` (its import pointed at the local file), for the Layout tab's
+  3D city viewer, so the app works offline.
+
 ## Code credits
 
 - TRELLIS.2 ROCm recipe: [bioritmovideo/trellis2-rocm-gfx1201](https://github.com/bioritmovideo/trellis2-rocm-gfx1201).

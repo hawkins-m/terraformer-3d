@@ -130,6 +130,8 @@ def plan_city(store: ProjectStore) -> dict:
     P = city.plan(layout, h)
     save_image(city.plan_image(P, h), site_dir(store) / "city_plan.png")
     write_json(site_dir(store) / "city.json", P.stats)
+    from .. import city_view
+    city_view.scene(store, P, h)          # the Layout tab's 3D viewer (site/city3d.json)
     return P.stats
 
 

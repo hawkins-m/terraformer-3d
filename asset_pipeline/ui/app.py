@@ -1453,6 +1453,19 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         return jobs.submit("site.plan", slug, lambda: sw_site.plan_city(store)["buildings"], lane="cpu").public()
 
     # --- Roll a city (city_roll.py): random rules + a seed, then the re-plan above ------------
+    @app.get("/api/projects/{slug}/site/city3d")
+    def site_city3d(slug: str):
+        """The Layout tab's 3D viewer scene (city_view.py): cached, made again after a change."""
+        from .. import city_view
+        store = _store(slug)
+        try:
+            L = sw_site.load_layout(store)
+        except FileNotFoundError:
+            raise HTTPException(404, "no layout yet")
+        if L.city is None:
+            raise HTTPException(404, "this project's layout is its own (no city plan to show)")
+        return city_view.load(store)
+
     @app.get("/api/projects/{slug}/site/roll")
     def site_roll_state(slug: str):
         from .. import city_roll

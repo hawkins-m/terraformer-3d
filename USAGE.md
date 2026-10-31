@@ -348,6 +348,10 @@ new city: random city rules within believable ranges plus a new seed, then the u
 - The last 10 rolls (rules and seed, in `site/rolls.json`) are kept: *Previous roll* / *Next roll*
   (`ap site roll PROJECT --step previous|next`) restore one and re-plan.
 - A new project with the *Procedural city* starting point shows a hint pointing at the dice.
+- *City in 3D* (top of the Layout tab) draws the planned city in the browser: drag to orbit, right-drag to
+  pan, wheel to zoom; *Top-down* for the plan view; tick Buildings / Roads / Nature / Water; colour by type or
+  height; hover or click a building for its type, district and height. It redraws after every roll, Update
+  city plan and Re-read .blend.
 - *Layout* picks one of 20 layout presets, the city's overall shape (its one-line description
   shows under the picker): street pattern, outline (including an island), ring roads, walls,
   bastions and a moat, parks, canals or a river, the density falloff, height zoning with a
