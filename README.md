@@ -77,6 +77,9 @@ with Linux engines only for now (see [Known issues](#known-issues)).
 
 - Linux (verified on Ubuntu 26.04). Windows through WSL2 with an NVIDIA GPU is **beta**
   ([below](#windows-wsl2--nvidia-beta)); macOS is not supported.
+- **Native Windows (no WSL) is a beta covering the greybox path only**: Layout (with the 3D viewer),
+  Greybox (Windows Blender), Shots, Frames through a Windows ComfyUI and Build city in Unreal. TRELLIS
+  and the vision model are off there and need the WSL install ([below](#native-windows-beta)).
 - Python 3.12 (`python3.12`; the default `python3` may be newer, and every venv here uses 3.12).
 - ComfyUI 0.24 or newer (the tested version). The workflows use only core nodes (SAM 3.1
   included).
@@ -346,6 +349,7 @@ build the model environments install, which GPU each job lane uses, and the sche
 | Ubuntu + ROCm, 1 GPU (`rocm-1gpu`) | ROCm 7.2 | everything on GPU 0, one job at a time | scheduling tested by simulation only |
 | Ubuntu + NVIDIA (`nvidia`) | CUDA 12.8 | as above, by GPU count | **untested**: the CUDA paths have never run |
 | Windows (WSL2) + NVIDIA, beta (`wsl-nvidia`) | CUDA 12.8 | as above, by GPU count | **beta, untested**: the `nvidia` profile inside WSL2 |
+| Windows + NVIDIA, native, beta (`win-nvidia`) | none (no model venvs) | ComfyUI on its GPU | **beta, untested**: the greybox path only, no TRELLIS or vision model |
 
 What differs per profile (the steps below are otherwise the same):
 
@@ -527,6 +531,35 @@ Known limits (beta):
   projects folder.
 - WSL 2 must reach `localhost` (the default `localhostForwarding`, or mirrored networking) for the
   browser to open the app. GPU memory in WSL is shared with Windows: close GPU-heavy Windows apps.
+
+### Native Windows (beta)
+
+Windows without WSL, for the greybox path: Layout (with the 3D viewer), Greybox (Windows Blender),
+Shots, Frames through a native Windows ComfyUI, and Build city in Unreal (`UnrealEditor-Cmd.exe`,
+with world dressing). **TRELLIS and the vision model are not supported natively yet**: the app turns
+those steps off with a one-line note pointing to the WSL install, and `ap doctor` says the same. WSL
+stays the default and the way to get the full pipeline. A step-by-step test checklist (and what to
+send back when a step fails) is in [docs/windows-native-test.md](docs/windows-native-test.md).
+
+Install: extract the repo to a short path without spaces (e.g. `C:\terraformer-3d`), run
+`windows\install.bat` and choose **2. Native Windows** (or `install.bat -Native`). It installs
+[uv](https://docs.astral.sh/uv/) per user (no admin), makes the app's Python 3.12 environment
+(`.venv` in the checkout), writes the Start menu and desktop shortcuts and starts the setup wizard,
+which finds an existing ComfyUI (the portable build, the ComfyUI desktop app or a git checkout with
+its venv) or installs the portable build, and finds Blender and Unreal (the Epic launcher's list).
+
+How it differs from Linux:
+
+- Settings go in `%APPDATA%\terraformer\config.toml`, storage in `%LOCALAPPDATA%\terraformer`.
+- ComfyUI defaults to the `httpx` backend (comfy-api-proxy is untested on Windows; `sdk` can still
+  be chosen in Setup).
+- The Unreal terrain is a Landscape when the APLandscape plugin can be built (Visual Studio 2022 with
+  "Desktop development with C++"; `RunUAT.bat BuildPlugin`); without it the build uses the
+  static-mesh terrain and says so in its report.
+- Without `rsync`, UE backups copy in Python (unchanged files hard-linked to the last snapshot).
+- The file store's shared copies aren't read-only on Windows (NTFS shares the read-only bit between
+  hard links), and a drive without hard links (FAT/exFAT) keeps plain copies.
+- The app runs Python in UTF-8 mode (`PYTHONUTF8=1` in the launcher and `ap.cmd`).
 
 ### ROCm notes
 

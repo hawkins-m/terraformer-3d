@@ -93,3 +93,4 @@ Until the deadline, all work follows these rules:
 - [docs/notes/unreal.md](docs/notes/unreal.md): UE 5.8 headless runs, axes, import, renders, look scenes.
 - [docs/notes/terrain-and-vetting.md](docs/notes/terrain-and-vetting.md): vetting gate, silhouettes, terrain from frames and its build.
 - [docs/notes/ui.md](docs/notes/ui.md): the browser UI (versioned static, layout, polling, job progress and lanes, workflow header).
+- [docs/notes/windows-native.md](docs/notes/windows-native.md): native Windows beta (oscompat, Unreal command lines, UTF-8 mode, gated features, terrain fallback).
