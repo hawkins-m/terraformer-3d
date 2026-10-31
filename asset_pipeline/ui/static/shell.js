@@ -208,6 +208,7 @@ const isCity = () => !!(catalogData && catalogData.city);
 const ACTIONS = {
   newProject: {run: newProjectDialog},
   openProject: {run: () => $("#project").focus()},
+  manageProjects: {run: () => manageProjects()},
   refresh: {run: () => load()},
   save: {run: () => saveHandlers[currentTab] && saveHandlers[currentTab](), enabled: () => !!saveHandlers[currentTab]},
   revert: {run: () => revertHandlers[currentTab] && revertHandlers[currentTab](), enabled: () => !!revertHandlers[currentTab]},
@@ -251,7 +252,7 @@ async function stopAll(ask = false) {
 
 const JOBS_CLOSING = "Closing the browser doesn't stop jobs; closing the Terraformer window does.";   // also in the README
 const MENUS = [
-  ["File", "F", [["New project…", "newProject", "Ctrl+N"], ["Open project…", "openProject", "Ctrl+O"], "-",
+  ["File", "F", [["New project…", "newProject", "Ctrl+N"], ["Open project…", "openProject", "Ctrl+O"], ["Manage projects…", "manageProjects"], "-",
     ["Refresh", "refresh"]]],
   ["Edit", "E", [["Save", "save", "Ctrl+S"], ["Revert", "revert"], "-", ["Find…", "find", "Ctrl+F"]]],
   ["View", "V", () => TABS.map(t => [TAB_NAMES[t], () => showTab(t), null, () => currentTab === t])],

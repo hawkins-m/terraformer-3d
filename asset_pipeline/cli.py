@@ -33,6 +33,51 @@ def cmd_new(a) -> None:
     print(f"created project {store.root.name} at {store.root}")
 
 
+def _fmt_bytes(n: float) -> str:
+    for unit in ("B", "KB", "MB"):
+        if n < 1000:
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1000
+    return f"{n:.1f} GB"
+
+
+def cmd_project(a) -> None:
+    """ap project list | delete <id> [--yes] [--unreal] [--backups] | protect <id> [--off]"""
+    from . import project_manager as pm
+    if a.action == "list":
+        rows = pm.listing(sizes=not a.fast)
+        print(f"{'id':24} {'name':24} {'layout':12} {'size':9} {'disk (project/unreal/backups)':32} {'opened':11} approved protected")
+        for r in rows:
+            if r.get("error"):
+                print(f"{r['slug']:24} (unreadable: {r['error']})")
+                continue
+            b = r.get("bytes")
+            disk = " / ".join(_fmt_bytes(b[k]) for k in ("project", "unreal", "backups")) if b else ""
+            opened = datetime.fromtimestamp(r["opened"]).strftime("%Y-%m-%d") if r["opened"] else "never"
+            print(f"{r['slug']:24} {r['name'][:24]:24} {r['preset'] or '-':12} {r['size'] or '-':9} {disk:32} {opened:11} "
+                  f"{'yes' if r['approved'] else 'no':8} {'yes' if r['protected'] else 'no'}")
+        return
+    if not a.id:
+        raise SystemExit(f"ap project {a.action}: give the project id")
+    ProjectStore.open(a.id)                              # FileNotFoundError for an unknown id
+    if a.action == "protect":
+        on = pm.set_protected(a.id, not a.off)
+        print(f"{a.id}: protected" if on else f"{a.id}: not protected")
+        return
+    plan = pm.plan_delete(a.id)                          # the CLI has no "open project"; running jobs aren't seen
+    if plan["blocked"]:
+        raise SystemExit(f"ap: {plan['blocked']}")
+    chosen = {"project": True, "unreal": a.unreal, "backups": a.backups}
+    print(f"Delete project {a.id} ({plan['name']}): moves to the system trash, not a hard delete.")
+    for i in plan["items"]:
+        mark = "will move" if chosen[i["key"]] and i["exists"] else ("skipped" if i["exists"] else "not there")
+        print(f"  {i['label']:16} {_fmt_bytes(i['bytes']):>9}  {mark}  {i['path']}" + (f"  ({i['reason']})" if i["reason"] else ""))
+    if not a.yes and input("Type the project id to confirm: ").strip() != a.id:
+        raise SystemExit("ap: not confirmed, nothing deleted")
+    r = pm.delete(a.id, unreal=a.unreal, backups=a.backups)
+    print(f"moved to the trash: {', '.join(r['removed'])} ({_fmt_bytes(r['freed'])})")
+
+
 def cmd_comfy_check(a) -> None:
     c = config.backends()["comfyui"]
     stats = connect().health()
@@ -1688,6 +1733,16 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("--start", choices=["city", "blender", "assets"],
                    help="starting point: procedural city (default), own Blender layout, concept images to assets")
     p.set_defaults(fn=cmd_new)
+
+    p = sub.add_parser("project", help="manage projects: list, delete (to the system trash), protect")
+    p.add_argument("action", choices=["list", "delete", "protect"])
+    p.add_argument("id", nargs="?", help="the project's folder id")
+    p.add_argument("--yes", action="store_true", help="delete: don't ask for confirmation")
+    p.add_argument("--unreal", action="store_true", help="delete: also move the project's Unreal project to the trash")
+    p.add_argument("--backups", action="store_true", help="delete: also move its Unreal backups to the trash")
+    p.add_argument("--off", action="store_true", help="protect: turn protection off")
+    p.add_argument("--fast", action="store_true", help="list: skip the disk sizes")
+    p.set_defaults(fn=cmd_project)
 
     p = sub.add_parser("comfy-check", help="check the ComfyUI server is reachable")
     p.set_defaults(fn=cmd_comfy_check)

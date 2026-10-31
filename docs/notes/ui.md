@@ -214,3 +214,13 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
   by the background's forest and fields (c3dCover), so ground keeps its look once clumps drop.
 - Headless Chrome reaches the real GPU with `--use-angle=vulkan --enable-features=Vulkan
   --ignore-gpu-blocklist` (RADV); measure with requestAnimationFrame + `gl.finish()` per frame.
+
+## Manage projects (2026-10-31)
+- File > Manage projects… (manage.js, routes in ui/project_api.py, logic in project_manager.py; CLI `ap project`).
+  Delete goes through send2trash (Recycle Bin on Windows), never a hard delete; if there is no trash it fails and removes nothing.
+- The Unreal project and backups are separate checkboxes and offered only when they are this project's: a scratch
+  AP_ROOT that takes them from the user config, a folder another project owns, or the home / projects folder is refused.
+  Duplicate clears the copy's own unreal.project_dir / backup_dir so it never shares the original's.
+- `protected` in project.json: None = protected while the project has approved assets (library_review.json `_reviews` or a
+  version marked approved); True / False is the user's choice. The open project is passed by the page (`current`).
+- Last opened lives in $AP_ROOT/project-meta.json (machine fact, not project content), touched by GET /api/projects/{slug}.

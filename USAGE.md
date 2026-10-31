@@ -927,6 +927,9 @@ ap ui                 # then open http://127.0.0.1:8700
 ```bash
 ap new "Harbour Town" --brief "a misty fishing harbour at dawn, painterly"   # folder harbour-town
 ap new my-project --start blender            # a folder name works too; --start city | blender | assets
+ap project list                               # every project: layout, city size, disk (project / Unreal / backups), last opened
+ap project protect my-project [--off]         # a protected project can't be deleted (on by default once it has approved assets)
+ap project delete my-project [--unreal] [--backups] [--yes]   # to the system trash, never a hard delete; asks first without --yes
 ap style explore my-project -n 8
 ap style star my-project style/explore/batch_001/scene_003.png
 ap style derive my-project style/explore/batch_001/scene_003.png \

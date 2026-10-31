@@ -128,6 +128,8 @@ class Project(BaseModel):
     # where the artist starts (New project): which tab opens first and its hint. Nothing else
     # depends on it; None (projects from before) = "city"
     start: Literal["city", "blender", "assets"] | None = None
+    # blocks Delete (File > Manage projects…); None = never set: protected while the project has approved assets
+    protected: bool | None = None
 
 
 # --- Stage 1: asset plan ---------------------------------------------------------------

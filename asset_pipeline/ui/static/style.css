@@ -830,3 +830,9 @@ details summary { cursor: default; }
 .c3d-key i { display: inline-block; width: 10px; height: 10px; border: 1px solid var(--border-dark); margin-right: 3px; vertical-align: -1px; }
 .c3d-ramp { display: inline-block; width: 60px; height: 10px; border: 1px solid var(--border-dark); vertical-align: -1px;
   background: linear-gradient(90deg, #e8d9b0, #c4724e, #3b4a8c); }
+
+.window.manage { width: min(1100px, 96vw); }
+.manage-scroll { max-height: 55vh; overflow: auto; }
+.manage-actions button { margin-right: 2px; }
+.manage-items { list-style: none; padding-left: 0; }
+.manage-items li { margin: 4px 0; }

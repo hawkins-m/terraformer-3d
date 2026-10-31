@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from .. import config, library_entries, oscompat, review, silhouette, ue, versions, vlm
+from .. import config, library_entries, oscompat, project_manager, review, silhouette, ue, versions, vlm
 from ..comfy import fallback as comfy_fallback, service as comfy_service
 from . import messages
 from ..comfy.client import ComfyError, connect
@@ -853,6 +853,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     @app.get("/api/projects/{slug}")
     def project(slug: str):
         store = _store(slug)
+        project_manager.touch_opened(slug)
         batches = []
         for b in sorted((store.root / s0_style.EXPLORE).glob("batch_*")):
             meta = read_json(b / "meta.json", default={})
@@ -2240,6 +2241,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     tools_api.register(app, jobs, _store, _comfy_up, _on_comfy)
     from . import setup_api          # the Setup screen (first run, Tools › Setup…)
     setup_api.register(app)
-    from . import versions_api       # the asset version bank, Storage and Settings
+    from . import project_api, versions_api       # File > Manage projects…; the asset version bank, Storage and Settings
     versions_api.register(app, jobs, _store)
+    project_api.register(app, jobs, _store)
     return app
