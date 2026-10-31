@@ -134,6 +134,7 @@
             <label class="check"><input type="checkbox" data-c3d-show="roads" checked> Roads</label>
             <label class="check"><input type="checkbox" data-c3d-show="nature" checked> Nature</label>
             <label class="check"><input type="checkbox" data-c3d-show="water" checked> Water</label>
+            <label class="check" hidden><input type="checkbox" data-c3d-show="country" checked> Background</label>
             <label>Colour: <select id="city3d-color"><option value="type">by type</option><option value="height">by height</option></select></label>
             <span id="city3d-legend" class="c3d-legend"></span>
           </div>
@@ -187,6 +188,13 @@
             <button type="button" id="city-terrain-describe-go" class="small" title="Show what the description maps to; Apply terrain then makes it">Describe</button>
           </div>
           <p class="hint" id="city-terrain-chosen" role="status" style="margin:0 0 6px"></p>
+          <div class="row">
+            <label title="Standard is the city as it always was; Large (about 8 km across) and Metro (about 14 km) scale it up with its terrain, then shape and plan it again. A roll uses the size picked here">City size: <select id="city-size"></select></label>
+            <label class="check" title="Open country round the city out to about 3x its size: forest, farmland, villages along the highways, rivers carried on, hills to the horizon. Low density, instanced"><input type="checkbox" id="city-background"> Background region</label>
+            <label title="Large and Metro: library builds (TRELLIS models too) stand within this distance of a shot camera or downtown; beyond it, the stand-in. Empty: the setting">Detail radius: <input type="number" id="city-detail-radius" min="0" step="100" style="width:7em"> m</label>
+            <button type="button" id="city-size-apply" class="small" title="Resize the city (its terrain grows with it), then reshape and re-plan; the rules and seeds stay">Apply size</button>
+          </div>
+          <p class="hint" id="city-size-desc" style="margin:0 0 6px"></p>
           <div class="row"><label class="check" title="A roll leaves the outline, wall, districts, landmarks and towns as they are and only rolls new streets"><input type="checkbox" id="city-roll-keep-shape"> Keep current outline and districts</label></div>
           <div class="row city-roll-keep" id="city-roll-keep" role="group" aria-label="Keep these rule groups when rolling"></div>
           <div class="row">

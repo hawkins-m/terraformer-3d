@@ -386,6 +386,7 @@ function paintRoll() {
   if (d && document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.layout_seed;
   paintLayoutDesc();
   paintTerrain();
+  paintSize();
   $("#city-layout-apply").disabled = busy || sel.value === "random";
   const keepBox = $("#city-roll-keep");
   if (d && !keepBox.children.length) {
@@ -414,8 +415,9 @@ async function rollCity() {
   if (!(await rollConfirm())) return;
   const v = $("#city-roll-seed").value.trim();
   const keep = [...$("#city-roll-keep").querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep);
+  const size = $("#city-size").value || null;
   await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep, keep_shape: $("#city-roll-keep-shape").checked,
-                                 ...layoutChoice()});
+                                 ...layoutChoice(), size});
 }
 // The layout preset and layout seed as picked (unchanged ones go as null: the layout's own)
 function layoutChoice() {
@@ -475,6 +477,36 @@ async function applyTerrain(extra) {
 $("#city-terrain-preset").onchange = e => { e.target.dataset.dirty = "1"; terrainPick = null; $("#city-terrain-chosen").textContent = ""; paintTerrain(); };
 $("#city-terrain-seed").oninput = e => { e.target.dataset.dirty = "1"; };
 $("#city-terrain-apply").onclick = () => applyTerrain();
+
+// --- City size (city_size.py): standard, large, metro; the background region; the detail radius ---
+function paintSize() {
+  const d = rollData && rollData.size, sel = $("#city-size"), bg = $("#city-background"), rad = $("#city-detail-radius");
+  if (!d) return;
+  if (!sel.options.length) {
+    sel.innerHTML = d.sizes.map(z => `<option value="${esc(z.name)}">${esc(z.label)}${z.across_m ? ` (~${z.across_m / 1000} km)` : ""}`
+      + `${z.experimental ? " · experimental" : ""}</option>`).join("");
+  }
+  if (document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.size;
+  if (!bg.dataset.dirty) bg.checked = !!d.background;
+  if (document.activeElement !== rad && !rad.dataset.dirty) rad.value = d.detail_radius_m ?? "";
+  rad.placeholder = String(d.detail_radius_default);
+  rad.disabled = sel.value === "standard";
+  const z = d.sizes.find(x => x.name === sel.value) || {};
+  $("#city-size-desc").textContent = (sel.value === d.size && d.across_m
+      ? `Now ${(d.across_m / 1000).toFixed(1)} km across on ${(d.terrain_m / 1000).toFixed(1)} km of terrain. ` : "")
+    + (z.experimental ? `${z.label} is experimental: its Unreal build takes over 20 minutes. ` : "")
+    + (sel.value === "standard" ? "Library builds stand everywhere." : `Library builds stand within ${rad.value || d.detail_radius_default} m of a shot camera or downtown; stand-ins beyond.`);
+  $("#city-size-apply").disabled = !!activeJobs("site.plan").length;
+}
+function sizeChoice() {
+  const sel = $("#city-size"), rad = $("#city-detail-radius").value.trim();
+  for (const el of [sel, $("#city-background"), $("#city-detail-radius")]) delete el.dataset.dirty;
+  return {size: sel.value, background: $("#city-background").checked, detail_radius_m: rad === "" ? 0 : Number(rad)};
+}
+$("#city-size").onchange = e => { e.target.dataset.dirty = "1"; paintSize(); };
+$("#city-background").onchange = e => { e.target.dataset.dirty = "1"; };
+$("#city-detail-radius").oninput = e => { e.target.dataset.dirty = "1"; paintSize(); };
+$("#city-size-apply").onclick = () => siteAction("site/size", sizeChoice());
 
 // The picked preset's one-line description under the picker
 function paintLayoutDesc() {

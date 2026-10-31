@@ -62,6 +62,23 @@ def factor(c) -> float:
     return across(c.bounds) / across(c.sized_from["bounds"])
 
 
+DETAIL_RADIUS_M = 2500.0         # the [city] detail_radius_m setting's fallback
+
+
+def default_detail_radius() -> float:
+    """The [city] detail_radius_m setting."""
+    from . import config
+    return float(config.get("city.detail_radius_m", DETAIL_RADIUS_M) or DETAIL_RADIUS_M)
+
+
+def detail_radius(c) -> float | None:
+    """How far from a shot camera or downtown library builds stand in a large / metro city (None:
+    a standard city, everywhere): the project's own, else the setting."""
+    if c is None or c.size == "standard":
+        return None
+    return float(c.detail_radius_m or default_detail_radius())
+
+
 def summary() -> list[dict]:
     """For the UI: each size's name, label and how far across it is (None: as the city is)."""
     return [{"name": n, "label": lab, "across_m": a, "experimental": n in EXPERIMENTAL} for n, (lab, a) in SIZES.items()]

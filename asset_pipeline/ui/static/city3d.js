@@ -9,6 +9,12 @@ const C3D_COLORS = {tower: 0x7d86a6, midrise: 0xb39572, rowhouse: 0xa86b55, hous
   landmark: 0xf0e2a8, other: 0xbdbdbd};
 const C3D_ROADS = {highway: 0x7b7b7b, boulevard: 0xb4afa2, avenue: 0xd2cdbf, street: 0xe2ded3};
 const C3D_WATER = 0x3d6f98, C3D_PARK = 0x6d9a4f, C3D_PAVING = 0xc9c2b2, C3D_SKY = 0xc7d5e2;
+const C3D_FOREST = 0x3f6236, C3D_CROP = 0xc9b45e, C3D_FALLOW = 0x9a8a55, C3D_VILLAGE = 0xc9a487;
+// A large or metro city (more buildings than this): instances chunked on a C3D_CHUNK_M grid so the
+// renderer culls what's off screen, and the small types dropped past these distances from the camera
+// (or that wide a top-down view); the background's forest clumps likewise. A standard city draws as before.
+const C3D_LOD_FROM = 15000, C3D_CHUNK_M = 1500;
+const C3D_FAR = {house: 9000, rowhouse: 14000, forest: 9000, village: 15000};
 let c3d = null;                 // the viewer, made on first use: {ok, T, renderer, scene, cams, groups, ...}
 let c3dData = null, c3dKey = null, c3dLoading = false, c3dTop = false, c3dColorBy = "type";
 
@@ -87,7 +93,7 @@ async function c3dInit() {
     pan.screenSpacePanning = true;
     pan.enabled = false;
     const groups = {};
-    for (const g of ["terrain", "buildings", "roads", "nature", "water"]) { groups[g] = new T.Group(); scene.add(groups[g]); }
+    for (const g of ["terrain", "buildings", "roads", "nature", "water", "country"]) { groups[g] = new T.Group(); scene.add(groups[g]); }
     c3d = {ok: true, T, renderer, scene, persp, ortho, orbit, pan, groups, meshes: [], frameMs: 0, buildMs: 0};
     orbit.addEventListener("change", c3dRender);
     pan.addEventListener("change", c3dRender);
@@ -119,6 +125,7 @@ function c3dRender() {
   c3dFrame = requestAnimationFrame(() => {
     c3dFrame = 0;
     const t0 = performance.now();
+    c3dLod();
     c3d.renderer.render(c3d.scene, c3dTop ? c3d.ortho : c3d.persp);
     c3d.frameMs = performance.now() - t0;
     c3dLabel();
@@ -128,7 +135,22 @@ function c3dRender() {
 function c3dLabel() {
   if (!c3dData) return;
   c3dNote(`${c3dData.buildings.length.toLocaleString()} buildings · built in ${Math.round(c3d.buildMs)} ms · `
-    + `frame ${c3d.frameMs.toFixed(1)} ms`);
+    + `frame ${c3d.frameMs.toFixed(1)} ms` + (c3d.lodHidden ? ` · ${c3d.lodHidden.toLocaleString()} far-off small buildings hidden` : ""));
+}
+
+// Far-off chunks of the small types out of the draw (a large / metro city): by distance from the
+// camera in 3D, by the view's width top-down.
+function c3dLod() {
+  if (!c3d.lod) return;
+  const cam = c3d.persp.position, wide = 2 * (c3d.orthoHalf || 1000) / (c3d.ortho.zoom || 1);
+  let hidden = 0;
+  for (const mesh of c3d.lod) {
+    const {far, centre, radius} = mesh.userData;
+    const d = c3dTop ? wide : Math.max(0, Math.hypot(cam.x - centre[0], cam.y - centre[1], cam.z - centre[2]) - radius);
+    mesh.visible = d < far;
+    if (!mesh.visible && mesh.userData.rows) hidden += mesh.userData.rows.length;
+  }
+  c3d.lodHidden = hidden;
 }
 
 // --- the scene ---------------------------------------------------------------------------------
@@ -158,21 +180,29 @@ function c3dBuild(d) {
   const n = d.terrain.n, geo = new T.PlaneGeometry(d.extent, d.extent, n - 1, n - 1);
   const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
   const sand = new T.Color(0xd9c9a3), grass = new T.Color(0xa7aa82), rock = new T.Color(0x9a958a), c = new T.Color();
+  const cover = d.background && c3dCover(d.background, n, -d.extent / 2, d.extent / 2, d.extent / (n - 1));
   for (let i = 0; i < pos.count; i++) {
     const z = d.terrain.z[i];
     pos.setZ(i, z);
     const t = (z - d.sea_level) / 120;
     if (t < 0.02) c.copy(sand); else c.copy(grass).lerp(rock, Math.min(Math.max(t - 0.2, 0), 1));
+    if (cover && z > d.sea_level + 1) c3dTint(c, cover, i);
     col.set([c.r, c.g, c.b], i * 3);
   }
   geo.setAttribute("color", new T.BufferAttribute(col, 3));
   geo.computeVertexNormals();
   G.terrain.add(new T.Mesh(geo, new T.MeshLambertMaterial({vertexColors: true})));
   if (d.terrain.z.some(z => z < d.sea_level)) {          // a coast: the sea (an inland terrain has none)
-    const sea = new T.Mesh(new T.PlaneGeometry(d.extent * 3, d.extent * 3), new T.MeshLambertMaterial({color: C3D_WATER}));
+    const span = d.background ? 4 * d.background.half : d.extent * 3;
+    const sea = new T.Mesh(new T.PlaneGeometry(span, span), new T.MeshLambertMaterial({color: C3D_WATER}));
     sea.position.z = d.sea_level;
     G.water.add(sea);
   }
+  c3d.lod = d.buildings.length > C3D_LOD_FROM || d.background ? [] : null;
+  c3d.scene.fog = d.background ? new T.Fog(C3D_SKY, 0.5 * d.background.half, 2.2 * d.background.half) : null;
+  if (d.background) c3dBackground(d, d.background);
+  const country = document.querySelector('#city3d [data-c3d-show="country"]');
+  if (country) country.closest("label").hidden = !d.background;
   // ways: one merged ribbon mesh for the roads, one for the rivers and canals
   const roads = [], water = [];
   for (const w of d.ways) (w.kind === "river" || w.kind === "canal" ? water : roads).push(w);
@@ -210,15 +240,17 @@ function c3dRibbons(ways, colorOf, offset) {
   return new T.Mesh(geo, m);
 }
 
-// Polygons (rings: exterior, then holes) laid on the terrain, merged into one mesh.
-function c3dPolys(d, polys, color, lift) {
+// Polygons (rings: exterior, then holes) laid on the terrain (zf(x, y): its height, default the
+// city's), merged into one mesh.
+function c3dPolys(d, polys, color, lift, zf) {
+  zf = zf || ((x, y) => c3dZ(d, x, y));
   const T = c3d.T, p = [], idx = [];
   for (const rings of polys) {
     if (!rings.length || rings[0].length < 3) continue;
     const shape = new T.Shape(rings[0].map(([x, y]) => new T.Vector2(x, y)));
     for (const h of rings.slice(1)) if (h.length >= 3) shape.holes.push(new T.Path(h.map(([x, y]) => new T.Vector2(x, y))));
     const g = new T.ShapeGeometry(shape), a = g.attributes.position, base = p.length / 3;
-    for (let i = 0; i < a.count; i++) p.push(a.getX(i), a.getY(i), c3dZ(d, a.getX(i), a.getY(i)) + lift);
+    for (let i = 0; i < a.count; i++) p.push(a.getX(i), a.getY(i), zf(a.getX(i), a.getY(i)) + lift);
     const gi = g.index ? g.index.array : [...Array(a.count).keys()];
     for (const v of gi) idx.push(base + v);
     g.dispose();
@@ -231,17 +263,22 @@ function c3dPolys(d, polys, color, lift) {
     polygonOffsetFactor: -1, polygonOffsetUnits: -2}));
 }
 
-// One instanced box mesh per building type; each instance knows its row (for picking).
+// One instanced box mesh per building type (a large / metro city: per type and chunk, c3dLod);
+// each instance knows its row (for picking).
 function c3dBuildings(d) {
   const T = c3d.T, G = c3d.groups, box = new T.BoxGeometry(1, 1, 1);
   box.translate(0, 0, 0.5);
-  const byType = d.types.map(() => []);
-  d.buildings.forEach((b, i) => byType[b[7]].push(i));
+  const groups = new Map();
+  d.buildings.forEach((b, i) => {
+    const key = c3d.lod ? `${b[7]}:${Math.floor(b[0] / C3D_CHUNK_M)}:${Math.floor(b[1] / C3D_CHUNK_M)}` : b[7];
+    if (!groups.has(key)) groups.set(key, {ti: b[7], rows: []});
+    groups.get(key).rows.push(i);
+  });
   const m = new T.Matrix4(), q = new T.Quaternion(), zAxis = new T.Vector3(0, 0, 1), v = new T.Vector3(), s = new T.Vector3();
+  const mat = new T.MeshLambertMaterial({color: 0xffffff});
   c3d.meshes = [];
-  byType.forEach((rows, ti) => {
-    if (!rows.length) return;
-    const mesh = new T.InstancedMesh(box, new T.MeshLambertMaterial({color: 0xffffff}), rows.length);
+  for (const {ti, rows} of [...groups.values()].sort((a, b) => a.ti - b.ti)) {
+    const mesh = new T.InstancedMesh(box, mat, rows.length);
     rows.forEach((ri, k) => {
       const b = d.buildings[ri];
       q.setFromAxisAngle(zAxis, b[6] * Math.PI / 180);
@@ -249,12 +286,102 @@ function c3dBuildings(d) {
       mesh.setMatrixAt(k, m);
     });
     mesh.userData = {rows, type: d.types[ti]};
-    mesh.frustumCulled = false;
     mesh.computeBoundingSphere();
+    mesh.frustumCulled = !!c3d.lod;
+    if (c3d.lod && C3D_FAR[d.types[ti]]) c3dLodAdd(mesh, C3D_FAR[d.types[ti]]);
     G.buildings.add(mesh);
     c3d.meshes.push(mesh);
-  });
+  }
   c3dColor();
+}
+
+function c3dLodAdd(mesh, far) {
+  const bs = mesh.boundingSphere;
+  Object.assign(mesh.userData, {far, centre: [bs.center.x, bs.center.y, bs.center.z], radius: bs.radius});
+  c3d.lod.push(mesh);
+}
+
+// The background region (city_view.background): its coarse terrain round the tile, tinted where the
+// forest and fields are; forest clumps (instanced domes, chunked, dropped far off), fields, village
+// houses and the highways and rivers carried on. All in the "country" group (its own toggle).
+function c3dBackground(d, bg) {
+  const T = c3d.T, G = c3d.groups.country, n = bg.terrain.n, span = bg.terrain.span, half = bg.half, core = d.extent / 2;
+  const geo = new T.PlaneGeometry(span, span, n - 1, n - 1);
+  geo.translate(-half + span / 2, half - span / 2, 0);
+  const pos = geo.attributes.position, col = new Float32Array(pos.count * 3);
+  const sand = new T.Color(0xd9c9a3), grass = new T.Color(0xa7aa82), rock = new T.Color(0x9a958a), c = new T.Color();
+  const cover = c3dCover(bg, n, -half, half, span / (n - 1));
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), y = pos.getY(i), inside = Math.abs(x) < core && Math.abs(y) < core;
+    const z = bg.terrain.z[i] - (inside ? 6 : 0);          // under the city's own terrain inside the tile
+    pos.setZ(i, z);
+    const t = (z - d.sea_level) / 120;
+    if (t < 0.02) c.copy(sand); else c.copy(grass).lerp(rock, Math.min(Math.max(t - 0.2, 0), 1));
+    if (z > d.sea_level + 1) c3dTint(c, cover, i);
+    col.set([c.r, c.g, c.b], i * 3);
+  }
+  geo.setAttribute("color", new T.BufferAttribute(col, 3));
+  geo.computeVertexNormals();
+  G.add(new T.Mesh(geo, new T.MeshLambertMaterial({vertexColors: true})));
+  const fz = (x, y) => Math.abs(x) < core && Math.abs(y) < core ? c3dZ(d, x, y) : c3dBgZ(bg, x, y);
+  const fields = [[], []];
+  for (const [rings, isCrop] of bg.fields) fields[isCrop].push([rings[0]]);
+  G.add(c3dPolys(d, fields[1], C3D_CROP, 0.6, fz));
+  G.add(c3dPolys(d, fields[0], C3D_FALLOW, 0.6, fz));
+  const roads = bg.ways.filter(w => w.kind !== "river"), water = bg.ways.filter(w => w.kind === "river");
+  G.add(c3dRibbons(roads, w => C3D_ROADS[w.kind] || C3D_ROADS.street, 2));
+  G.add(c3dRibbons(water, () => C3D_WATER, 1));
+  const dome = new T.SphereGeometry(0.5, 7, 3, 0, 2 * Math.PI, 0, Math.PI / 2);
+  dome.scale(1, 1, 2).rotateX(Math.PI / 2);
+  c3dInstances(G, dome, C3D_FOREST, bg.forest, 5, r => [r[0], r[1], r[2] - 2, r[3], r[3], r[4], 0], "forest");
+  const box = new T.BoxGeometry(1, 1, 1);
+  box.translate(0, 0, 0.5);
+  c3dInstances(G, box, C3D_VILLAGE, bg.houses, 7, r => [r[0], r[1], r[2] - 0.3, r[3], r[4], r[5], r[6]], "village");
+}
+
+// How much forest and field lies by each vertex of an n x n grid (rows north -> south from (x0, y0)):
+// [forest, fields] per vertex, so far-off ground keeps its look once the clumps drop out (c3dLod).
+function c3dCover(bg, n, x0, y0, cell) {
+  const out = new Float32Array(n * n * 2);
+  const at = (x, y) => { const j = Math.round((x - x0) / cell), i = Math.round((y0 - y) / cell);
+    return i >= 0 && i < n && j >= 0 && j < n ? i * n + j : -1; };
+  const w = (cell / 100) ** 2;                            // clumps per vertex scale with its area
+  for (let k = 0; k < bg.forest.length; k += 5) { const i = at(bg.forest[k], bg.forest[k + 1]); if (i >= 0) out[2 * i] += 1 / w; }
+  for (const [rings] of bg.fields) for (const [x, y] of rings[0]) { const i = at(x, y); if (i >= 0) out[2 * i + 1] += 1; }
+  return out;
+}
+let c3dTints = null;
+function c3dTint(c, cover, i) {
+  c3dTints = c3dTints || [new c3d.T.Color(C3D_FOREST), new c3d.T.Color(C3D_CROP)];
+  c.lerp(c3dTints[0], Math.min(cover[2 * i] / 1.5, 0.85)).lerp(c3dTints[1], Math.min(cover[2 * i + 1] / 2, 0.6));
+}
+
+function c3dBgZ(bg, x, y) {
+  const n = bg.terrain.n, cell = bg.terrain.span / (n - 1), z = bg.terrain.z;
+  const fx = Math.min(Math.max((x + bg.half) / cell, 0), n - 1.001), fy = Math.min(Math.max((bg.half - y) / cell, 0), n - 1.001);
+  const j = Math.floor(fx), i = Math.floor(fy), a = fx - j, b = fy - i;
+  return z[i * n + j] * (1 - a) * (1 - b) + z[i * n + j + 1] * a * (1 - b) + z[(i + 1) * n + j] * (1 - a) * b + z[(i + 1) * n + j + 1] * a * b;
+}
+
+// Flat rows of `stride` numbers as one colour's instances, chunked for culling and c3dLod.
+function c3dInstances(group, geo, color, flat, stride, pose, kind) {
+  const T = c3d.T, chunks = new Map(), mat = new T.MeshLambertMaterial({color});
+  for (let k = 0; k < flat.length; k += stride) {
+    const r = pose(flat.slice(k, k + stride)), key = `${Math.floor(r[0] / (2 * C3D_CHUNK_M))}:${Math.floor(r[1] / (2 * C3D_CHUNK_M))}`;
+    if (!chunks.has(key)) chunks.set(key, []);
+    chunks.get(key).push(r);
+  }
+  const m = new T.Matrix4(), q = new T.Quaternion(), zAxis = new T.Vector3(0, 0, 1), v = new T.Vector3(), s = new T.Vector3();
+  for (const rows of chunks.values()) {
+    const mesh = new T.InstancedMesh(geo, mat, rows.length);
+    rows.forEach((r, i) => {
+      q.setFromAxisAngle(zAxis, r[6] * Math.PI / 180);
+      mesh.setMatrixAt(i, m.compose(v.set(r[0], r[1], r[2]), q, s.set(r[3], r[4], r[5])));
+    });
+    mesh.computeBoundingSphere();
+    c3dLodAdd(mesh, C3D_FAR[kind]);
+    group.add(mesh);
+  }
 }
 
 // Colour by type, or by height (low warm, tall deep blue).
@@ -303,7 +430,7 @@ function c3dFrameCity(d) {
 
 function c3dToggles() {
   if (!c3d || !c3d.ok) return;
-  for (const g of ["buildings", "roads", "nature", "water"]) {
+  for (const g of ["buildings", "roads", "nature", "water", "country"]) {
     const box = document.querySelector(`#city3d [data-c3d-show="${g}"]`);
     c3d.groups[g].visible = !box || box.checked;
   }

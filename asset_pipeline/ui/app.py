@@ -320,6 +320,7 @@ class RollReq(BaseModel):
     preset: str | None = None     # the layout preset (layout_presets.PRESETS); None: the layout's own
     layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     keep_shape: bool = False      # keep the current outline and districts (new streets only)
+    size: Literal["standard", "large", "metro"] | None = None   # the city size (city_size); None: the layout's own
 
 
 class TerrainReq(BaseModel):
@@ -333,6 +334,12 @@ class TerrainReq(BaseModel):
 class DescribeReq(BaseModel):
     text: str = Field(max_length=600)
     preset: str | None = None          # the picker's preset: the keywords' fallback when no word matches
+
+
+class SizeReq(BaseModel):
+    size: Literal["standard", "large", "metro"]
+    background: bool | None = None                  # None: the layout's own
+    detail_radius_m: float | None = Field(default=None, ge=0)   # 0: the setting; None: the layout's own
 
 
 class PresetReq(BaseModel):
@@ -1503,7 +1510,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             from ..jobs import current_job
             job = current_job()
             r = city_roll.roll(store, req.seed, req.keep, log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print,
-                               preset=req.preset, layout_seed=req.layout_seed, keep_shape=req.keep_shape)
+                               preset=req.preset, layout_seed=req.layout_seed, keep_shape=req.keep_shape, size=req.size)
             return {"seed": r["seed"], "tries": r["tries"], "buildings": r["stats"]["buildings"], "warnings": r["stats"]["warnings"]}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
 
@@ -1522,6 +1529,28 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _preset_check(req.preset)
         return jobs.submit("site.plan", slug, lambda: city_roll.set_preset(store, req.preset, req.layout_seed)["buildings"],
                            lane="cpu", tag={"roll": True}).public()
+
+    @app.post("/api/projects/{slug}/site/size")
+    def site_size(slug: str, req: SizeReq):
+        """The city size (city_size: standard, large, metro), its background region and detail radius,
+        then the reshape and re-plan: a site.plan job."""
+        from .. import city_size
+        store = _store(slug)
+        _roll_check(store)
+        try:
+            lay = sw_site.load_layout(store)
+            if req.size != "standard" and req.size != lay.city.size and (lay.terrain.heightmap or lay.terrain.far):
+                raise HTTPException(400, "the terrain is a heightmap (a terrain build): only a generated terrain grows with the city")
+        except FileNotFoundError:
+            pass
+
+        def run():
+            from ..jobs import current_job
+            job = current_job()
+            st = city_size.set_size(store, req.size, background=req.background, detail_radius_m=req.detail_radius_m,
+                                    log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print)
+            return {"size": req.size, "buildings": st["buildings"], "warnings": st["warnings"]}
+        return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
 
     @app.post("/api/projects/{slug}/site/terrain")
     def site_terrain(slug: str, req: TerrainReq):

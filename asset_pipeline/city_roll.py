@@ -187,18 +187,23 @@ def summary(store: ProjectStore) -> dict:
     from .stages import sw_site
     h = history(store)
     from . import terrain_gen
+    from . import city_size
     seed, preset, layout_seed = None, layout_presets.DEFAULT, 0
+    size = {"size": "standard", "background": False, "detail_radius_m": None}
     terrain = {"name": None, "seed": None, "heightmap": None}
     try:
         lay = sw_site.load_layout(store)
         if lay.city:
             seed, preset, layout_seed = lay.city.seed, lay.city.preset.name, lay.city.layout_seed
+            size = {"size": lay.city.size, "background": lay.city.background, "detail_radius_m": lay.city.detail_radius_m,
+                    "across_m": round(city_size.across(lay.city.bounds)), "terrain_m": lay.terrain.extent_m}
         ts = lay.terrain.settings
         terrain = {"name": ts.name if ts else None, "seed": ts.seed if ts else None, "heightmap": lay.terrain.heightmap}
     except FileNotFoundError:
         pass
     terrain["presets"] = terrain_gen.summary()
-    return {"groups": GROUPS, "seed": seed, "preset": preset, "layout_seed": layout_seed, "terrain": terrain,
+    size |= {"sizes": city_size.summary(), "detail_radius_default": city_size.default_detail_radius()}
+    return {"groups": GROUPS, "seed": seed, "preset": preset, "layout_seed": layout_seed, "terrain": terrain, "size": size,
             "presets": layout_presets.summary(), "pos": h["pos"], "count": len(h["rolls"]),
             "seeds": [r["seed"] for r in h["rolls"]], "kept": ROLLS_KEPT,
             "last": ({k: h["rolls"][h["pos"]].get(k) for k in ("seed", "keep", "warnings", "at")} if h["rolls"] else None)}

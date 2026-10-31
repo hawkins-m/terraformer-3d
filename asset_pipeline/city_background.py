@@ -358,7 +358,6 @@ def plan_image(B: Background, layout: SiteLayout, P=None, px: int = 1600):
     from PIL import Image, ImageDraw
     half = B.half
     s = px / (2 * half)
-    n = B.far["h"].shape[0]
     h = B.far["h"][::-1].astype(np.float64)              # rows north -> south for the image
     gy, gx = np.gradient(h, B.far["cell"])
     shade = np.clip(0.75 + 1.8 * (gx * -0.6 + gy * 0.8) / (1 + np.hypot(gx, gy)), 0.35, 1.15)
