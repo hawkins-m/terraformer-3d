@@ -208,6 +208,9 @@ class Fields:
         x, y = np.asarray(x, float), np.asarray(y, float)
         c = self.city
         pr = c.preset
+        if pr.metro:                   # a coastal metro's own fall-off, ribbons and edge (city_metro)
+            from . import city_metro
+            return city_metro.density(self, x, y)
         keep = np.ones_like(x)
         for nd in c.nodes:
             d = np.hypot(x - nd.center[0], y - nd.center[1])
@@ -352,10 +355,14 @@ def with_preset(layout: SiteLayout) -> SiteLayout:
     when the city has no enclosure of its own; its node layouts and slope limit. Unchanged (the
     same object) when the preset changes none of these, as "utopia" doesn't."""
     c = layout.city
-    if c is None or (c.preset.walls == "none" and not c.preset.organic_nodes and c.preset.max_slope is None):
+    if c is None or (c.preset.walls == "none" and not c.preset.organic_nodes and c.preset.max_slope is None
+                     and not c.preset.metro):
         return layout
     L = layout.model_copy(deep=True)
     c, pr = L.city, L.city.preset
+    if pr.metro:                  # a metro's grid is turned to the coast at downtown
+        from . import city_metro
+        pr.grid_deg = city_metro.grid_deg(L)
     if pr.max_slope is not None:
         c.max_slope = pr.max_slope
     if pr.organic_nodes:
@@ -1192,6 +1199,11 @@ def ways(L: SiteLayout, f: Fields) -> list[Way]:
             out.append(Way(f"art-{a_id}-{b_id}", "arterial", ln, c.arterial_w, a_id))
     ok = lambda p: inside(p) and bool(f.ground(*p)) and not in_other(p, None)  # noqa: E731
     ok_river = lambda p: in_box(p) and bool(f.ground(*p)) and not in_other(p, None)  # noqa: E731
+    if c.preset.metro:     # a metro's grid ends where the city frays out; its arterials and lakeshore
+        from . import city_metro
+        out += city_metro.ways(c, f, ok)
+        ok_all = ok
+        ok = lambda p: ok_all(p) and float(f.density(*p)) > 0.6 * c.urban_threshold  # noqa: E731
     out += pattern_ways(c, f, ok, ok_river)
     from . import terrain_gen
     for k, w in enumerate(terrain_gen.terrain_lines(L.terrain)):     # the terrain's own river: lowered water
@@ -1297,6 +1309,9 @@ def layout_water(c: CitySpec, t: TerrainSpec) -> list:
     from .greybox import sea_axes, shore_at
     from .terrain_gen import WaterLine
     pr = c.preset
+    if pr.metro:          # a metro's own forking river (city_metro)
+        from . import city_metro
+        return city_metro.water(c, t)
     if not (pr.canals or (pr.strip_water and pr.outline == "strip") or pr.river):
         return []
     u, v = sea_axes(t)
@@ -1384,10 +1399,15 @@ def highways(c: CitySpec, f: Fields) -> list[Way]:
         nd = min(c.nodes, key=lambda o: math.dist(o.center, C), default=None)
         rot = nd.rot if nd is not None else 0.0
         r0 = (e.radius + e.wall_d + e.moat_w + 20) if e else 0.0      # a walled city: from outside the wall
+        if pr.metro:          # into downtown's edge, from inland and along the coast
+            from . import city_metro
+            spokes, r0 = city_metro.highway_angles(c, f.t), 0.5 * pr.downtown_m
         far = math.hypot(x1 - x0, y1 - y0)
         tt = np.arange(r0, far, STEP_M)
         for k in range(pr.highway_spokes):
             a = rot + 180 / max(pr.highway_spokes, 1) + 360 * k / pr.highway_spokes      # between the radials
+            if pr.metro:
+                a = spokes[k]
             if fit:            # traced: it steers round steep ground (_trace), stopping at the sea
                 ln = _trace(f, C + r0 * _dir(a), a, far - r0, 0.0, free_m=0.0)
                 pts = np.asarray(ln.coords) if ln is not None else np.zeros((0, 2))
@@ -1704,7 +1724,14 @@ def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -
     cx, cy = P.centroid.coords[0]
     d = float(f.density(cx, cy))
     if d < c.urban_threshold * 0.7:
-        return []           # countryside: no local streets
+        if not c.preset.metro:
+            return []           # countryside: no local streets
+        # a metro's ribbons: a face whose edge runs along a built-up arterial is cut down to it
+        edge = np.array(P.exterior.segmentize(40.0).coords)
+        if float(np.max(f.density(edge[:, 0], edge[:, 1]))) < c.urban_threshold or P.area < (c.block_m[1] ** 2) * 1.3 \
+                or depth > 12:
+            return []
+        d = c.urban_threshold * 0.7
     size = c.block_m[0] + (c.block_m[1] - c.block_m[0]) * (1 - d)
     hill = _hill_cut(P, f, c, rng)
     if hill == "stop" or depth > 12 or (hill is None and (P.area <= size * size * 1.3 or depth > 9)):
@@ -1719,7 +1746,9 @@ def subdivide(P: Polygon, f: Fields, c: CitySpec, rng, streets: list, depth=0) -
     if len(parts) < 2 or line.is_empty:
         return [P]
     gap = line.buffer(c.street_w / 2, cap_style="flat")
-    streets.append(line)
+    m = line.interpolate(0.5, normalized=True) if c.preset.metro else None
+    if m is None or float(f.density(m.x, m.y)) >= c.urban_threshold * 0.7:
+        streets.append(line)    # (a metro's cut through open land, down to a ribbon, is no street)
     out = []
     for part in parts:
         for q in _polys(part.difference(gap)):
@@ -1989,6 +2018,11 @@ def industrial_centre(c: CitySpec, f: Fields, ways_: list[Way]):
     centre and the downtown) or beside the harbour. None when there's none to sit by."""
     pr = c.preset
     C = np.array(main_centre(c), float)
+    if pr.metro:          # on the river, away from downtown
+        from . import city_metro
+        p = city_metro.industrial_centre(c, f, ways_)
+        if p is not None:
+            return p
     if pr.industrial == "harbour":
         nd = next((n for n in c.nodes if n.role == "harbour"), None)
         if nd is None:
@@ -2028,11 +2062,11 @@ def _long_axis(b: Polygon):
     return math.degrees(math.atan2(lv[1], lv[0])), float(np.linalg.norm(lv)), float(np.linalg.norm(sv))
 
 
-def tower_block(b: Polygon, f: Fields, c: CitySpec, rng, district, frac: float) -> list[Box]:
+def tower_block(b: Polygon, f: Fields, c: CitySpec, rng, district, frac: float, storeys=None) -> list[Box]:
     """A downtown block: a tower on a podium, taller towards the centre (`frac` 0 at the
-    centre .. 1 at the downtown's edge)."""
+    centre .. 1 at the downtown's edge); `storeys` (centre, edge): the preset's tower_storeys."""
     rot, L_, S_ = _long_axis(b)
-    hi, lo = c.preset.tower_storeys
+    hi, lo = storeys or c.preset.tower_storeys
     st = int(round(hi + (lo - hi) * min(frac, 1.0))) + int(rng.integers(-3, 4))
     out = []
     pod = _fit(b, L_ - 6, S_ - 6, rot, 2.0)
@@ -2249,14 +2283,20 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         nd, ie, igates, _ = inner
         cut = cut.union(Point(nd.center).buffer(ie.radius + 14, quad_segs=48).difference(
             Point(nd.center).buffer(ie.radius - 14, quad_segs=48)))
-    green_lines = corridors(L, f, rng)
+    green_lines = corridors(L, f, rng) if not pr.metro else []     # a metro's green is its river's banks (below)
     green = unary_union([g.buffer(c.corridor_w / 2) for g in green_lines]).intersection(region) \
         if green_lines else Polygon()
     extra = preset_green(c, f)
+    if pr.metro:
+        from . import city_metro
+        extra = unary_union([extra, city_metro.green(c, f, P.ways)])
     if not extra.is_empty:
         green = unary_union([green, extra]).intersection(region)
     supers = [q for g in faces for q in _polys(g.difference(cut).difference(green))]
     P.parks += [q for q in _polys(green.difference(cut)) if q.area > 400]
+    if pr.metro:              # long winding banks and strips as small tiles: each lawn slab stays simple
+        from . import city_metro
+        P.parks = city_metro.tiles(P.parks)
     if c.enclosure:
         P.gates = gate_angles(c, f)
         P.walls = wall_parts(c, f, P.gates)
@@ -2342,7 +2382,16 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         if fit and float(f.slope(cx, cy)) > ROUGH:        # rough ground stays green
             P.parks.append(b)
             return False
-        if pr.downtown_m and math.dist((cx, cy), C) < pr.downtown_m:
+        if pr.metro:          # the towers' edge wobbles; mid-rise towers thin out past it
+            from . import city_metro
+            if city_metro.in_downtown(f, cx, cy):
+                zoned.append(("tower", b, nearest_node(c, cx, cy)))
+                return False
+            chance = city_metro.midrise(f, cx, cy)
+            if chance is not None and _key(f"{c.layout_seed}:midrise:{i}") / 2**32 < chance:
+                zoned.append(("midrise", b, nearest_node(c, cx, cy)))
+                return False
+        elif pr.downtown_m and math.dist((cx, cy), C) < pr.downtown_m:
             zoned.append(("tower", b, nearest_node(c, cx, cy)))
             return False
         if ind is not None and math.dist((cx, cy), ind) < pr.industrial_m:
@@ -2380,6 +2429,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         if kind == "tower":          # tallest right at the civic core's edge
             frac = (math.dist((cx, cy), C) - core) / max(pr.downtown_m - core, 1.0)
             P.buildings += tower_block(b, f, c, rng, dist, max(frac, 0.0))
+        elif kind == "midrise":      # a metro's mid-rise towers, lower further out
+            frac = (math.dist((cx, cy), C) - pr.downtown_m) / max(0.8 * pr.downtown_m, 1.0)
+            P.buildings += tower_block(b, f, c, rng, dist, frac, (pr.tower_storeys[1], 9))
         else:
             P.buildings += shed_block(b, f, c, dist)
     for nd in c.nodes:
@@ -2561,8 +2613,15 @@ def add_slots(P: CityPlan, new, hs) -> None:
     def group(kind, x, y, item, district):
         groups.setdefault((kind, tile(x, y)), []).append((item, district))
 
+    cover = None
+    if c.preset.metro:       # a metro's ways over its river are level bridge decks
+        from . import city_metro
+        cover = city_metro.water_cover(P.ways)
+
     def ribbon_piece(sb, name, coords, w, lift):
         pts = _drape(hs.many, coords, lift)
+        if cover is not None and name not in ("river", "canal"):
+            pts = city_metro.deck(pts, cover)
         o = pts[0]
         sb.add(name, ribbon([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], w, 0.1), tuple(o))
 

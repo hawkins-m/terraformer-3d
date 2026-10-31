@@ -297,24 +297,25 @@ def test_utopia_still_has_its_old_overlaps(base):
 
 
 def test_classic_is_an_ordinary_modern_city():
+    """A coastal metro (city_metro; the shape and its tests: test_classic_metro.py): towers round
+    downtown, mid-rise past them, houses at the edge; highways in, none round; industry on the river."""
     st = sw_site.starter_city()
     h = city.apply_pads(st, greybox.make_terrain(st.terrain))
     lay = layout_presets.apply(st, "classic")
     pr = lay.city.preset
-    assert pr.streets == "grid" and pr.highways == "both" and pr.interchanges and pr.industrial == "highway"
+    assert pr.metro and pr.streets == "grid" and pr.highways == "radial" and pr.rings == 0 and pr.outline == "coastal"
     P = city.plan(lay, h)
     C = city.main_centre(P.layout.city)
     towers = [b for b in P.buildings if b.kind == "tower"]
-    assert towers and all(math.dist((b.x, b.y), C) < pr.downtown_m + 60 for b in towers)
-    assert max(b.h for b in towers) > 30 * P.layout.city.storey_m                # skyscrapers, over 100 m
-    ring = [b.h for b in P.buildings if b.kind == "housing" and pr.downtown_m < math.dist((b.x, b.y), C) < 900]
-    assert ring and 9 < np.median(ring) < 40                                     # the mid-rise ring
+    assert towers and max(b.h for b in towers) > 30 * P.layout.city.storey_m                # skyscrapers, over 100 m
+    dist = lambda b: math.dist((b.x, b.y), C)  # noqa: E731
     houses = [b for b in P.buildings if b.kind == "houses"]
-    assert houses and np.median([math.dist((b.x, b.y), C) for b in houses]) > pr.suburbs_m   # suburbs at the edge
-    assert P.interchanges and any(w.id.startswith("hw-ring") for w in P.ways) and any(w.id.startswith("hw-spoke") for w in P.ways)
+    assert houses and np.median([dist(b) for b in houses]) > np.median([dist(b) for b in towers]) + 500
+    assert P.interchanges and not any(w.id.startswith(("hw-ring", "ring")) for w in P.ways)
+    assert any(w.id.startswith("hw-spoke") for w in P.ways)
     sheds = [b for b in P.buildings if b.kind == "industrial"]
-    hw = unary_union([w.line for w in P.ways if w.kind == "highway"])
-    assert sheds and all(hw.distance(Point(b.x, b.y)) < pr.industrial_m + 100 for b in sheds)
+    river = unary_union([w.line for w in P.ways if w.kind == "river"])
+    assert sheds and all(river.distance(Point(b.x, b.y)) < pr.industrial_m + 100 for b in sheds)
 
 
 def test_the_presets_features(base):

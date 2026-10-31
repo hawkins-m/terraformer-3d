@@ -276,6 +276,15 @@ World and city mode: greybox and passes, concept frames and their control settin
   `river`, `canal` ways, `tower`, `industrial`, `bastion`; inner walls are `innerwall-*` slots typed `wall`.
 - Presets other than utopia set `clear_overlaps`; utopia keeps its old overlaps on purpose (locked frames).
 
+## Classic is a coastal metro (2026-10-30)
+- `LayoutPreset.metro` (classic only) routes density, grid angle, arterials, lakeshore, river, green,
+  industry and bridge decks through `city_metro.py`; `city_shape.metro_shape` puts downtown on the coast
+  at the river's mouth (the terrain's river if it has one), grows the bounds to the shore, no towns.
+  Every gate in `city.py` is `if pr.metro`, so other presets are untouched: `tests/test_classic_metro.py`
+  pins every other preset's plan digest (small city, coastal plain, other terrains) and greybox slots.
+- Projects saved with the old classic keep its fields (no `metro`) and plan as before; picking classic
+  again (or a roll with it) gives the metro. Same slot types: bridges are level `avenue`/`highway` decks.
+
 ## Hand edits follow into Unreal (2026-10-30)
 - `site/build/built_slots.json` (written by `ap site build`, or by a Re-read of an unedited greybox
   built before it existed) is the greybox as built; `sw_site.slot_edits` diffs every slot against it

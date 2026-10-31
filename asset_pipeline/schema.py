@@ -627,6 +627,10 @@ class LayoutPreset(BaseModel):
     highway_ring_m: float | None = Field(default=None, gt=0)  # the ring's radius; None: just outside the outline
     highway_spokes: int = Field(default=4, ge=1, le=12)
     interchanges: bool = True
+    # a coastal metro (city_metro.py): downtown on the coast at a river's mouth, density and heights
+    # falling off from it with an irregular edge, the grid turned to the coast (grid_deg is added to
+    # the coast's angle), diagonal arterials, a forking river, a lakefront park; no outline or ring
+    metro: bool = False
 
 
 class CitySpec(BaseModel):

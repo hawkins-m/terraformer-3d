@@ -352,7 +352,8 @@ new city: random city rules within believable ranges plus a new seed, then the u
   shows under the picker): street pattern, outline (including an island), ring roads, walls,
   bastions and a moat, parks, canals or a river, the density falloff, height zoning with a
   downtown of towers, suburbs with cul-de-sacs, an industrial zone, and highways with
-  interchanges. New projects start on *classic* (an ordinary modern city); *utopia*, every
+  interchanges. New projects start on *classic* (a coastal metro: downtown towers on the shore at a river's
+  mouth, a coast-aligned grid with diagonals, a lakefront park, suburbs that fray out); *utopia*, every
   project's from before presets, is the generator as it was. *Random preset* lets a roll pick
   one from its seed.
 

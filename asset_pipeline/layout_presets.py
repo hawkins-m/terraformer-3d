@@ -12,11 +12,12 @@ P = LayoutPreset
 # name: (one line for the Layout picker, the preset)
 CATALOG: dict[str, tuple[str, LayoutPreset]] = {
     "utopia": ("Radial avenues out of each civic node on the coast; the generator as it was before presets.", P()),
-    "classic": ("An ordinary modern city: a grid with square squares, a tight downtown of towers, a boulevard ring, "
-                "wide suburbs, ring and radial highways with interchanges, industry by a highway.",
-                P(streets="grid", outline="blob", rings=1, boulevard_w=40.0, hub="square", tall_at="centre",
-                  height_falloff_m=700, falloff_scale=1.3, downtown_m=420, tower_storeys=(50, 18), suburbs_m=800,
-                  highways="both", highway_spokes=4, industrial="highway", clear_overlaps=True)),
+    "classic": ("A modern coastal metro: downtown towers on the shore at a river's mouth, a coast-aligned grid with "
+                "diagonal arterials, heights falling off to suburbs that fray out along the arterials, a forking river, "
+                "a lakefront park, industry on the river.",
+                P(streets="grid", hub="square", tall_at="centre", height_falloff_m=800, downtown_m=380,
+                  tower_storeys=(55, 18), highways="radial", highway_spokes=3, industrial="highway", industrial_m=280,
+                  river_w=55.0, block_parks=0.03, metro=True, clear_overlaps=True)),
     "grid": ("A plain grid of avenues with grid-aligned blocks, a few parks, tallest in the middle.",
              P(streets="grid", hub="square", block_parks=0.04, tall_at="centre", height_falloff_m=900, clear_overlaps=True)),
     "manhattan": ("A long narrow grid strip, water on its long sides: long avenues, short cross streets, two tower clusters.",

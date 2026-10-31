@@ -1,7 +1,7 @@
 """Layout preset polish: the star fortress fills out to its star-shaped wall and stays on land; a
 preset's walled city is crossed by roads only at its gates (a town's road leaves by the gate nearest
 it; the castle has one gate); hubs are round, square (a grid square) or a mall in a car park by
-preset; classic's ring is a boulevard built as road. Synthetic projects."""
+preset; classic's lakeshore is a boulevard built as road. Synthetic projects."""
 import math
 
 import numpy as np
@@ -164,13 +164,12 @@ def test_suburbia_has_a_mall_in_a_car_park(store):
     assert slot_overlaps(P) == []
 
 
-def test_classics_ring_is_a_boulevard_built_as_road(store):
+def test_classics_lakeshore_is_a_boulevard_built_as_road(store):
     L, h, P = rolled(store, "classic")
-    pr = L.city.preset
-    assert pr.boulevard_w == 40 and not L.city.enclosure and not P.walls            # no wall anywhere
+    assert not L.city.enclosure and not P.walls                                      # no wall anywhere
     bl = [w for w in P.ways if w.kind == "boulevard"]
-    assert bl and all(w.width == 40 and w.id.startswith("ring") for w in bl)
-    assert not [w for w in P.ways if w.kind == "ring" and w.id.startswith("ring")]     # no plain ring road left
+    assert bl and all(w.id.startswith("lakeshore") for w in bl)                      # along the coast, not a ring
+    assert not [w for w in P.ways if w.id.startswith("ring")]
     spec = greybox.build_spec(L, h)
     slots = [s for s in spec["slots"] if s["type"] == "boulevard"]
     assert slots and all(s["category"] == "terrain" for s in slots)

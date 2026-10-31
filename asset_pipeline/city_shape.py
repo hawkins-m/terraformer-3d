@@ -13,6 +13,8 @@ import math
 from dataclasses import dataclass, field
 
 import numpy as np
+from shapely.geometry import Point
+from shapely.ops import unary_union
 
 from . import city
 from .schema import CivicNode, Enclosure, LayoutPreset, SiteLayout, Town
@@ -54,11 +56,10 @@ class Recipe:
 
 
 RECIPES: dict[str, Recipe] = {
-    "classic": Recipe(0.55, 0.85, [
-        plain("downtown", r=120, weight=1.6), plain("midtown", dist=0.35, r=90),
-        plain("eastside", angle=70, dist=0.55, r=90, weight=0.8), plain("westside", angle=-70, dist=0.55, r=90, weight=0.8),
-        plain("harbour", role="harbour", angle=180, dist=0.4, r=110, place="coast")],
-        towns=(2, 1.25, 260.0), town_names=["eastfield", "westfield"]),
+    "classic": Recipe(0.0, None, [          # a metro (metro_shape): downtown on the coast, the harbour beside it
+        plain("downtown", r=120, weight=1.6), plain("harbour", role="harbour", r=100, place="coast"),
+        plain("midtown", dist=0.5, r=90, weight=0.9), plain("eastside", angle=-55, dist=0.8, r=80, weight=0.7),
+        plain("westside", angle=55, dist=0.8, r=80, weight=0.7)]),
     "grid": Recipe(0.5, None, [
         plain("centre", r=130, weight=1.3), plain("north", dist=0.55), plain("east", angle=90, dist=0.5),
         plain("west", angle=-90, dist=0.5), plain("harbour", role="harbour", angle=180, dist=0.4, place="coast")]),
@@ -163,6 +164,8 @@ def _search(f, target, r_node, ok, rng, reach, high=False):
 def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteLayout:
     """The layout with the preset `name`'s whole shape, placed on `ground` (the plan's heights
     before the pads). Its preset must already be set. Returns a validated copy."""
+    if layout.city.preset.metro:
+        return metro_shape(layout, ground, name, seed)
     rec = RECIPES[name]
     rng = np.random.default_rng([STREAM, int(seed)])
     L = layout.model_copy(deep=True)
@@ -299,6 +302,126 @@ def shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteL
                   max(bx[2], tw.center[0] + tw.radius + 80), max(bx[3], tw.center[1] + tw.radius + 80)]
         c.bounds = tuple(round(float(np.clip(b, -half, half))) for b in bx)
     c.sites = []                   # the project's own civic ensembles were placed for its old shape
+    return SiteLayout.model_validate(L.model_dump(mode="json"))
+
+
+def metro_shape(layout: SiteLayout, ground: np.ndarray, name: str, seed: int) -> SiteLayout:
+    """A coastal metro's shape (city_metro.py): downtown on the coast, at the terrain river's mouth
+    when it has one (else its own river is made beside it), an island's on its shore, a
+    landlocked city's near the centre; the harbour on the coast beside downtown, away from the
+    river; the neighbourhood centres inland, clear of the river. No wall, no towns."""
+    from . import city_metro, terrain_gen
+    from .greybox import shore_at
+    rec = RECIPES[name]
+    rng = np.random.default_rng([STREAM, int(seed)])
+    L = layout.model_copy(deep=True)
+    c, t = L.city, L.terrain
+    x0, y0, x1, y1 = c.bounds
+    Rb = 0.5 * min(x1 - x0, y1 - y0)
+    k = float(np.clip(Rb / 1500.0, 0.5, 1.5))
+    f0 = city.Fields(_probe(L, [], LayoutPreset()), ground)
+    sea = L.sea_level
+    kind = city_metro.coast(t)
+    own = terrain_gen.river_line(t)
+    half = t.extent_m / 2 - 80
+    if kind != "none":                 # the bounds reach the water: downtown and the lakefront sit on it
+        if kind == "side":
+            corners = np.array([[x0, y0], [x0, y1], [x1, y0], [x1, y1]])
+            lat = np.linspace(*sorted((float(np.min(corners @ f0.v)), float(np.max(corners @ f0.v)))), 60)
+            edge = np.outer(shore_at(t, lat) + 40, f0.u) + np.outer(lat, f0.v)
+        else:
+            ts = t.settings
+            a = np.linspace(0, 2 * math.pi, 120)
+            r = terrain_gen.island_radius(t, a) + 40
+            edge = np.c_[ts.centre[0] + r * np.cos(a), ts.centre[1] + r * np.sin(a)]
+        x0, y0 = max(min(x0, float(edge[:, 0].min())), -half), max(min(y0, float(edge[:, 1].min())), -half)
+        x1, y1 = min(max(x1, float(edge[:, 0].max())), half), min(max(y1, float(edge[:, 1].max())), half)
+        c.bounds = (round(x0), round(y0), round(x1), round(y1))
+    d0 = rec.districts[0]
+    r0 = d0.r * k
+    side = int(rng.choice([-1, 1]))
+
+    def ok_at(f, extra=None):
+        def ok(p, r):
+            if not (x0 + r + 40 <= p[0] <= x1 - r - 40 and y0 + r + 40 <= p[1] <= y1 - r - 40):
+                return False
+            ring = [p] + [p + s * r * np.array([math.cos(a), math.sin(a)]) for s in (0.5, 1.0)
+                          for a in np.linspace(0, 2 * math.pi, 10, endpoint=False)]
+            xs, ys = np.array([q[0] for q in ring]), np.array([q[1] for q in ring])
+            return (bool(np.all(f.land(xs, ys)) and np.all(f.z(xs, ys) > sea + 1) and float(f.slope(*p)) < 0.3)
+                    and (extra is None or extra(p, r)))
+        return ok
+    back = r0 + city_metro.LAKEFRONT_M + city_metro.LAKESHORE_W + 30     # the core just behind the lakeshore
+    gap = 1.05 * r0 + city_metro.MOUTH_GAP_M + 30
+    if kind == "side":
+        u, v = f0.u, f0.v
+        if own is not None:            # beside the terrain river's mouth
+            pts = np.array(own.coords)
+            wet = np.nonzero(f0.inland(pts[:, 0], pts[:, 1]) <= 0)[0]
+            mouth = pts[wet[0]] if len(wet) else pts[-1]
+            lat = float(mouth @ v) - side * gap
+        else:
+            lat = float(np.array([(x0 + x1) / 2, (y0 + y1) / 2]) @ v) + rng.uniform(-0.12, 0.12) * (x1 - x0)
+        target = (float(shore_at(t, lat)) - back) * u + lat * v
+    elif kind == "all":
+        ts = t.settings
+        a = rng.uniform(0, 2 * math.pi)
+        if own is not None:
+            pts = np.array(own.coords)
+            wet = np.nonzero(terrain_gen.inland_of(t, pts[:, 0], pts[:, 1]) <= 0)[0]
+            m = pts[wet[0]] if len(wet) else pts[-1]
+            a = math.atan2(m[1] - ts.centre[1], m[0] - ts.centre[0]) - side * gap / ts.island_r_m
+        rr = float(terrain_gen.island_radius(t, np.array(a))) - back
+        target = np.array(ts.centre, float) + rr * np.array([math.cos(a), math.sin(a)])
+    else:
+        target = np.array(t.settings.centre if t.settings else ((x0 + x1) / 2, (y0 + y1) / 2), float) \
+            + rng.uniform(-0.08, 0.08, 2) * Rb
+        if own is not None:            # beside the river, near the centre
+            p = own.interpolate(own.project(Point(target)))
+            q = own.interpolate(own.project(Point(target)) + 30)
+            n = np.array([-(q.y - p.y), q.x - p.x]) / max(math.dist((p.x, p.y), (q.x, q.y)), 1e-9)
+            target = np.array([p.x, p.y]) + side * gap * n
+    C = _search(f0, target, r0, lambda p: ok_at(f0)(p, r0), rng, 0.7 * Rb)
+    if C is None:
+        raise ValueError(f"no room for a {name} city on this terrain: its downtown needs {r0:.0f} m of level land")
+
+    def node(d: D, p) -> CivicNode:
+        return CivicNode(id=d.id, center=(round(float(p[0]), 1), round(float(p[1]), 1)), radius=round(d.r * k, 1),
+                         role=d.role, monument=d.monument, weight=d.weight, layout=d.layout, centre=d.centre,
+                         civic_ring=d.civic_ring, stoa_share=d.stoa, radials=int(rng.integers(5, 9)),
+                         rot=round(float(rng.uniform(0, 45)), 1), spiral_deg_per_100m=0.0, avenue_m=round(0.8 * Rb))
+    nodes = [node(d0, C)]
+    probe = _probe(L, list(nodes), c.preset)
+    g2, _ = city.preset_terrain(probe, ground)
+    f2 = city.Fields(probe, g2)
+    wet = unary_union([ln.buffer(w / 2 + city_metro.BANK_GREEN_M) for ln, w in city_metro.river_lines(probe.city, t)])
+    placed = [(C, r0)]
+    u, v = city_metro.axes(probe.city, t)
+    # the side of downtown the river's mouth is on (the harbour goes the other way)
+    rside = city_metro.river_side(probe.city) if own is None else side
+    clear = lambda p, r: (wet.is_empty or wet.distance(Point(p)) > r + 40) and all(  # noqa: E731
+        math.dist(p, q) > r + rq + 90 for q, rq in placed)
+    ok2 = ok_at(f2, clear)
+    inland_deg = math.degrees(math.atan2(-u[1], -u[0]))
+    for d in rec.districts[1:]:
+        r = d.r * k
+        if d.place == "coast":
+            if kind == "none":
+                continue               # no coast: no harbour
+            tgt = C - rside * (r0 + r + 160) * v + (r0 - r) * 0.5 * u
+            p = _search(f2, tgt, r, lambda p, r=r: ok2(p, r) and float(f2.inland(*p)) < r + 300, rng, 0.5 * Rb)
+        else:
+            a = inland_deg + d.angle + rng.uniform(-12, 12)
+            if kind == "none":
+                a = math.degrees(rng.uniform(0, 2 * math.pi))
+            tgt = C + d.dist * Rb * np.array([math.cos(math.radians(a)), math.sin(math.radians(a))])
+            p = _search(f2, tgt, r, lambda p, r=r: ok2(p, r), rng, 0.45 * Rb)
+        if p is None:
+            continue
+        nodes.append(node(d, p))
+        placed.append((p, r))
+    c.nodes = nodes
+    c.enclosure, c.towns, c.sites = None, [], []
     return SiteLayout.model_validate(L.model_dump(mode="json"))
 
 
