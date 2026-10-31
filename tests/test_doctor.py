@@ -128,6 +128,7 @@ def test_api_doctor_is_lazy_and_refreshes_after_a_save(box, monkeypatch):
     setup_api._doc.update(report=None, running=False)
 
 
+@pytest.mark.posix
 def test_a_card_too_small_for_the_32b_switches_the_vision_model_off_and_offers_the_8b(box, monkeypatch):
     monkeypatch.setattr(gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 24}, {"index": 1, "name": "B", "vram_gb": 24}])
     rep = doctor.report()

@@ -205,6 +205,7 @@ def test_corner_bonus_raises_perimeter_corners(typed):
     assert city.plan(L, h).stats["repetition"]["height_cv_median"] > base
 
 
+@pytest.mark.golden
 def test_big_types_merge_neighbouring_blocks_and_drop_their_streets(typed):
     L = typed.model_copy(deep=True)
     for t in L.city.typologies:

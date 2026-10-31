@@ -101,11 +101,12 @@ def load_image(path: Path, retries: int = 3, delay_s: float = 0.5):
     """PIL Image.open + load, retried a few times when the file is truncated or not yet an image
     (being written by a writer that isn't atomic: another program, an older version). A missing
     file raises FileNotFoundError at once; one still unreadable after the retries TruncatedImage."""
+    import io
     import struct
     from PIL import Image
     for i in range(retries + 1):
-        try:
-            im = Image.open(path)
+        try:                                   # from bytes: no file handle left open on a failure, which
+            im = Image.open(io.BytesIO(Path(path).read_bytes()))     # on Windows blocks rewriting the file
             im.load()
             return im
         except FileNotFoundError:

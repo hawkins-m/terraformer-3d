@@ -4,6 +4,7 @@ road, nothing built in the river corridor, and an irregular outer edge."""
 import hashlib
 import json
 import math
+from pathlib import Path
 
 import numpy as np
 import shapely
@@ -121,18 +122,21 @@ SPECS = {
 
 
 @pytest.mark.parametrize("name", OTHERS)
+@pytest.mark.golden
 def test_every_other_preset_plans_exactly_as_before_on_the_small_city(name):
     L = small_city()
     assert digest(city.plan(layout_presets.apply(L, name), heights(L))) == SMALL[name]
 
 
 @pytest.mark.parametrize("name", OTHERS)
+@pytest.mark.golden
 def test_every_other_preset_rolls_and_plans_exactly_as_before_on_a_coastal_plain(name):
     A, h = shaped(on_terrain("coastal-plain", 3), name, 3)
     assert digest(city.plan(A, h)) == COASTAL[name]
 
 
 @pytest.mark.parametrize("key", list(MORE))
+@pytest.mark.golden
 def test_other_presets_on_other_terrains_plan_exactly_as_before(key):
     name, terrain, seed = key.split("|")
     A, h = shaped(on_terrain(None if terrain == "-" else terrain, int(seed)), name, int(seed))
@@ -140,6 +144,7 @@ def test_other_presets_on_other_terrains_plan_exactly_as_before(key):
 
 
 @pytest.mark.parametrize("name", list(SPECS))
+@pytest.mark.golden
 def test_other_presets_greybox_slots_exactly_as_before(name):
     L = small_city()
     lay = layout_presets.apply(L, name)
@@ -369,7 +374,7 @@ def test_classic_river_is_a_lowered_blue_channel_with_bridges_at_street_level():
     o, pts = np.add(s["loc"], s["pieces"][0]["loc"]), s["pieces"][0]["prim"]["pts"]
     deck = min(pts, key=lambda v: math.dist((o[0] + v[0], o[1] + v[1]), (x.x, x.y)))
     assert o[2] + deck[2] > float(hs(x.x, x.y)) + 2                # the bridge stays up at street level
-    src = open(greybox.__file__.replace("asset_pipeline/greybox.py", "scripts/blender_greybox.py")).read()
+    src = (Path(greybox.__file__).parents[1] / "scripts" / "blender_greybox.py").read_text()
     assert '"river": (0.07, 0.20, 0.32)' in src                    # previews colour it as water
 
 

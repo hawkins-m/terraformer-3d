@@ -44,4 +44,5 @@ markers = ["comfy: needs a live ComfyUI on the configured URL (skipped if unreac
            "blender: runs a real Blender (skipped when none is installed; CI deselects it)",
            "unreal: runs a real Unreal Editor (CI deselects it)",
            "gpu: needs a GPU (CI deselects it)",
+           "golden: exact-output regression whose reference values come from the tested Linux machine (float/BLAS results differ on other CPUs; CI deselects it)",
            "posix: POSIX-only behaviour (bash scripts, process groups, /proc); skipped on native Windows"]

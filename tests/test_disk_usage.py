@@ -74,6 +74,7 @@ def test_measure_counts_shared_and_linked_files_once(store):
     assert d["total"] >= d["used"] > 0 and d["free"] > 0 and os.path.ismount(d["path"])
 
 
+@pytest.mark.posix
 def test_cache_measures_in_the_background_at_most_once_per_interval(store, monkeypatch):
     calls = []
     monkeypatch.setattr(disk_usage, "measure", lambda s: calls.append(1) or {"total": len(calls)})

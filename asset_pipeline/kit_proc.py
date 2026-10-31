@@ -16,6 +16,7 @@ Output: 3d/library/<asset id>/procedural.glb (+ procedural.json, the maps in pro
 """
 import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -238,7 +239,7 @@ def build_sha(job: dict) -> str:
             return {k: norm(x) for k, x in sorted(v.items())}
         if isinstance(v, list):
             return [norm(x) for x in v]
-        if isinstance(v, str) and v.startswith("/") and Path(v).is_file():
+        if isinstance(v, str) and os.path.isabs(v) and Path(v).is_file():
             return "sha:" + filestore.digest(Path(v))
         return v
     core = {k: v for k, v in job.items() if k not in ("name", "out")}

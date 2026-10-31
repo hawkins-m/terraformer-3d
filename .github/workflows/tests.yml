@@ -1,5 +1,5 @@
 # Unit tests on Linux and native Windows (beta). Nothing here needs a GPU, Blender, Unreal or ComfyUI:
-# tests marked comfy, blender, unreal or gpu are deselected, and tests marked posix skip on Windows.
+# tests marked comfy, blender, unreal, gpu or golden are deselected, and tests marked posix skip on Windows.
 name: tests
 
 on:
@@ -52,4 +52,4 @@ jobs:
           Write-Host "PowerShell $($PSVersionTable.PSVersion)"
           if ($bad) { exit 1 }
       - name: Unit tests
-        run: python -m pytest -m "not comfy and not blender and not unreal and not gpu" -q -rfEs --durations=15
+        run: python -m pytest -m "not comfy and not blender and not unreal and not gpu and not golden" -q -rfEs --durations=15

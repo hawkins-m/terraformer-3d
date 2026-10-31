@@ -52,6 +52,7 @@ BEFORE = {"small": (small_city, "a67b52531d37c91c"), "walled": (walled_city, "8d
 
 
 @pytest.mark.parametrize("name", BEFORE)
+@pytest.mark.golden
 def test_utopia_plans_exactly_as_before_presets(name):
     make, before = BEFORE[name]
     L = make()
