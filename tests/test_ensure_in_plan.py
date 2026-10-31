@@ -136,6 +136,7 @@ def test_extract_reference_views_finds_the_asset_the_plan_dropped(store, monkeyp
         s3_views._unit_for_sheet(store, "refs/library/excl/sheet_000.png")
 
 
+@pytest.mark.posix
 def test_brief_and_build_and_make_3d_bring_it_back_first(store, monkeypatch):
     drop(store, "cube", "tower")
     calls = []

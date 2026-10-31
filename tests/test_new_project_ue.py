@@ -106,6 +106,7 @@ def test_new_ue_project_ini_and_open_on_the_city_map(root, monkeypatch):
     started = []
     monkeypatch.setattr(ue, "editor_cmd", lambda: root / "UE" / "UnrealEditor-Cmd")
     monkeypatch.setattr(ue.subprocess, "Popen", lambda cmd, **kw: started.append(cmd) or type("P", (), {"pid": 1})())
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
     ue.open_editor(store)                                   # no level saved yet: the startup map
     assert started[-1][1:] == [str(up)]
     ue.map_file(store).parent.mkdir(parents=True)

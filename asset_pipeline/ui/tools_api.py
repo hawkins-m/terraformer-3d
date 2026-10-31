@@ -817,7 +817,8 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
         msg = " ".join(req.message.split())
         if not msg:
             raise HTTPException(400, "write a commit message")
-        if _git(store, "rev-parse", "--show-toplevel").stdout.strip() != str(store.root.resolve()):
+        top = _git(store, "rev-parse", "--show-toplevel").stdout.strip()      # C:/... on Windows
+        if not top or Path(top).resolve() != store.root.resolve():
             raise HTTPException(400, f"{store.root} is not a git repo of its own: run git init there first")
         _git(store, "add", "-A")
         r = _git(store, "commit", "-m", msg)

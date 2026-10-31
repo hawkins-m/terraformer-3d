@@ -109,6 +109,7 @@ def test_a_new_setting_shows_up_on_the_wizard_without_editing_it(monkeypatch):
     assert it["wizard"] == "advanced"              # the Connections page's Advanced list
 
 
+@pytest.mark.posix
 def test_plan_runs_runtimes_whose_conditions_hold():
     sel = ["flux1-dev-fp8", "vlm-32b", "oneformer-ade20k", "trellis2-4b"]
     steps = installer.plan({"comfy_backend": "sdk", "vlm_model": "32b", "hardware_profile": "rocm-2gpu"}, sel)
@@ -125,6 +126,7 @@ def test_plan_runs_runtimes_whose_conditions_hold():
 
 # --- installing ----------------------------------------------------------------------------------------
 
+@pytest.mark.posix
 def test_progress_follows_the_download_events(tmp_path, monkeypatch):
     seen = snapshots(monkeypatch)
     inst = installer.Installer(models_cmd=fake_download(tmp_path, EVENTS), run=lambda cmd, log, env=None: 0)
@@ -165,6 +167,7 @@ def test_secrets_go_to_secrets_toml_never_the_state_file(tmp_path):
     assert "hf_abc" not in installer.state_path().read_text()
 
 
+@pytest.mark.posix
 def test_resume_after_the_window_and_the_server_closed(tmp_path, monkeypatch):
     calls = []
     run = lambda cmd, log, env=None: calls.append(cmd) or 0          # noqa: E731
@@ -314,6 +317,7 @@ def test_recommendations_follow_the_vision_gpu(monkeypatch):
     assert {i["id"]: i for i in installer.catalog()["items"]}["vlm_model"]["recommended"] == "32b"
 
 
+@pytest.mark.posix
 def test_no_comfyui_found_offers_a_local_one_installed_before_the_downloads(monkeypatch, tmp_path):
     monkeypatch.setattr(installer, "comfy_found", lambda: {"found": False, "where": ""})
     cat = installer.catalog()
@@ -359,6 +363,7 @@ def test_a_found_comfyui_is_not_installed_again():
     assert "runtime:comfyui" not in ids and "runtime:comfyui-start" not in ids
 
 
+@pytest.mark.posix
 def test_app_window_prefers_an_app_mode_browser(monkeypatch):
     from asset_pipeline import launcher, wsl
     opened = []

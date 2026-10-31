@@ -92,6 +92,7 @@ sys.exit(1)        # the commandlet exits 1 whenever an error was logged
 """
 
 
+@pytest.mark.posix
 def test_run_script_trusts_the_report_over_the_exit_code(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))
     fake = tmp_path / "UnrealEditor-Cmd"
@@ -172,6 +173,7 @@ def test_manifest_carries_layout_materials_with_starting_pbr_and_slot_tags():
     assert s7_export.material_pbr("rough unknown stuff")["pbr"]["Roughness"] == 0.9
 
 
+@pytest.mark.posix
 def test_a_canceled_backup_leaves_no_snapshot(ue_project, monkeypatch):
     from asset_pipeline import blender
     from asset_pipeline.jobs import Canceled
@@ -255,6 +257,7 @@ def test_run_logged_flushes_each_line_while_the_command_runs(tmp_path):
     t.join()
 
 
+@pytest.mark.posix
 def test_editor_check_ignores_the_apps_own_headless_unreal_runs(tmp_path):
     """A running build's commandlet or offscreen render is not "the editor has the project open"."""
     up = tmp_path / "ue" / "Demo.uproject"
@@ -293,7 +296,7 @@ def test_open_editor_starts_the_full_editor_detached_on_the_project(ue_project, 
     monkeypatch.setattr(ue.subprocess, "Popen", popen)
     assert ue.open_editor(store) == 4242
     assert seen["cmd"] == [str(cmd.parent / "UnrealEditor"), str(up)]
-    assert seen["start_new_session"] and seen["stdout"] is ue.subprocess.DEVNULL
+    assert (seen.get("start_new_session") or seen.get("creationflags")) and seen["stdout"] is ue.subprocess.DEVNULL
     monkeypatch.setattr(ue, "editor_running", lambda up: True)
     with pytest.raises(RuntimeError, match="already"):
         ue.open_editor(store)

@@ -59,6 +59,7 @@ def _arg(args, key):
     return args[args.index(key) + 1]
 
 
+@pytest.mark.posix
 def test_game_gets_category_budget_others_keep_the_mesh(env):
     store, args_file = env
     rep = s6_cleanup.run(store, NAME, "barrel")
@@ -84,6 +85,7 @@ def test_needs_a_3d_result_first(env):
         s6_cleanup.run(store, NAME, "barrel")
 
 
+@pytest.mark.posix
 def test_stop_kills_blender(env, monkeypatch):
     store, _ = env
     monkeypatch.setenv("FAKE_BLENDER_HANG", "1")

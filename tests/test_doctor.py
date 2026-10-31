@@ -40,6 +40,7 @@ def _by(rep):
     return {c["id"]: c for c in rep["checks"]}
 
 
+@pytest.mark.posix
 def test_everything_present_but_unreal(box):
     rep = doctor.report()
     assert rep["missing"] == 0 and rep["optional_missing"] == 1
@@ -78,6 +79,7 @@ def test_sdk_needs_the_proxy_installed_but_not_running(box, monkeypatch):
     assert _by(rep)["comfy"]["level"] == "warn" and rep["features"]["comfy"]["ok"]   # Start ComfyUI brings it up
 
 
+@pytest.mark.posix
 def test_missing_gpu_and_vision_model(box, monkeypatch):
     monkeypatch.setattr(gpu, "list_gpus", lambda: [{"index": 0, "name": "A", "vram_gb": 8}])
     gone = {"vlm": ["vlm-32b"], "trellis": ["trellis2-4b", "birefnet"]}
@@ -90,6 +92,7 @@ def test_missing_gpu_and_vision_model(box, monkeypatch):
     assert not rep["features"]["vlm"]["ok"] and not rep["features"]["trellis"]["ok"] and rep["features"]["blender"]["ok"]
 
 
+@pytest.mark.posix
 def test_a_missing_model_env_names_its_install_script(box):
     (box / "envs/segdepth/bin/python").unlink()
     c = _by(doctor.report())["segdepth"]

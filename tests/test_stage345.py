@@ -154,6 +154,7 @@ def _chosen_view(store, monkeypatch):
     return view
 
 
+@pytest.mark.posix
 def test_trellis_run_and_results(env, fake_trellis, monkeypatch):
     store = env
     with pytest.raises(ValueError, match="choose a view"):
@@ -166,6 +167,7 @@ def test_trellis_run_and_results(env, fake_trellis, monkeypatch):
     assert not list((store.root.parents[1] / "logs").glob("trellis-gpu*.lock"))
 
 
+@pytest.mark.posix
 def test_stop_kills_trellis_and_releases_gpu(env, fake_trellis, monkeypatch):
     store = env
     _chosen_view(store, monkeypatch)
@@ -189,6 +191,7 @@ def test_stop_kills_trellis_and_releases_gpu(env, fake_trellis, monkeypatch):
     assert s5_3d.results(store, NAME, "shrub") == []
 
 
+@pytest.mark.posix
 def test_review_api(env, fake_trellis, monkeypatch):
     from asset_pipeline.ui import app as ui_app
     store = env
@@ -225,6 +228,7 @@ def low_memory(monkeypatch):
     monkeypatch.setattr(gpu_policy, "free_for_retry", lambda lane, purpose, job=None, wait_s=60.0: real(lane, purpose, job, 0.2))
 
 
+@pytest.mark.posix
 def test_trellis_out_of_memory_retries_once(env, fake_trellis, monkeypatch, low_memory, tmp_path):
     store = env
     _chosen_view(store, monkeypatch)
@@ -236,6 +240,7 @@ def test_trellis_out_of_memory_retries_once(env, fake_trellis, monkeypatch, low_
     assert (store.root / f"3d/{NAME}/shrub/trellis.log").read_text().count("(retry)") == 1
 
 
+@pytest.mark.posix
 def test_trellis_out_of_memory_twice_says_why_in_plain_words(env, fake_trellis, monkeypatch, low_memory, tmp_path):
     from asset_pipeline import gpu_policy
     store = env
@@ -259,6 +264,7 @@ def test_trellis_out_of_memory_twice_says_why_in_plain_words(env, fake_trellis, 
         s5_3d.run(store, NAME, "shrub")
 
 
+@pytest.mark.posix
 def test_other_trellis_failures_name_the_error_not_the_traceback(env, fake_trellis, monkeypatch):
     store = env
     _chosen_view(store, monkeypatch)
@@ -270,6 +276,7 @@ def test_other_trellis_failures_name_the_error_not_the_traceback(env, fake_trell
     assert msg.endswith(f"3d/{NAME}/shrub/trellis.log.")
 
 
+@pytest.mark.posix
 def test_reap_never_signals_our_own_process_group():
     from types import SimpleNamespace
     for pid in (0, 1, os.getpgrp()):                       # killpg(0) would kill the app (and this test)

@@ -37,6 +37,7 @@ def test_first_run_until_saved(machine):
     assert config.get("jobs.comfy_gpu") == 1 and config.get("comfyui.service.gpu") == "1"
 
 
+@pytest.mark.posix
 def test_state_prefills_found_values_and_never_returns_keys(machine, monkeypatch):
     monkeypatch.setattr(setup, "_blender_candidates", lambda: ["/opt/blender-5/blender"])
     config.save_secret("GEMINI_API_KEY", "a-secret-key-0123456789")
@@ -87,6 +88,7 @@ def test_unreal_version_from_the_install(machine):
     assert r["ok"] and not r["warn"] and "5.8.3" in r["message"]
 
 
+@pytest.mark.posix
 def test_blender_test_runs_the_version_only(machine, tmp_path):
     fake = tmp_path / "blender"
     fake.write_text("#!/bin/sh\necho 'Blender 4.1.0'\n")
@@ -109,6 +111,7 @@ def test_launch_command_needs_its_script(machine, tmp_path):
     assert setup._check_launch("python3 main.py --port {port}", {"comfy_cwd": str(tmp_path / "comfy")})["ok"]
 
 
+@pytest.mark.posix
 def test_save_removes_an_emptied_optional_item(machine):
     setup.save({"unreal": "/ue/UnrealEditor-Cmd"})
     assert config.get("unreal.editor_cmd") == "/ue/UnrealEditor-Cmd"
@@ -116,6 +119,7 @@ def test_save_removes_an_emptied_optional_item(machine):
     assert config.get("unreal.editor_cmd") == ""                 # the repo default again
 
 
+@pytest.mark.posix
 def test_routes(machine, monkeypatch):
     c = TestClient(ui_app.create_app(JobQueue()))
     assert c.get("/api/setup/first-run").json() == {"first_run": True}

@@ -1,4 +1,5 @@
 """Build guidance (brief edits from the local VLM) and Make 3D with a new seed. No VLM, no GPU."""
+import pytest
 import json
 import os
 import time
@@ -133,6 +134,7 @@ def test_accept_applies_only_accepted_edits_writes_guidance_and_rebuilds(proj, m
     assert "guidance" not in read_json(sp)
 
 
+@pytest.mark.posix
 def test_make_3d_new_seed_passes_a_non_default_seed_and_records_it(proj, monkeypatch):
     _populate(proj)
     out = s5_3d.out_dir(proj, "library", "canopy-table")

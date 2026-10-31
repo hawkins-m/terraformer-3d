@@ -17,6 +17,9 @@ UNC = "\\\\wsl.localhost\\Ubuntu"
 REAL_IS_WSL = wsl.is_wsl
 
 
+pytestmark = pytest.mark.posix          # WSL interop / the vision model: Linux side only
+
+
 @pytest.fixture
 def on_wsl(monkeypatch, tmp_path):
     """Inside WSL with a mocked wslpath: Linux /x/y <-> \\\\wsl.localhost\\Ubuntu\\x\\y, <tmp>/mnt/c/... <-> C:\\..."""

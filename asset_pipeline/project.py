@@ -101,6 +101,7 @@ def load_image(path: Path, retries: int = 3, delay_s: float = 0.5):
     """PIL Image.open + load, retried a few times when the file is truncated or not yet an image
     (being written by a writer that isn't atomic: another program, an older version). A missing
     file raises FileNotFoundError at once; one still unreadable after the retries TruncatedImage."""
+    import struct
     from PIL import Image
     for i in range(retries + 1):
         try:
@@ -109,7 +110,8 @@ def load_image(path: Path, retries: int = 3, delay_s: float = 0.5):
             return im
         except FileNotFoundError:
             raise
-        except OSError as e:                   # "image file is truncated", UnidentifiedImageError
+        except (OSError, struct.error) as e:   # "image file is truncated", UnidentifiedImageError; struct.error:
+                                               # a PNG cut inside a chunk header (seen on Windows' Pillow)
             if i == retries:
                 raise TruncatedImage(f"{path}: {e}") from e
             time.sleep(delay_s)

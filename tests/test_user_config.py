@@ -31,6 +31,7 @@ def test_save_user_round_trips_and_removes(tmp_path):
     assert data["jobs"]["gpu0_gpu"] == 0 and data["tools"]["blender"] == "/b" and data["unreal"]["backup_keep"] == 20
 
 
+@pytest.mark.posix
 def test_secrets_file_is_private_and_env_wins(monkeypatch):
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.setenv("COMFY_API_KEY", "from-env")
@@ -83,4 +84,4 @@ def test_ap_config_cli(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("GEMINI_API_KEY", "secret-value")
     cli.main(["config", "show"])
     out = capsys.readouterr().out
-    assert "secret-value" not in out and "GEMINI_API_KEY" in out and f'ap_root = "{tmp_path}"' in out
+    assert "secret-value" not in out and "GEMINI_API_KEY" in out and ('ap_root = "' + str(tmp_path).replace("\\", "\\\\") + '"') in out

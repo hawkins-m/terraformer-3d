@@ -215,6 +215,7 @@ def test_trellis_results_migrate_oldest_first_and_restore_makes_one_newest(store
     assert not any("_s2" in r["name"] for r in s5_3d.results(store, "library", "prop"))
 
 
+@pytest.mark.posix
 def test_trellis_run_records_a_version(store, monkeypatch):
     out = s5_3d.out_dir(store, "library", "prop")
     out.mkdir(parents=True)
@@ -462,6 +463,7 @@ def test_switching_back_to_the_procedural_build_on_disk_needs_no_rebuild(store, 
     assert not r["rebuilt"] and r["current"] == 1 and r["glb"] == "3d/library/gate/procedural.glb"
 
 
+@pytest.mark.posix
 def test_a_failed_trellis_rerun_keeps_the_old_versions_files(store, monkeypatch):
     """Make 3D with the same view, mode and seed reuses its files: TRELLIS writes into a staging
     dir, so a failed run leaves the version it would replace untouched."""

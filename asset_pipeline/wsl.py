@@ -100,9 +100,10 @@ def _wslpath(flag: str, p: str) -> str | None:
 
 def to_linux(s: str) -> str:
     """A Windows path as WSL sees it (wslpath -u; without wslpath: by the drive root and distro).
-    Anything else is returned as it is."""
+    Anything else, and everything on native Windows (where a Windows path is already the real one),
+    is returned as it is."""
     s = str(s).strip().strip('"')
-    if not is_windows_path(s):
+    if not is_windows_path(s) or os.name == "nt":
         return s
     if (out := _wslpath("-u", s)):
         return out

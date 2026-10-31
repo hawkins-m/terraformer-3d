@@ -37,6 +37,7 @@ def test_blender_default_without_tools_section(cfg, monkeypatch):
     assert blender.blender_bin() == "blender"
 
 
+@pytest.mark.posix
 def test_blender_run_uses_resolved_binary(cfg, monkeypatch, tmp_path):
     monkeypatch.setenv("AP_BLENDER", "/env/blender")
     seen = []
@@ -117,6 +118,7 @@ def test_ue_gpu_vram_delegates(monkeypatch):
     assert ue.gpu_vram() == {0: 1.5}
 
 
+@pytest.mark.posix
 def test_shell_scripts_parse():
     changed = ["ap", "ap_root.sh", "build_env_common.sh", "torch_index.sh", "rocm_build_env.sh", "trellis",
                "install_qwen_vl.sh", "install_segdepth.sh", "install_trellis2.sh", "install_llamacpp_vlm.sh",
@@ -132,6 +134,7 @@ def _sh(snippet, env=None):
     return subprocess.run(["bash", "-c", snippet], capture_output=True, text=True, env=e)
 
 
+@pytest.mark.posix
 def test_ap_root_sh(tmp_path):
     src = f'source {REPO}/scripts/ap_root.sh; echo "$AP_ROOT"'
     home = {"HOME": str(tmp_path)}
@@ -142,6 +145,7 @@ def test_ap_root_sh(tmp_path):
     assert _sh(src, home).stdout.strip() == _sh(src, home | {"AP_ROOT": ""}).stdout.strip() == "/x/user"
 
 
+@pytest.mark.posix
 def test_ap_config_sh_values(tmp_path):
     home = {"HOME": str(tmp_path)}
     (tmp_path / ".config" / "terraformer").mkdir(parents=True)
@@ -153,6 +157,7 @@ def test_ap_config_sh_values(tmp_path):
     assert r.stdout.strip() == "2"
 
 
+@pytest.mark.posix
 def test_torch_index_sh():
     src = f'source {REPO}/scripts/torch_index.sh; echo "$TORCH_KIND $TORCH_INDEX"'
     assert _sh(src).stdout.strip() == "rocm https://download.pytorch.org/whl/rocm7.2"
@@ -163,6 +168,7 @@ def test_torch_index_sh():
         assert r.returncode != 0 and "AP_TORCH must be" in r.stderr
 
 
+@pytest.mark.posix
 def test_ap_gpu_vendor_sh(tmp_path):
     """With only a fake nvidia-smi on PATH the helper says nvidia (unless this machine has ROCm)."""
     (tmp_path / "nvidia-smi").write_text("#!/bin/sh\n")

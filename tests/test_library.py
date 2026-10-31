@@ -1,5 +1,6 @@
 """World mode phase 3 step 1: the asset library plan from the locked shot frames."""
 import json
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -132,7 +133,7 @@ def test_crop_brightens_only_the_entry_pixels(lib):
 def test_old_layout_frames_are_excluded_and_reported(lib, monkeypatch):
     store, m = lib
     # the second shot frame was drawn on an older layout: it matches the current greybox far worse
-    monkeypatch.setattr(s0_frames, "edge_match", lambda frame, canny: 0.3 if str(frame).endswith(m[2]) else 0.5)
+    monkeypatch.setattr(s0_frames, "edge_match", lambda frame, canny: 0.3 if Path(frame).as_posix().endswith(m[2]) else 0.5)
     data = sw_library.plan(store)
     assert data["sources"] == {"m": [m[0]]}
     bad = [c for c in data["candidates"] if not c["ok"]]
@@ -231,7 +232,7 @@ def test_reference_decisions_and_the_library_asset_plan(lib):
     assert "library" in s1_plan.plan_names(store)
     u = next(u for u in s2_refs.units(store, "library") if u.key == "stoa")
     prompt, w, h, anchor = s2_refs.request(u, None)
-    assert "stoa" in prompt and [str(p) for p in anchor.images] == [old] and anchor.strength == 0.04
+    assert "stoa" in prompt and [Path(p).as_posix() for p in anchor.images] == [old] and anchor.strength == 0.04
 
 
 def test_refined_crops_flag_no_usable_crop_and_default_to_description(lib, monkeypatch):

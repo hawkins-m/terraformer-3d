@@ -208,6 +208,7 @@ def test_terrain_apply_and_ue_need_confirmation(client, store, monkeypatch):  # 
     assert _wait(client, client.post(f"{U}/terrain/build", json={}).json())["result"]["max_z"] == 9
 
 
+@pytest.mark.posix
 def test_unreal_endpoints_with_ue_functions_patched(client, store, monkeypatch):  # noqa: F811
     from asset_pipeline import layout_history, look
     rep = {"ok": True, "assets": {"imported": [1, 2], "skipped": [3]}, "actors": {"created": [1], "kept_transform": [], "reset": [1, 2, 3]},
@@ -280,6 +281,7 @@ def test_demo_runs_the_script_as_a_job(client, store, monkeypatch):  # noqa: F81
     assert c2.post("/api/demo", json={"mode": "starter", "slug": "fresh3"}).status_code == 409
 
 
+@pytest.mark.posix
 def test_launcher_files_and_script(tmp_path, monkeypatch):
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     monkeypatch.setenv("AP_ROOT", str(tmp_path / "root"))
@@ -299,6 +301,7 @@ def test_launcher_files_and_script(tmp_path, monkeypatch):
     assert len(launcher.remove(home=tmp_path, update_db=False)) == 3 and not launcher.status(tmp_path)["installed"]
 
 
+@pytest.mark.posix
 def test_launcher_endpoint_and_cli_use_the_home(tmp_path, monkeypatch, client, capsys):
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)

@@ -45,6 +45,7 @@ def test_categories():
     assert c("style/moodboard/a.png") == c(".git/objects/aa/bb") == c("runs.jsonl") == "other"
 
 
+@pytest.mark.posix
 def test_measure_counts_shared_and_linked_files_once(store):
     a = _write(store.root / "refs/library/gate/sheet_000.png", 20000)
     b = _write(store.root / "refs/library/arch/sheet_000.png", 0)

@@ -9,6 +9,9 @@ from asset_pipeline import vlm
 from asset_pipeline.llm.registry import make_llm
 
 
+pytestmark = pytest.mark.posix          # WSL interop / the vision model: Linux side only
+
+
 @pytest.fixture
 def root(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))

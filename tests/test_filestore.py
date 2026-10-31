@@ -36,6 +36,7 @@ def _sheet(store, unit, name="sheet_000.png", data=b"sheet-a"):
     return p
 
 
+@pytest.mark.posix
 def test_identical_files_share_one_read_only_object(store):
     a, b = _sheet(store, "gate"), _sheet(store, "arch")
     assert filestore.intern(store, a) and filestore.intern(store, b)
@@ -203,6 +204,7 @@ def test_detach_drops_any_hard_link_even_a_writable_one(store):
     assert not a.exists() and b.read_bytes() == b"x"
 
 
+@pytest.mark.posix
 def test_cut_view_over_a_stored_view_leaves_the_sheet_and_store_unchanged(store):
     from asset_pipeline import building_proc
     sheet = _png(store.root / "refs/library/gate/sheet_001.png", size=(300, 100), box=(20, 20, 70, 90))
@@ -227,6 +229,7 @@ def test_band_crops_write_fresh_files_over_stored_ones(store, tmp_path):
     assert obj.read_bytes() == keep
 
 
+@pytest.mark.posix
 def test_a_failed_write_says_which_file_and_why(store):
     v = _png(store.root / "views/library/gate/sheet_001_p0.png")
     filestore.intern(store, v)

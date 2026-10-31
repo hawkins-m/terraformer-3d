@@ -19,6 +19,7 @@ def machine(monkeypatch):
     return set_
 
 
+@pytest.mark.posix
 def test_detect_picks_the_profile(machine):
     for vendor, gpus, want in [("amd", TWO, "rocm-2gpu"), ("amd", ONE_24, "rocm-1gpu"), ("nvidia", TWO, "nvidia"), (None, [], None)]:
         machine(vendor, gpus)

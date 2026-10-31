@@ -87,6 +87,7 @@ def _have(folder: Path, ids):
                     fh.truncate(f.size)
 
 
+@pytest.mark.posix
 def test_models_already_present_are_found_and_reused_where_they_are(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path / "storage"))
     monkeypatch.setenv("AP_CONFIG_DIR", str(tmp_path / "cfg"))

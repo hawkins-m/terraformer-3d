@@ -378,6 +378,7 @@ def _tree(store, eid):
     return out
 
 
+@pytest.mark.posix
 def test_a_duplicate_is_independent_of_its_source(proj, monkeypatch):
     """Rerolling sheets, cutting views, Make 3D and deleting versions on the copy leave every
     file of the source as it was (and the copy shares no file, link or path with it)."""

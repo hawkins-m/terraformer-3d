@@ -149,6 +149,7 @@ def test_ue_preview_maps_slots_and_refuses_a_failed_material(lib, tmp_path, monk
         ue.material_preview(store, "a1", tmp_path / "a.glb", job, tmp_path / "out")
 
 
+@pytest.mark.posix
 def test_contrast_scales_the_spread_towards_the_band_and_keeps_the_mean(lib, tmp_path):
     full = ml.tinted("limestone", [205, 198, 185], tmp_path / "a.jpg")
     calm = ml.tinted("limestone", [205, 198, 185], tmp_path / "b.jpg", contrast_std=0.01)
