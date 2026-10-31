@@ -18,7 +18,7 @@ otherwise the render step refuses with the reason (the rest of the build stands)
 import time
 
 from . import landscape, layout_history, ue
-from .project import ProjectStore, read_json, write_json
+from .project import ProjectStore, collecting_warnings, read_json, write_json
 from .stages import s7_export, sw_site
 
 def _vision_gpu() -> int:
@@ -162,8 +162,17 @@ def _record_times(store: ProjectStore, steps: dict, lib: dict, rep: dict) -> Non
         estimates.record_time(f"ue.build.{st}", 1, max(0.0, s), slug)
 
 
-def build(store: ProjectStore, use_active: bool = False, reset_layout: bool = False, render: bool = False,
-          log=print, on_step=None, progress: dict | None = None, dressing=None, unplaced: dict | None = None) -> dict:
+def build(store: ProjectStore, **kw) -> dict:
+    """_build (below), with the warnings readers raise on the way (project.warn: a truncated image
+    made again or skipped, ...) added to the report's instead of failing the build."""
+    with collecting_warnings() as extra:
+        out = _build(store, **kw)
+    out["warnings"] += [w for w in extra if w not in out["warnings"]]
+    return out
+
+
+def _build(store: ProjectStore, use_active: bool = False, reset_layout: bool = False, render: bool = False,
+           log=print, on_step=None, progress: dict | None = None, dressing=None, unplaced: dict | None = None) -> dict:
     """dressing: schema.DressingOptions for this build (remembered for the project); None = the
     project's last-used ones. unplaced: {avoid_locked, seed} to also place built assets the plan
     has no slot for (unplaced.py); None = the plan's own assets only. on_step(name): called as

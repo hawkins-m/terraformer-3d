@@ -43,7 +43,10 @@ def where(g, rows):
 # --- options --------------------------------------------------------------------------------------
 
 def test_options_are_remembered_per_project_and_flags_override_them(store):
-    assert not dressing.options(store).any()                       # a new project: nothing
+    o = dressing.options(store)                                    # a new project: [defaults.dressing], light
+    assert o.ground and o.rocks and o.vegetation and o.water == "simple" and not o.megascans
+    dressing.save(store, DressingOptions())
+    assert not dressing.options(store).any()
     dressing.save(store, DressingOptions(rocks=True, rock_density=2.0, water="simple"))
     o = dressing.options(store)
     assert o.rocks and o.rock_density == 2.0 and o.water == "simple" and not o.ground

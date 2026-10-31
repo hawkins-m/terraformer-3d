@@ -9,7 +9,8 @@ const ueExportStale = () => !!(unrealData && unrealData.export && statusData &&
 
 // ueSteps (the numbered steps' state) lives in workflow.js: the Unreal stage's status reads it too.
 
-// Why the build can't start ("" = it can): the editor holding the project comes first.
+// Why the build can't start ("" = it can): the editor holding the project comes first. No UE project
+// yet isn't a reason: the build offers to create it (ueBuild).
 const ueBuildWhy = u => u.editor_open ? "The Unreal editor has the project open: close it to build."
   : !u.greybox ? "Build the greybox first (Greybox)." : "";
 
@@ -52,7 +53,7 @@ function renderUnreal() {
   $("#ue-build").disabled = !!buildWhy || !!building.length;
   $("#ue-build").textContent = building.length ? "Building…" : "Build city in Unreal";
   $("#ue-build-state").innerHTML = buildWhy ? `<span class="${u.editor_open ? "error" : "ue-why"}">${esc(buildWhy)}</span>`
-    : building.length ? "Progress and Stop: Jobs panel." : "";
+    : building.length ? "Progress and Stop: Jobs panel." : !u.project ? "No UE project yet: the build creates it." : "";
   setStop("#ue-build-stop", building);
   const openWhy = ueOpenWhy(u);
   $("#ue-open").disabled = u.editor_open || !!openWhy;
@@ -116,8 +117,18 @@ async function ueBuild() {
     dressing: dressData ? dressOpts() : null};
   if (!body.keep_hand_moves && !(await confirmDialog({title: "Reset layout", button: "Build and reset", danger: true, id: "ue-build-reset",
     body: "<p>Every actor goes back to the plan's spot: moves you made in Unreal are lost (the build backs up the UE project first).</p>"}))) return;
+  // no UE project yet: one confirm creates it (the build's first step) and builds; a long estimate
+  // shows in the same dialog instead of a second one
+  const opts = {};
+  if (unrealData && !unrealData.project) {
+    const path = `/api/projects/${slug}/ue/build`, e = await jobEstimate(path, body);
+    if (!(await confirmDialog({title: "Create the UE project", button: "Create and build", id: "ue-build-create",
+      body: `<p>This project has no Unreal project yet. Build city in Unreal creates it at <code>${esc(unrealData.uproject)}</code>, then builds the city level in it.</p>`
+        + (e && e.long ? longJobHtml(e) : "")}))) return;
+    opts.confirmed = true;
+  }
   let j;
-  try { j = await api(`/api/projects/${slug}/ue/build`, body); await load(); j = await jobDone(j); }
+  try { j = await api(`/api/projects/${slug}/ue/build`, body, "POST", opts); await load(); j = await jobDone(j); }
   catch (err) { alert(errorText(err)); await load(); return; }
   await load();
   if (j.status === "error") alert(errorText(j.error));

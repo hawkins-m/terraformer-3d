@@ -190,3 +190,24 @@ Unreal Engine 5.8.3 delivery: headless runs, axes, import, renders, look scenes.
   `use_active_models` took Z from the slot's height. Only slots of category `building` keep that
   vertical fit (`city_library.vertical_fit`); the rest scale uniformly at the smaller X/Y fit.
   Not yet run in Unreal.
+
+## First-time project path (2026-10-30)
+- **"image file is truncated" in Build city in Unreal right after Frames**: `city_library.plan` (also
+  the UI's next-build poll and the build's estimate) goes through `sw_site.plan_terrain`, which
+  re-saved `site/terrain.png` in place while the build read it (`Ground.from_project`, the landscape,
+  the export's heightmap copy). Image writers the build reads now save atomically
+  (`project.save_image` / `write_bytes`: temp file + rename; ComfyUI frames too), `terrain.png` isn't
+  rewritten when its bytes are the same, and readers retry (`project.load_image`); a `terrain.png`
+  still unreadable is made again from the layout with a warning in the build report
+  (`project.warn`, collected by `ue_build.build`).
+- **Open in Unreal opened the engine's "Untitled" Open World map**: a .uproject without
+  `EditorStartupMap` opens that. `ue.open_editor` names the city level on the command line once it
+  is saved, and `ue.init` writes `[/Script/EngineSettings.GameMapsSettings] EditorStartupMap` /
+  `GameDefaultMap` (plus `[SystemSettings]` streaming pool 8000, Lumen surface cache 8192 / 50) into
+  a new project's DefaultEngine.ini. The editor's own later edits to the ini kept both sections.
+- The city level's post process volume is on manual exposure, bias `look.CITY_EXPOSURE_BIAS`
+  (-0.5) unless the look defaults set one (`null`: auto). Not checked in a render yet.
+- New projects start with `[defaults.dressing]` (ground, rocks and vegetation x1, simple sea, CC0
+  defaults). A fresh city start to finish (roll, greybox, headless build, no models built) took
+  2.8 min with ~40k dressing instances; the saved level reloaded headless with them, the sea
+  material and a Landscape.

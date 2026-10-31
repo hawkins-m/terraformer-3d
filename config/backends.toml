@@ -109,6 +109,18 @@ frames = "comfyui"
 [defaults]
 llm = "local"      # local | gemini | claude
 
+# The world dressing a new project starts with (schema.DressingOptions; the Unreal tab's Build
+# city in Unreal options): light settings with the free CC0 defaults. Existing projects keep their
+# saved choice.
+[defaults.dressing]
+ground = true
+rocks = true
+rock_density = 1.0
+vegetation = true
+vegetation_density = 1.0
+water = "simple"   # off | simple | ocean
+megascans = false
+
 # Unreal Engine (world mode delivery). Editor Python runs headless through this binary's
 # pythonscript commandlet (-nullrhi: no GPU). Optional: without it the Unreal tab explains
 # and the rest works. Set it in Setup, or AP_UE_EDITOR_CMD

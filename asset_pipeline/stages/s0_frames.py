@@ -31,7 +31,7 @@ from PIL import Image
 from .. import review
 from ..imagegen.base import ControlImage, GenRequest, RegionalRef
 from ..imagegen.registry import backend_for
-from ..project import ProjectStore, read_json, write_json
+from ..project import ProjectStore, read_json, save_image, write_json
 from ..schema import FrameSettings, Material, StyleAnchor
 from . import sw_shots, sw_site
 
@@ -170,7 +170,7 @@ def landmark_refs(store: ProjectStore, shot: str, out: Path, min_cover: float = 
         if t is None or f < max(min_cover, MIN_COVERAGE):
             continue
         mask = out / f"mask_typology_{k}.png"
-        Image.fromarray(typology_mask(store, shot, k).astype(np.uint8) * 255).save(mask)
+        save_image(Image.fromarray(typology_mask(store, shot, k).astype(np.uint8) * 255), mask)
         refs.append(RegionalRef(image=store.root / review.rel(store, t.ref), mask=mask, strength=t.ref_strength))
     return refs
 
@@ -183,7 +183,7 @@ def regional_refs(store: ProjectStore, shot: str, out: Path, min_cover: float = 
         if not m.ref or f < max(min_cover, MIN_COVERAGE) or m.ref_strength <= 0:
             continue
         mask = out / f"mask_{m.id}.png"
-        Image.fromarray(material_mask(store, shot, m).astype(np.uint8) * 255).save(mask)
+        save_image(Image.fromarray(material_mask(store, shot, m).astype(np.uint8) * 255), mask)
         refs.append(RegionalRef(image=store.root / review.rel(store, m.ref), mask=mask,
                                 strength=m.ref_strength))
     return refs

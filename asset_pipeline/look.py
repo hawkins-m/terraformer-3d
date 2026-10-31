@@ -50,6 +50,10 @@ DEFAULTS = {
     "backdrop_surface": {"roughness": 0.95, "grain_m": 40.0, "tint": "frame", "albedo": 0.06, "normal_strength": 0.6},
     "backdrop": None,                     # {"from_frame": true, "dist": [near, far]} or {"bearing", "spread", ...}
 }
+# the city level's fixed exposure (manual, EV bias) unless the project's look defaults set one: auto
+# exposure pumps as the first look moves around. Look tests at the default sun read 0.69 at bias 0 and
+# 0.47 at -1 against a frame's 0.43 (docs/notes/unreal.md); null in defaults.json: auto exposure
+CITY_EXPOSURE_BIAS = -0.5
 FALLBACK_TINT = {"paving": [0.6, 0.58, 0.54], "water": [0.05, 0.14, 0.15], "lawn": [0.1, 0.2, 0.06],
                  "gravel": [0.42, 0.38, 0.32], "backdrop": [0.06, 0.08, 0.05]}
 LUMA = np.array([0.2126, 0.7152, 0.0722])
@@ -79,7 +83,8 @@ def sun_direction(camera, sun: dict) -> dict:
 
 def city_lighting(store: ProjectStore) -> dict:
     """The city level's light from the project's look defaults (DEFAULTS < site/look_tests/
-    defaults.json < its "city" key): sun, sky, fog, white balance and an optional exposure_bias.
+    defaults.json < its "city" key): sun, sky, fog, white balance and exposure_bias (fixed:
+    CITY_EXPOSURE_BIAS unless set; None = auto exposure).
     The sun's direction is set against a reference shot: the defaults' "shot", else the first
     shot locked on a frame, else the first shot."""
     from .stages import sw_site
@@ -94,7 +99,7 @@ def city_lighting(store: ProjectStore) -> dict:
     if ref is None:
         raise ValueError("no shots to set the sun against")
     return {"sun": sun_direction(ref["matrix"], p["sun"]), "sky": p["sky"], "fog": p["fog"],
-            "white_balance": p.get("white_balance"), "exposure_bias": p.get("exposure_bias"),
+            "white_balance": p.get("white_balance"), "exposure_bias": p.get("exposure_bias", CITY_EXPOSURE_BIAS),
             "reference_shot": ref["id"], "clouds": p.get("clouds", True)}
 
 

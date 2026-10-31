@@ -48,7 +48,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
-from .project import ProjectStore, read_json, write_json
+from .project import ProjectStore, load_image, read_json, save_image, write_json
 from .schema import DressingOptions
 
 VERSION = "1"                  # bump when placement rules change: every project re-places
@@ -99,7 +99,7 @@ def _unreal(store: ProjectStore):
 
 
 def options(store: ProjectStore) -> DressingOptions:
-    """The project's last-used dressing (all off for a new project)."""
+    """The project's last-used dressing (a new project: [defaults.dressing]; projects from before it: all off)."""
     return _unreal(store).dressing
 
 
@@ -295,8 +295,6 @@ def area(store: ProjectStore, gb: dict) -> tuple[float, float, float, float]:
 def class_map(store: ProjectStore, gb: dict, log=print) -> dict:
     """{"cls": class indices (frame_plan.CLASSES; row 0 = north), "bounds", "cell"}: the greybox
     from above, cached per greybox."""
-    from PIL import Image
-
     from . import blender, frame_plan
     from .stages import sw_site
     b = area(store, gb)
@@ -314,7 +312,7 @@ def class_map(store: ProjectStore, gb: dict, log=print) -> dict:
         log("dressing: greybox plan from above (Blender)")
         blender.run(config.REPO_ROOT / "scripts/blender_plan_topdown.py", [d / "topdown_job.json"], d / "topdown.log",
                     "dressing plan", blend=sw_site.blend_path(store))
-        cls = frame_plan.decode(np.asarray(Image.open(png).convert("RGB")), linear=True)
+        cls = frame_plan.decode(np.asarray(load_image(png).convert("RGB")), linear=True)
         np.savez_compressed(npz, cls=cls)
     return {"cls": np.load(npz)["cls"], "bounds": b, "cell": cell}
 
@@ -544,7 +542,7 @@ def river_depth() -> str:
     p = root() / "generated" / "T_AP_RiverDepth.png"
     if not p.is_file():
         p.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (8, 8), (round(RIVER_DEPTH * 255), 0, 0)).save(p)
+        save_image(Image.new("RGB", (8, 8), (round(RIVER_DEPTH * 255), 0, 0)), p)
     return str(p)
 
 
@@ -560,7 +558,7 @@ def sea_depth(store: ProjectStore, grid: Grid, sea_z: float) -> dict:
     depth = np.clip((sea_z - grid.z(gx.ravel(), gy.ravel()).reshape(gx.shape)) / SEA_DEPTH_M, 0, 1)
     png = work_dir(store) / "T_AP_SeaDepth.png"
     png.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray((depth * 255).astype(np.uint8), "L").convert("RGB").save(png)
+    save_image(Image.fromarray((depth * 255).astype(np.uint8), "L").convert("RGB"), png)
     return {"png": str(png), "origin_cm": [x0 * 100, -y1 * 100], "size_cm": (x1 - x0) * 100}
 
 
@@ -596,7 +594,7 @@ def wave_normal() -> str:
     ln = np.sqrt(nx ** 2 + ny ** 2 + nz ** 2)
     rgb = np.stack([nx / ln, ny / ln, nz / ln], -1) * 0.5 + 0.5
     p.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray((rgb * 255).astype(np.uint8), "RGB").save(p)
+    save_image(Image.fromarray((rgb * 255).astype(np.uint8), "RGB"), p)
     return str(p)
 
 
@@ -607,7 +605,7 @@ def white_mask() -> str:
     p = root() / "generated" / "T_AP_WhiteMask.png"
     if not p.is_file():
         p.parent.mkdir(parents=True, exist_ok=True)
-        Image.new("RGB", (8, 8), (255, 255, 255)).save(p)
+        save_image(Image.new("RGB", (8, 8), (255, 255, 255)), p)
     return str(p)
 
 
@@ -621,7 +619,7 @@ def macro_noise() -> str:
     rng = np.random.default_rng(5)
     rgb = np.stack([_noise(512, 1.4, rng), _noise(512, 1.2, rng), np.zeros((512, 512))], -1)
     p.parent.mkdir(parents=True, exist_ok=True)
-    Image.fromarray((rgb * 255).astype(np.uint8), "RGB").save(p)
+    save_image(Image.fromarray((rgb * 255).astype(np.uint8), "RGB"), p)
     return str(p)
 
 

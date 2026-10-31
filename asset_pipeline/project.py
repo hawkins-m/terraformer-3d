@@ -6,12 +6,15 @@ import json
 import os
 import re
 import tempfile
+import time
 import unicodedata
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import config
-from .schema import Project
+from .schema import DressingOptions, Project, UnrealSettings
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 STARTS = ("city", "blender", "assets")      # Project.start: procedural city, own Blender layout, concept images
@@ -54,6 +57,87 @@ def write_json(path: Path, data) -> None:
         raise
 
 
+def write_bytes(path: Path, data: bytes) -> None:
+    """Write a file atomically (temp file in the same dir + rename): a reader never sees it half
+    written (a build reading site/terrain.png while a poll re-saves it read a truncated PNG)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
+    try:
+        os.fchmod(fd, 0o666 & ~_UMASK)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def save_image(im, path: Path, unchanged_ok: bool = False, **kw) -> bool:
+    """PIL Image.save, atomically (write_bytes); the format comes from the suffix. unchanged_ok:
+    leave a file with the same bytes alone (no new mtime). True when it wrote."""
+    import io
+    buf = io.BytesIO()
+    im.save(buf, format=kw.pop("format", None) or _image_format(path), **kw)
+    data = buf.getvalue()
+    if unchanged_ok and path.is_file() and path.stat().st_size == len(data) and path.read_bytes() == data:
+        return False
+    write_bytes(path, data)
+    return True
+
+
+def _image_format(path: Path) -> str:
+    from PIL import Image
+    Image.init()
+    return Image.EXTENSION[path.suffix.lower()]
+
+
+class TruncatedImage(OSError):
+    """An image that stays unreadable (truncated or not an image) after load_image's retries."""
+
+
+def load_image(path: Path, retries: int = 3, delay_s: float = 0.5):
+    """PIL Image.open + load, retried a few times when the file is truncated or not yet an image
+    (being written by a writer that isn't atomic: another program, an older version). A missing
+    file raises FileNotFoundError at once; one still unreadable after the retries TruncatedImage."""
+    from PIL import Image
+    for i in range(retries + 1):
+        try:
+            im = Image.open(path)
+            im.load()
+            return im
+        except FileNotFoundError:
+            raise
+        except OSError as e:                   # "image file is truncated", UnidentifiedImageError
+            if i == retries:
+                raise TruncatedImage(f"{path}: {e}") from e
+            time.sleep(delay_s)
+
+
+# warnings for the run collecting them (ue_build.build): readers that skip or replace a bad input
+# say so here instead of failing the whole run
+_WARNINGS: ContextVar[list | None] = ContextVar("ap_warnings", default=None)
+
+
+@contextmanager
+def collecting_warnings():
+    """with collecting_warnings() as w: warn() messages in this thread go into the list w."""
+    out: list = []
+    token = _WARNINGS.set(out)
+    try:
+        yield out
+    finally:
+        _WARNINGS.reset(token)
+
+
+def warn(msg: str) -> None:
+    """A warning for the run's report (collect_warnings), else printed."""
+    w = _WARNINGS.get()
+    if w is None:
+        print(f"warning: {msg}")
+    elif msg not in w:
+        w.append(msg)
+
+
 def read_json(path: Path, default=None):
     if not path.exists():
         return default
@@ -85,7 +169,8 @@ class ProjectStore:
         defaults = config.backends().get("defaults", {})
         project = Project(slug=slug, name=name.strip() or slug, brief=brief, start=start,
                           backends=dict(defaults.get("backends", {})),
-                          llm=defaults.get("llm", "local"))
+                          llm=defaults.get("llm", "local"),
+                          unreal=UnrealSettings(dressing=DressingOptions(**defaults.get("dressing", {}))))
         store.save(project)
         return store
 

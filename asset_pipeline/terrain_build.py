@@ -31,7 +31,7 @@ from scipy.sparse.linalg import spsolve
 from scipy.spatial import cKDTree
 
 from . import terrain_plan as tp
-from .project import ProjectStore, read_json, write_json
+from .project import ProjectStore, read_json, save_image, write_json
 
 FAR_DIR = "site/terrain_far"
 
@@ -416,7 +416,7 @@ def core_heightmap(store: ProjectStore, z_range=(-60.0, 1200.0)) -> Path:
     core = match_edge(raw + np.maximum(rel, 0.0), map_coordinates(H, [fy, fx], order=1), layout.sea_level,
                       t.extent_m / (raw.shape[0] - 1))
     p = store.root / FAR_DIR / "core.png"
-    Image.fromarray(greybox.to_png16(np.clip(core, *z_range), z_range)).save(p)     # apply() refuses a clipped one
+    save_image(Image.fromarray(greybox.to_png16(np.clip(core, *z_range), z_range)), p)     # apply() refuses a clipped one
     return p
 
 
@@ -476,7 +476,7 @@ def landscape_tiles(store: ProjectStore, log=print) -> dict:
             h = np.where(inside, np.asarray(core.many(X, Y), float), far)
             zmin, zmax = min(zmin, float(h.min())), max(zmax, float(h.max()))
             v = np.clip(np.round(32768 + (h * 100 - L["z_mid_m"] * 100) / sz), 0, 65535).astype(np.uint16)
-            Image.fromarray(v).save(out / f"terrain_x{tx}_y{ty}.png")
+            save_image(Image.fromarray(v), out / f"terrain_x{tx}_y{ty}.png")
     lim = (32767 * sz / 100, )
     if zmin < L["z_mid_m"] - lim[0] or zmax > L["z_mid_m"] + lim[0]:
         raise ValueError(f"terrain {zmin:.0f}..{zmax:.0f} m outside the Landscape's z range: change scale_z_cm")

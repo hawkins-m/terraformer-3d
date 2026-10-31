@@ -24,7 +24,7 @@ import numpy as np
 from PIL import Image
 
 from .. import blender, config
-from ..project import ProjectStore, read_json, write_json
+from ..project import ProjectStore, read_json, save_image, write_json
 from . import sw_site
 
 SHOTS = "shots"
@@ -130,7 +130,7 @@ def depth_image(store: ProjectStore, shot: str, kind: str = "plain") -> Path:
     if not out.is_file() or out.stat().st_mtime < raw_p.stat().st_mtime:
         raw = np.array(Image.open(raw_p)).astype(np.float64)
         img = depth_relief(raw / 65535.0 * DEPTH_SCALE, raw > 0)
-        Image.fromarray((img * 255).round().astype(np.uint8)).save(out)
+        save_image(Image.fromarray((img * 255).round().astype(np.uint8)), out)
     return out
 
 
@@ -161,8 +161,8 @@ def post(store: ProjectStore, shot: dict, colors: dict[str, list[int]]) -> dict:
     n = np.array(Image.open(d / "normal.png").convert("RGB")).astype(np.float32) / 255 * 2 - 1
     n /= np.maximum(np.linalg.norm(n, axis=-1, keepdims=True), 1e-6)
 
-    Image.fromarray((depth_control(z, hit) * 255).round().astype(np.uint8)).save(d / "depth.png")
-    Image.fromarray(edges(idx, n, z, hit).astype(np.uint8) * 255).save(d / "canny.png")
+    save_image(Image.fromarray((depth_control(z, hit) * 255).round().astype(np.uint8)), d / "depth.png")
+    save_image(Image.fromarray(edges(idx, n, z, hit).astype(np.uint8) * 255), d / "canny.png")
 
     h, w = idx.shape
     slots = {}
@@ -278,10 +278,9 @@ def preview_site(store: ProjectStore, distance_frac: float = 0.42, elevation_deg
     gb = sw_site.load_greybox(store)
     layout = sw_site.load_layout(store)
     heights = None
-    png = sw_site.site_dir(store) / "terrain.png"
-    if png.is_file():
+    h = sw_site.site_heights(store, layout.terrain.z_range)
+    if h is not None:
         from .. import greybox
-        h = greybox.from_png16(np.array(Image.open(png)), layout.terrain.z_range)
         heights = greybox.Heights(h, layout.terrain.extent_m)
     cams = preview_cameras(layout, heights, distance_frac, elevation_deg)
     out = sw_site.site_dir(store) / "preview"

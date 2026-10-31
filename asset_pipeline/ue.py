@@ -44,6 +44,17 @@ r.Nanite.ProjectEnabled=True
 [/Script/LinuxTargetPlatform.LinuxTargetSettings]
 -TargetedRHIs=SF_VULKAN_SM5
 +TargetedRHIs=SF_VULKAN_SM6
+
+[SystemSettings]
+r.Streaming.PoolSize=8000
+r.LumenScene.SurfaceCache.AtlasSize=8192
+r.LumenScene.SurfaceCache.CardTexelDensityScale=50
+"""
+# the editor opens the city level, not the engine's default (Untitled) map; {map}: city_map()
+STARTUP_MAP_INI = """
+[/Script/EngineSettings.GameMapsSettings]
+EditorStartupMap={map}
+GameDefaultMap={map}
 """
 POSITION_TOLERANCE_CM = 1.0
 
@@ -128,6 +139,20 @@ def uproject(store: ProjectStore) -> Path:
     return project_dir(store) / f"{s7_export.pascal(store.load().slug)}.uproject"
 
 
+def city_map(store: ProjectStore) -> str:
+    """The city level's object path (/Game/AP/Maps/<Name>.<Name>): the last export's map, else the
+    one the export makes from the slug."""
+    man = read_json(s7_export.export_dir(store) / "manifest.json", default=None) or {}
+    pkg = man.get("map") or f"/Game/AP/Maps/{s7_export.pascal(store.load().slug)}"
+    return f"{pkg}.{pkg.rsplit('/', 1)[-1]}"
+
+
+def map_file(store: ProjectStore) -> Path:
+    """The city level's .umap in the UE project (there once a build or import saved it)."""
+    pkg = city_map(store).split(".")[0]
+    return (project_dir(store) / "Content" / pkg.removeprefix("/Game/")).with_suffix(".umap")
+
+
 def work_dir(store: ProjectStore) -> Path:
     return s7_export.export_dir(store) / "ue"
 
@@ -175,7 +200,7 @@ def init(store: ProjectStore) -> Path:
         "Plugins": [{"Name": p, "Enabled": True} for p in PLUGINS]}, indent=2) + "\n")
     ini = d / "Config" / "DefaultEngine.ini"
     if not ini.exists():
-        ini.write_text(DEFAULT_ENGINE_INI)
+        ini.write_text(DEFAULT_ENGINE_INI + STARTUP_MAP_INI.format(map=city_map(store)))
     store.log_run({"stage": "ue.init", "uproject": str(up)})
     return up
 
@@ -613,7 +638,10 @@ def open_editor(store: ProjectStore) -> int:
         raise FileNotFoundError(f"no UE project at {up} (Create UE project first)")
     if editor_running(up):
         raise RuntimeError(f"the Unreal editor already has {up.name} open")
-    cmd, env, _, _ = wsl.windows_cmd([full_editor(editor_cmd()), up])
+    # the city level by name: an editor started on the bare .uproject opens the project's startup map,
+    # which is the engine's Untitled Open World one in a project made before STARTUP_MAP_INI
+    level = [city_map(store).split(".")[0]] if map_file(store).is_file() else []
+    cmd, env, _, _ = wsl.windows_cmd([full_editor(editor_cmd()), up, *level])
     proc = subprocess.Popen(cmd, cwd=up.parent, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, start_new_session=True)
     return proc.pid

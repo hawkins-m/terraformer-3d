@@ -142,6 +142,9 @@ def stub_build(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_UE_PROJECTS", str(tmp_path / "ue"))
     monkeypatch.setenv("AP_UE_BACKUPS", str(tmp_path / "backups"))
     store = ProjectStore.create("demo-build")
+    from asset_pipeline import dressing
+    from asset_pipeline.schema import DressingOptions
+    dressing.save(store, DressingOptions())                       # stubbed runs: no dressing (it needs a greybox)
     (ue.project_dir(store)).mkdir(parents=True)
     calls = []
     man = {"map": "/Game/AP/Maps/City", "slots": [{"id": "a", "replaced": True}, {"id": "b"}], "shots": [],

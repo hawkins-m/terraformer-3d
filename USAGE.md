@@ -154,8 +154,10 @@ desktop app:
   also place* list to Ready for Unreal: each asset, its count and the slots it takes over. Under it, *World dressing*: Ground textures,
   Rocks and Vegetation (with density sliders), Water (Off, Simple sea, Ocean), Use Megascans
   assets and *Find my assets…* (scan and edit the role → asset mapping); each option shows a
-  Light / Medium / Heavy tag and a one-line tooltip, and the choice is saved per project. It won't start while the editor has the
-  project open. Next to it, *Open in Unreal* starts the Unreal editor on the project's `.uproject`
+  Light / Medium / Heavy tag and a one-line tooltip, and the choice is saved per project (a new project
+  starts with Ground textures, Rocks and Vegetation at x1 on the free CC0 defaults and Simple sea;
+  `[defaults.dressing]`). With no UE project yet, the build asks once and creates it first. It won't start while the editor has the
+  project open. Next to it, *Open in Unreal* starts the Unreal editor on the project's `.uproject` and its city level
   (the same `UnrealEditor` the build uses; under WSL the Windows `UnrealEditor.exe`), detached so closing
   `ap ui` leaves it running. It is disabled while a build runs and reads *Unreal is open* when the editor
   already has the project; the *Unreal* menu has the same item. The last build's report stays on the tab: assets placed, stand-ins left, time,

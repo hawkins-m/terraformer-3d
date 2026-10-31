@@ -75,12 +75,10 @@ def spec(h: np.ndarray, extent_m: float) -> dict:
 def export(store: ProjectStore, out_dir) -> dict:
     """Write the raw heightmap under out_dir (export/) and return the manifest's "landscape_build":
     {raw, sha, size, sections, quads, location_cm, scale_cm, material, label, hide_slots}."""
-    from . import greybox
     from .stages import sw_site
     layout = sw_site.load_layout(store)
     meta = read_json(sw_site.site_dir(store) / "terrain.json")
-    from PIL import Image
-    h = greybox.from_png16(np.array(Image.open(sw_site.site_dir(store) / "terrain.png")), meta["z_range"])
+    h = sw_site.site_heights(store, meta["z_range"])
     s = spec(h, meta["extent_m"])
     v, _, _ = encode(resample(h, s["size"][0]))
     raw = out_dir / RAW

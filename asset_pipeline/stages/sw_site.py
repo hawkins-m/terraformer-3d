@@ -26,7 +26,7 @@ import numpy as np
 from PIL import Image
 
 from .. import blender, city, config, greybox
-from ..project import ProjectStore, read_json, write_json
+from ..project import ProjectStore, TruncatedImage, load_image, read_json, save_image, warn, write_json
 from ..schema import (CitySpec, CivicNode, District, Kit, Plaza, Plot, Radial, Ring, RingRow, SiteLayout,
                       Shot, ShotSpec, Slot, TerrainSpec)
 
@@ -124,7 +124,7 @@ def plan_city(store: ProjectStore) -> dict:
         raise ValueError("the layout has no city spec (ap site init --city, or add \"city\" to layout.json)")
     h = plan_terrain(store, layout)
     P = city.plan(layout, h)
-    city.plan_image(P, h).save(site_dir(store) / "city_plan.png")
+    save_image(city.plan_image(P, h), site_dir(store) / "city_plan.png")
     write_json(site_dir(store) / "city.json", P.stats)
     return P.stats
 
@@ -247,11 +247,27 @@ def terrain(store: ProjectStore, layout: SiteLayout, write: bool = True) -> np.n
     if lo < t.z_range[0] or hi > t.z_range[1]:
         raise ValueError(f"terrain spans {lo:.1f}..{hi:.1f} m, outside z_range {t.z_range}: widen it")
     if write:
-        Image.fromarray(greybox.to_png16(h, t.z_range)).save(out / "terrain.png")
+        save_image(Image.fromarray(greybox.to_png16(h, t.z_range)), out / "terrain.png", unchanged_ok=True)   # polls re-plan: no rewrite
         write_json(out / "terrain.json", {"extent_m": t.extent_m, "resolution": int(h.shape[0]),
                                           "z_range": list(t.z_range), "min_z": round(lo, 3), "max_z": round(hi, 3),
                                           "rows": "north (+Y) -> south"})
     return h
+
+
+def site_heights(store: ProjectStore, z_range=None) -> np.ndarray | None:
+    """site/terrain.png in metres (z_range: terrain.json's; None when there's no terrain.png). A file
+    that stays truncated or unreadable (load_image's retries) is made again from the layout, with a
+    warning (project.warn) instead of an error: the same heights terrain() last wrote."""
+    png = site_dir(store) / "terrain.png"
+    if not png.is_file():
+        return None
+    if z_range is None:
+        z_range = (read_json(site_dir(store) / "terrain.json", default=None) or {}).get("z_range") or load_layout(store).terrain.z_range
+    try:
+        return greybox.from_png16(np.array(load_image(png)), tuple(z_range))
+    except TruncatedImage as e:
+        warn(f"{png.name} unreadable ({str(e).split(': ', 1)[-1]}): made it again from the layout")
+        return terrain(store, load_layout(store))
 
 
 def _downsample(h: np.ndarray, max_n: int) -> np.ndarray:
@@ -285,7 +301,7 @@ def build(store: ProjectStore, force: bool = False) -> dict:
     spec["terrain"]["resolution"] = int(small.shape[0])
     if spec.get("city"):
         write_json(site_dir(store) / "city.json", spec["city"])
-        city.plan_image(city.plan(layout, hp), hp).save(site_dir(store) / "city_plan.png")
+        save_image(city.plan_image(city.plan(layout, hp), hp), site_dir(store) / "city_plan.png")
     write_json(work / "spec.json", spec)
     if b.exists():
         shutil.copyfile(b, b.with_suffix(".prev.blend"))

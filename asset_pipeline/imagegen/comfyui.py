@@ -5,6 +5,7 @@ from pathlib import Path
 from .. import filestore
 from ..comfy import workflow
 from ..comfy.client import ComfyClient
+from ..project import write_bytes
 from .base import BackendCapabilityError, GenRequest, GenResult, effective_prompt
 
 
@@ -100,7 +101,7 @@ class ComfyUIBackend:
         for i, img in enumerate(images):
             path = out_dir / f"{prefix}_{i:03d}.png"
             filestore.detach(path)                    # never write through a stored (linked) file
-            path.write_bytes(img.data)
+            write_bytes(path, img.data)              # atomic: a reader never sees half a frame
             # One batched latent: all images share the sampler seed (ComfyUI derives
             # per-image noise from it), so record the batch seed and index.
             results.append(GenResult(path=path, seed=seed, backend=self.name,

@@ -31,15 +31,12 @@ class Ground:
 
     @classmethod
     def from_project(cls, store) -> "Ground":
-        from PIL import Image
-
-        from . import greybox
         from .project import read_json
         from .stages import sw_site
         site = sw_site.site_dir(store)
-        meta, png = read_json(site / "terrain.json", default=None), site / "terrain.png"
-        if meta and png.is_file():
-            h = greybox.from_png16(np.array(Image.open(png)), tuple(meta["z_range"]))
+        meta = read_json(site / "terrain.json", default=None)
+        h = sw_site.site_heights(store, meta["z_range"]) if meta else None
+        if h is not None:
             return cls(h, meta["extent_m"])
         try:
             layout = sw_site.load_layout(store)
