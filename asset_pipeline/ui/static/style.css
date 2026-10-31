@@ -295,8 +295,11 @@ details summary { cursor: default; }
 .wbuttons:empty { display: none; }
 
 /* --- City tab: table + detail ----------------------------------------------------------- */
-.tabpanel[data-tab="city"] { overflow: hidden; }
-.city { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+/* the viewer, the catalog and the roll group stack: the catalog fills what is left but never goes below
+   460 px, and the tab scrolls when the three do not fit (the list is never squeezed under the roll group) */
+.tabpanel[data-tab="city"] { overflow: auto; }
+.tabpanel[data-tab="city"] > * { flex-shrink: 0; }
+.city { display: flex; flex-direction: column; flex: 1 0 0; min-height: 460px; }
 .city-top { margin-bottom: 6px; }
 .city-top .spacer { flex: 1; }
 .city-body { display: grid; grid-template-columns: minmax(240px, 300px) minmax(0, 1fr); gap: 8px; flex: 1; min-height: 0; }

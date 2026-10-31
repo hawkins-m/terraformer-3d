@@ -100,6 +100,13 @@ with sync_playwright() as p:
     pg.click("button[data-tab=city]")
     pg.wait_for_function("() => /buildings/.test(document.querySelector('#city3d-label')?.textContent || '')", timeout=90000)
     out["label"] = pg.locator("#city3d-label").inner_text()
+    stack = """() => { const r = s => document.querySelector(s).getBoundingClientRect();
+      return [r('#city3d').bottom <= r('#catalog').top + 0.5, r('#city-left > .row').bottom <= r('#city-roll').top + 0.5,
+              Math.round(r('#city-left .list-wrap').height)]; }"""
+    out["stack"] = pg.evaluate(stack)
+    pg.set_viewport_size({"width": 1100, "height": 900}); pg.wait_for_timeout(400)
+    out["stack_narrow"] = pg.evaluate(stack)
+    pg.set_viewport_size({"width": 1400, "height": 1000}); pg.wait_for_timeout(400)
     out["count"] = pg.evaluate("() => c3dData.buildings.length")
     out["instances"] = pg.evaluate("() => c3d.meshes.reduce((n, m) => n + m.count, 0)")
     out["canvas"] = pg.locator("#city3d-view canvas").count()
@@ -128,4 +135,6 @@ def test_the_viewer_in_a_browser(tmp_path, monkeypatch):
     assert out["label"].startswith(f"{out['count']:,} buildings")
     assert out["top"] == ["3D view", True] and out["ramp"] == 1 and out["hidden"]
     assert out["fallback"] == [1, True]
+    for k in ("stack", "stack_narrow"):         # viewer, list and its buttons, roll group: no overlap, a full-height list
+        assert out[k][:2] == [True, True] and out[k][2] >= 300, (k, out[k])
     assert out["errors"] == []
