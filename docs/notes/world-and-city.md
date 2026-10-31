@@ -365,3 +365,23 @@ World and city mode: greybox and passes, concept frames and their control settin
   fields, ways: one GLB per slot), not the instances; it is labelled experimental in the UI
   (`city_size.EXPERIMENTAL`). The editor's own 120 fps cap holds with the cvars off; GPU load is the
   better gauge. Software GL (swiftshader): metro's viewer 1.5 fps at the whole city, 3.0 with its LOD.
+
+## Merge ground surfaces (2026-10-31)
+- `ground_merge.py` (project.json `unreal.merge_ground`: off / auto = metro only / on): the export joins each
+  slot's own draped mesh (`<slot>.<piece>`) of street, road and field slots into ~1 km tiles, one mesh per
+  tile and surface (streets, fields with crop and fallow together, each road type apart: the tint is the
+  slot type's, paving dressing goes by slot type). Grouping by piece instead made more meshes, not fewer
+  (fields are already one mesh per 2 km slot). Parks (382 lawns on the metro) aren't merged.
+- Metro (scratch, seed 3): 1,053 -> 731 assets, 648 pieces of 470 slots -> 326 tiles; each tile's faces and
+  world bounds match its pieces. Standard and large manifests are byte for byte as before under auto.
+- **The derived-data cache decides Unreal build times**, not the asset count alone. `-ddc=Cold` (an empty,
+  flushed Zen sandbox per process; via an `AP_UE_EDITOR_CMD` wrapper) vs the warm shared cache:
+
+  | Metro | cold | warm |
+  |---|---|---|
+  | merge off | 32.8 min (import 1,044 s, HLODs 808 s) | 7.6 min (import 312 s, HLODs 28 s) |
+  | merged | 28.7 min (import 821 s, HLODs 776 s) | 6.5 min (import 239 s, HLODs 28 s) |
+
+  The first metro build's 21.6 min had the shaders cached but not the meshes. Cold, the HLOD builder
+  (which renders) compiles shaders for ~13 min whatever the merge. Metro stays experimental.
+- The import check (`ue.verify_samples`) skips merged pieces and the tile slots.

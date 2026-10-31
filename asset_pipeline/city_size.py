@@ -37,7 +37,7 @@ SPEC_K = ("shore_m", "headland_width_m", "hill_from_m", "hill_to_m", "coast_wave
           "bay_lateral_m", "bay_width_m", "city_radius_m")
 SETTINGS_K = ("city_r_m", "mountains_at_m", "mountains_w_m", "plateau_r_m", "island_r_m", "river_offset_m")
 SETTINGS_SQRT_K = ("hill_r_m", "river_meander_m")
-EXPERIMENTAL = ("metro",)   # labelled experimental in the UI: its Unreal build took 21.6 min on the scratch city (large 2.8)
+EXPERIMENTAL = ("metro",)   # labelled experimental in the UI: a first Unreal build (cold cache) ~30 min, merged ground or not
 
 
 def names() -> list[str]:

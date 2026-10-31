@@ -494,7 +494,7 @@ function paintSize() {
   const z = d.sizes.find(x => x.name === sel.value) || {};
   $("#city-size-desc").textContent = (sel.value === d.size && d.across_m
       ? `Now ${(d.across_m / 1000).toFixed(1)} km across on ${(d.terrain_m / 1000).toFixed(1)} km of terrain. ` : "")
-    + (z.experimental ? `${z.label} is experimental: its Unreal build takes over 20 minutes. ` : "")
+    + (z.experimental ? `${z.label} is experimental: its first Unreal build takes about half an hour (later ones about 7 minutes). ` : "")
     + (sel.value === "standard" ? "Library builds stand everywhere." : `Library builds stand within ${rad.value || d.detail_radius_default} m of a shot camera or downtown; stand-ins beyond.`);
   $("#city-size-apply").disabled = !!activeJobs("site.plan").length;
 }
