@@ -7,6 +7,8 @@ scheduled, and what each feature needs in VRAM (from the model manifest).
                                        take turns (one shared slot; the other's memory is freed first)
     nvidia     Ubuntu + NVIDIA         UNTESTED: CUDA wheels; lanes as above by GPU count
     wsl-nvidia Windows (WSL2) + NVIDIA BETA, UNTESTED: the nvidia profile inside WSL2 (asset_pipeline/wsl.py)
+    win-nvidia Windows + NVIDIA, native BETA, UNTESTED: the greybox path only (no TRELLIS or vision model;
+                                       asset_pipeline/oscompat.py)
 
 [hardware] profile in the user config picks one ("" = detect). The lane GPUs themselves stay
 [jobs] gpu0_gpu / comfy_gpu (Setup writes the profile's defaults there); scheduling shares one slot
@@ -14,7 +16,7 @@ whenever both lanes are the same GPU, whatever the profile says.
 """
 from dataclasses import asdict, dataclass
 
-from . import config, gpu, wsl
+from . import config, gpu, oscompat, wsl
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,9 @@ PROFILES = {p.id: p for p in (
     Profile("wsl-nvidia", wsl.LABEL, "nvidia", 0, "cu128", True, False,
             "BETA, UNTESTED: the NVIDIA profile inside WSL2 on Windows (the Windows NVIDIA driver; no Linux "
             "driver in WSL). Blender and Unreal may be Windows installs. Untested: " + "; ".join(wsl.UNTESTED) + "."),
+    Profile("win-nvidia", "Windows + NVIDIA, native (beta)", "nvidia", 0, "cu128", False, False,
+            "BETA, UNTESTED: native Windows without WSL, for the greybox path (Layout, Greybox, Shots, Frames through "
+            "a Windows ComfyUI, Build city in Unreal). TRELLIS and the vision model need the WSL install."),
 )}
 
 # Why the ROCm profiles keep PyTorch's default allocator (docs/notes/machine-and-gpu.md)
@@ -56,7 +61,7 @@ def detect() -> dict:
     if vendor == "amd" and n:
         pid = "rocm-2gpu" if n >= 2 else "rocm-1gpu"
     elif vendor == "nvidia" and n:
-        pid = "wsl-nvidia" if wsl.is_wsl() else "nvidia"
+        pid = "wsl-nvidia" if wsl.is_wsl() else "win-nvidia" if oscompat.IS_WINDOWS else "nvidia"
     return {"vendor": vendor, "count": n, "gpus": gpus, "profile": pid, "wsl": wsl.is_wsl()}
 
 

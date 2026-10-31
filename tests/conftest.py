@@ -1,6 +1,9 @@
 """Every test runs with its own empty user config folder: the machine's
 ~/.config/terraformer (storage folder, GPUs, API keys) never leaks into a test. WSL is off unless a
-test turns it on (tests/test_wsl.py)."""
+test turns it on (tests/test_wsl.py). Tests marked posix (bash scripts, process groups, /proc) are
+skipped on native Windows."""
+import os
+
 import pytest
 
 from asset_pipeline import config, wsl
@@ -17,3 +20,12 @@ def _own_user_config(tmp_path_factory, monkeypatch):
     _BACKENDS.cache_clear()
     yield
     _BACKENDS.cache_clear()
+
+
+def pytest_collection_modifyitems(config, items):
+    if os.name != "nt":
+        return
+    skip = pytest.mark.skip(reason="POSIX only (bash, process groups or /proc); native Windows has its own path")
+    for item in items:
+        if "posix" in item.keywords:
+            item.add_marker(skip)

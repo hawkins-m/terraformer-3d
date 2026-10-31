@@ -152,6 +152,7 @@ def test_api_children_and_footprint(store):
     assert bad.status_code == 400
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_assembly_glb_in_real_blender_with_a_placeholder(store):
     _procedural(store, "portico", [-10, -5, 0], [10, 5, 8])

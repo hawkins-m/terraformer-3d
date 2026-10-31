@@ -198,6 +198,7 @@ def test_annexes_stand_outside_the_footprint_on_their_side():
         bg.annexes([w, d, 18], bg.features("civic_block", {"annexes": [{"side": "up"}]}))
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
 def test_hip_roof_builds_closed_and_outward(tmp_path):
     from asset_pipeline import kit_proc
@@ -311,6 +312,7 @@ def test_panel_frame_brief_validation_and_form():
     assert lr.diff_features("basilica", full) == {"front": {"panel_frame": {"on": True}}}
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
 def test_panel_frame_builds_in_blender_with_outward_faces(tmp_path):
     from asset_pipeline import kit_proc

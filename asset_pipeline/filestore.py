@@ -17,6 +17,9 @@ References are independent:
     content. A write that still fails reaches the UI as `write_error_text` (which file, why);
   - deleting a path drops its reference; an object goes when nothing references it (its link
     count is 1: the store's own name), via `release` right away or `clean` (Tools › Storage…).
+Native Windows (beta): the read-only bit is shared by every hard link and blocks deleting or
+replacing any of them, so objects stay writable there and a reference is any hard-linked file;
+where a drive can't hard-link (FAT/exFAT), files simply stay out of the store.
 """
 import hashlib
 import os
@@ -24,11 +27,13 @@ import re
 import stat
 from pathlib import Path
 
+from . import oscompat
 from .project import ProjectStore
 
 DIR = "files"
 RO = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 RW = RO | stat.S_IWUSR
+READ_ONLY = not oscompat.IS_WINDOWS       # store objects are 0444 (see the module docstring)
 _UNIT_PNG = re.compile(r"^(refs|views)/[^/]+/[^/]+/[^/]+\.png$")
 _GLB = re.compile(r"^3d/.+\.glb$")
 
@@ -67,7 +72,7 @@ def is_ref(path: Path) -> bool:
         st = path.lstat()
     except FileNotFoundError:
         return False
-    return stat.S_ISREG(st.st_mode) and st.st_nlink > 1 and not st.st_mode & stat.S_IWUSR
+    return stat.S_ISREG(st.st_mode) and st.st_nlink > 1 and not (READ_ONLY and st.st_mode & stat.S_IWUSR)
 
 
 def intern(store: ProjectStore, path: Path) -> Path | None:
@@ -84,12 +89,23 @@ def intern(store: ProjectStore, path: Path) -> Path | None:
         if not os.path.samefile(obj, path):             # same content elsewhere: point at it
             tmp = path.with_name(f".{path.name}.ln")
             tmp.unlink(missing_ok=True)
-            os.link(obj, tmp)
+            try:
+                os.link(obj, tmp)
+            except OSError:
+                if READ_ONLY:
+                    raise
+                return None
             os.replace(tmp, path)
     else:
         obj.parent.mkdir(parents=True, exist_ok=True)
-        os.chmod(path, RO)
-        os.link(path, obj)
+        if READ_ONLY:
+            os.chmod(path, RO)
+        try:
+            os.link(path, obj)
+        except OSError:
+            if READ_ONLY:
+                raise
+            return None                                 # no hard links on this drive: stays a plain file
     return obj
 
 
@@ -170,8 +186,12 @@ def copy(store: ProjectStore, src: Path, dst: Path) -> None:
     if stored_kind(store, src) and stored_kind(store, dst):
         obj = intern(store, src) or (object_path(store, digest(src), src.suffix) if is_ref(src) else None)
         if obj is not None and obj.exists():
-            os.link(obj, dst)
-            return
+            try:
+                os.link(obj, dst)
+                return
+            except OSError:
+                if READ_ONLY:
+                    raise
     shutil.copy2(src, dst)
     if not os.access(dst, os.W_OK):
         os.chmod(dst, RW)

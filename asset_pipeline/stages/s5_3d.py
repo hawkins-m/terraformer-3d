@@ -21,12 +21,11 @@ import json
 import os
 import random
 import shutil
-import signal
 import subprocess
 import time
 from pathlib import Path
 
-from .. import config, filestore, review
+from .. import config, filestore, oscompat, review
 from ..jobs import Canceled, current_job
 from ..project import ProjectStore
 
@@ -43,9 +42,9 @@ def _reap(proc: subprocess.Popen, gpu: int) -> None:
     """After the wrapper exits: kill anything left in its process group (it was started in a new
     session, so the group is its own), drop its GPU claim. Never pid 0/1 or our own group: killpg(0)
     would signal the app itself."""
-    if isinstance(proc.pid, int) and proc.pid > 1 and proc.pid != os.getpgrp():
+    if isinstance(proc.pid, int) and proc.pid > 1 and proc.pid != oscompat.own_group():
         try:
-            os.killpg(proc.pid, signal.SIGKILL)
+            oscompat.kill_tree(proc.pid, force=True)
         except (ProcessLookupError, PermissionError):
             pass
     (config.ap_root() / "logs" / f"trellis-gpu{gpu}-{proc.pid}.lock").unlink(missing_ok=True)
@@ -68,14 +67,7 @@ def _failure_line(lines: list[str]) -> str:
 def _stop(proc: subprocess.Popen, gpu: int) -> None:
     """SIGTERM the wrapper and TRELLIS (one process group), SIGKILL after 15 s, then drop
     the GPU claim: the wrapper's EXIT trap can't run if it was SIGKILLed."""
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        proc.wait(timeout=15)
-    except ProcessLookupError:
-        pass
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait(timeout=15)
+    oscompat.stop_popen(proc, wait_s=15)
     (config.ap_root() / "logs" / f"trellis-gpu{gpu}-{proc.pid}.lock").unlink(missing_ok=True)
 
 
@@ -100,6 +92,8 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
         mode: str = "1024_cascade", seed: int | None = 42, gpu: int | None = None) -> dict:
     """TRELLIS.2 on the asset's chosen view (or `view`). Returns the run's stats. seed=None draws a
     new random seed (Make 3D, new seed); every result JSON carries the seed it used."""
+    if oscompat.IS_WINDOWS:
+        raise RuntimeError(f"TRELLIS is {oscompat.NATIVE_WINDOWS_NOTE}")
     if seed is None:
         seed = random.randrange(2**31)
     if gpu is None:
@@ -136,8 +130,8 @@ def run(store: ProjectStore, plan: str, asset_id: str, view: str | None = None,
             log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}" + (" (retry)" if attempt > 1 else "") + "\n")
             log.flush()
             start = logf.stat().st_size
-            proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True,
-                                    env=dict(os.environ, TRELLIS_GPU=str(gpu), AP_ROOT=str(config.ap_root()),
+            proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, 
+                                    **oscompat.detached(), env=dict(os.environ, TRELLIS_GPU=str(gpu), AP_ROOT=str(config.ap_root()),
                                              **profiles.allocator_env()))
         release = job.on_cancel(lambda: _stop(proc, gpu)) if job else (lambda: None)
         from .. import procs

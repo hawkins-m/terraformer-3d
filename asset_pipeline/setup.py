@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass, field  # noqa: F401
 from pathlib import Path
 from urllib.parse import urlparse
 
-from . import config, gpu, wsl
+from . import config, gpu, oscompat, wsl
 
 
 @dataclass
@@ -181,6 +181,9 @@ def _blender_candidates() -> list[str]:
         out += sorted(glob.glob(os.path.expanduser(pat)), reverse=True)
     if wsl.is_wsl():                                  # after any Blender inside WSL: a Windows install
         out += sorted(glob.glob(wsl.drive_root() + "/*/Program Files/Blender Foundation/Blender*/blender.exe"), reverse=True)
+    if oscompat.IS_WINDOWS:                           # native Windows (beta)
+        from . import win_tools
+        out = [config.get("tools.blender") or "", *win_tools.blender_candidates()]
     found = [shutil.which(os.path.expanduser(p)) for p in out if p]
     found = list(dict.fromkeys(f for f in found if f))
     return sorted(found, key=wsl.is_windows_exe)      # a Blender inside WSL first, even over a configured .exe
@@ -199,6 +202,9 @@ def _unreal_candidates() -> list[str]:
         out += sorted(glob.glob(os.path.expanduser(pat) + UE_TAIL), reverse=True)
     if wsl.is_wsl():
         out += sorted(glob.glob(wsl.drive_root() + "/*/Program Files/Epic Games/UE_*/" + UE_TAIL_WIN), reverse=True)
+    if oscompat.IS_WINDOWS:
+        from . import win_tools
+        out = [config.get("unreal.editor_cmd") or "", *win_tools.unreal_candidates()]
     return [p for p in dict.fromkeys(out) if p and Path(p).is_file()]
 
 
@@ -215,9 +221,20 @@ def detect() -> dict[str, str]:
     else:
         d["comfy_url"] = cur_url
     d["comfy_backend"] = config.get("comfyui.backend") or "sdk"
+    if oscompat.IS_WINDOWS and not config.user().get("comfyui", {}).get("backend"):
+        d["comfy_backend"] = "httpx"           # native Windows (beta): comfy-api-proxy is untested there
     d["sdk_url"] = config.get("comfyui.sdk_url") or "http://127.0.0.1:8190"
     if Path("~/ComfyUI/main.py").expanduser().is_file() and not config.user().get("comfyui", {}).get("service", {}).get("cwd"):
         d["comfy_cwd"] = "~/ComfyUI"
+    if oscompat.IS_WINDOWS and not config.user().get("comfyui", {}).get("service", {}).get("launch"):
+        from . import win_tools                        # a portable build, the desktop app or a checkout
+        for c in win_tools.comfy_installs(config.ap_root()):
+            if c["cwd"]:
+                d["comfy_cwd"] = c["cwd"]
+            d["comfy_launch"] = c["launch"]
+            if not _probe_comfy(d["comfy_url"]) and c["kind"] == "desktop":
+                d["comfy_url"] = c["url"]
+            break
     if (md := _comfy_models_dir(d["comfy_url"])):
         d["comfy_models_dir"] = md
     if (b := _blender_candidates()):
@@ -346,7 +363,7 @@ def _test_comfy_url(v: str, _all: dict) -> dict:
 
 
 def proxy_installed() -> Path | None:
-    exe = config.ap_root() / "envs" / "comfy-api-proxy" / "bin" / "comfy-api-proxy"
+    exe = oscompat.venv_bin(config.ap_root() / "envs" / "comfy-api-proxy", "comfy-api-proxy")
     return exe if exe.is_file() else None
 
 
@@ -397,7 +414,9 @@ def _check_launch(v: str, all_: dict) -> dict:
     if not v:
         return _res(True, "Not set: start ComfyUI yourself before running jobs.", warn=True)
     try:
-        argv = [os.path.expanduser(t) for t in shlex.split(v.format(port=8188, url=""))]
+        line = v.format(port=8188, url="")
+        argv = [os.path.expanduser(t) for t in (oscompat.split_windows_cmdline(line) if oscompat.IS_WINDOWS
+                                                else shlex.split(line))]
     except (ValueError, KeyError, IndexError) as e:
         return _res(False, f"Can't read the command: {e}.")
     cwd = Path(os.path.expanduser(all_.get("comfy_cwd") or config.get("comfyui.service.cwd") or ".")).expanduser()
@@ -449,8 +468,8 @@ def _test_secret(name: str, paid: bool, optional: bool = False, unset: str = "No
 def _test_blender(v: str, _all: dict) -> dict:
     exe = shutil.which(os.path.expanduser(v or "blender"))
     if not exe:
-        return _res(False, f"{v or 'blender'} wasn't found. Install Blender (blender.org, or snap install blender "
-                           "--classic) and give its full path.")
+        return _res(False, f"{v or 'blender'} wasn't found. Install Blender (blender.org" +
+                    (")" if oscompat.IS_WINDOWS else ", or snap install blender --classic)") + " and give its full path.")
     try:
         r = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=60)
     except (OSError, subprocess.SubprocessError) as e:
@@ -487,11 +506,11 @@ def _test_unreal(v: str, _all: dict) -> dict:
     if not v:
         return _res(True, "Not set: the Unreal tab stays off; everything else works.", warn=True)
     p = Path(v).expanduser()
-    for tail in (UE_TAIL, UE_TAIL_WIN):
+    for tail in (UE_TAIL_WIN, UE_TAIL) if oscompat.IS_WINDOWS else (UE_TAIL, UE_TAIL_WIN):
         if p.is_dir() and (p / tail).is_file():
             p = p / tail
     if not p.is_file():
-        where = UE_TAIL + (f" (or {UE_TAIL_WIN} of a Windows install)" if wsl.is_wsl() else "")
+        where = UE_TAIL_WIN if oscompat.IS_WINDOWS else UE_TAIL + (f" (or {UE_TAIL_WIN} of a Windows install)" if wsl.is_wsl() else "")
         return _res(False, f"{p} doesn't exist. Point it at {where} inside your Unreal Engine folder.")
     if not os.access(p, os.X_OK):
         return _res(False, f"{p} isn't executable (chmod +x, or a different file).")
@@ -577,6 +596,9 @@ def _test_profile(v: str, all_: dict) -> dict:
         return _res(False, f"{p.title} doesn't match this machine ({seen}).")
     if v == "wsl-nvidia" and not wsl.is_wsl():
         return _res(False, f"{p.title} is for WSL2 on Windows; this is not WSL. Pick Ubuntu + NVIDIA.")
+    if (v == "win-nvidia") != oscompat.IS_WINDOWS and p.vendor == "nvidia" and not wsl.is_wsl():
+        return _res(False, f"{p.title} is for native Windows only." if v == "win-nvidia" else
+                    f"This is native Windows: pick {profiles.PROFILES['win-nvidia'].title}.")
     if v == "nvidia" and wsl.is_wsl():
         return _res(True, f"This is WSL: pick {profiles.PROFILES['wsl-nvidia'].title} (same PyTorch build).", warn=True)
     msg = f"{p.title}: {seen}. PyTorch {p.torch}. {p.note}"

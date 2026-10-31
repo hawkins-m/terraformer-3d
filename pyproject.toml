@@ -40,4 +40,8 @@ asset_pipeline = ["ui/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-markers = ["comfy: needs a live ComfyUI on the configured URL (skipped if unreachable)"]
+markers = ["comfy: needs a live ComfyUI on the configured URL (skipped if unreachable)",
+           "blender: runs a real Blender (skipped when none is installed; CI deselects it)",
+           "unreal: runs a real Unreal Editor (CI deselects it)",
+           "gpu: needs a GPU (CI deselects it)",
+           "posix: POSIX-only behaviour (bash scripts, process groups, /proc); skipped on native Windows"]

@@ -100,7 +100,7 @@ def explore(store: ProjectStore, brief: str | None = None, n: int = 8, seed: int
             req = GenRequest(prompt=prompt, width=width, height=height, n=k, seed=s)
             for r in backend.generate(req, out, prefix=f"tmp{i:03d}"):
                 final = out / f"scene_{len(results):03d}.png"
-                r.path.rename(final)
+                r.path.replace(final)
                 results.append({"file": final.name, "seed": r.seed, "batch_index": r.meta.get("batch_index")})
             i += k
     finally:  # a canceled run keeps the batches that finished
@@ -168,7 +168,7 @@ def derive(store: ProjectStore, scene: Path | str, nouns: list[str], per_noun: i
                                                         style_text=style_text))
                     res = backend.generate(req, out, prefix=f"tmp_{name}")[0]
                     obj = out / f"obj_{name}.png"
-                    res.path.rename(obj)
+                    res.path.replace(obj)
                     item["obj"] = obj.name
     finally:  # a canceled run keeps the items already cut (their files exist)
         meta["items"] += items

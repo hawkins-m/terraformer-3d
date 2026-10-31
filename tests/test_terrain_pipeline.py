@@ -36,6 +36,7 @@ def run_through(store):
     assert depth is not None and Image.open(depth).size[0] > 100
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_a_reroll_on_a_generated_terrain_runs_through_greybox_and_shots(store):
     city_roll.set_terrain(store, terrain_gen.get("river-valley", seed=3), log=lambda *a: None)
@@ -45,6 +46,7 @@ def test_a_reroll_on_a_generated_terrain_runs_through_greybox_and_shots(store):
     run_through(store)
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_a_reroll_on_a_heightmap_terrain_runs_through_greybox_and_shots(store):
     L = sw_site.load_layout(store)

@@ -179,8 +179,8 @@ def app_command(url: str) -> list[str] | None:
 
 def open_app(url: str) -> str:
     """Open url in an app window; returns "app", "browser" (the default browser) or "" (nothing opened)."""
-    from . import wsl
-    if wsl.is_wsl():                                   # the Windows side: Edge is always there on Windows 10/11
+    from . import oscompat, wsl
+    if wsl.is_wsl() or oscompat.IS_WINDOWS:            # the Windows side: Edge is always there on Windows 10/11
         for b in WINDOWS_APP_BROWSERS:
             cmd = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
                    f"Start-Process {b} -ArgumentList '--app={url}'"]
@@ -195,7 +195,7 @@ def open_app(url: str) -> str:
     if cmd:
         try:
             subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+                             **oscompat.detached())
             return "app"
         except OSError:
             pass

@@ -86,7 +86,7 @@ async function areasPanel(host) {
     <div id="area-gaps" hidden></div>
     <div id="area-table-box" class="hint">Loading…</div>
     <div class="row" id="area-batches">${Object.entries(AREA_BATCHES).map(([k, v]) =>
-      `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}" title="${esc(v[1])}. ${esc(v[2])}">${v[0]}…</button>`).join("")}
+      `<button type="button" class="small" id="area-batch-${k}" data-batch="${k}"${k === "trellis" ? ' data-needs="trellis"' : ""} title="${esc(v[1])}. ${esc(v[2])}">${v[0]}…</button>`).join("")}
       <button type="button" class="small" id="area-checklist" title="Writes this table as a checklist to areas/<name>.md in the project, keeping your own notes around it. Named areas only.">Write checklist</button></div>`;
   body.insertAdjacentHTML("afterbegin", `<p class="hint tab-help" style="margin-top:0" id="area-help">One row per asset; <b>Next</b> does its next step. ${helpQ("An area is a set of shots and/or districts. Each row is one asset of it, with what it has so far and its Next step: the button does that step. The batch buttons below run one step for every asset of the area that needs it. Hover any header or value for details.", "areas")}</p>`);
   host.replaceChildren(body);

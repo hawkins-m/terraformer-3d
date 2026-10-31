@@ -34,7 +34,8 @@ def same_place(a: np.ndarray, b: np.ndarray) -> bool:
 
 
 def _git(store: ProjectStore, *args) -> subprocess.CompletedProcess:
-    return subprocess.run(["git", "-C", str(store.root), *args], capture_output=True)
+    from . import oscompat
+    return oscompat.run_git(["-C", str(store.root), *args], capture_output=True)
 
 
 def greybox_versions(store: ProjectStore, log=print) -> dict[str, dict[str, list]]:

@@ -13,14 +13,13 @@ request to finish before stopping the server. up() refuses a GPU that a TRELLIS 
 """
 import json
 import os
-import signal
 import subprocess
 import time
 from pathlib import Path
 
 import httpx
 
-from . import config
+from . import config, oscompat
 from . import gpu as gpu_mod
 from .llm.base import LLMError
 
@@ -47,6 +46,8 @@ def _cfg() -> dict:
 def _alive(pid: int) -> bool:
     """Running, and not a zombie: a server the UI process started and down() stopped stays
     a zombie until reaped, and kill(pid, 0) still succeeds on it."""
+    if oscompat.IS_WINDOWS:
+        return oscompat.alive(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -155,7 +156,7 @@ def _start(model: str, gpu: int, idle: float) -> dict:
     log.flush()
     start = Path(log.name).stat().st_size
     proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, env=env,
-                            start_new_session=True)
+                            **oscompat.detached())
     deadline = time.time() + 600  # the 32B loads 24 GB of weights before /health is 200
     while not _healthy(m["url"]):
         if proc.poll() is not None:
@@ -183,6 +184,8 @@ def up(model: str | None = None, gpu: int | None = None, idle_unload: float | No
     """Start `model` (default: the configured one, then the fallback) on `gpu` (default: the
     vision GPU, [jobs] gpu0_gpu). A server already
     running with the same model and GPU is reused; a different one is stopped first."""
+    if oscompat.IS_WINDOWS:
+        raise VLMError(f"The vision model is {oscompat.NATIVE_WINDOWS_NOTE}")
     gpu = int(config.backends().get("jobs", {}).get("gpu0_gpu", 0)) if gpu is None else gpu
     if (pids := trellis_jobs(gpu)):
         raise VLMError(f"a TRELLIS job (pid {', '.join(map(str, pids))}) is using GPU {gpu}; "
@@ -217,13 +220,16 @@ def down(gpu: int | None = None, wait_s: float = 900, force: bool = False, log=p
         deadline = time.time() + wait_s
         while busy(st) and time.time() < deadline:
             time.sleep(2)
-    os.killpg(st["pid"], signal.SIGTERM)
-    for _ in range(100):
-        if not _alive(st["pid"]):
-            break
-        time.sleep(0.1)
-    else:
-        os.killpg(st["pid"], signal.SIGKILL)
+    try:
+        oscompat.kill_tree(st["pid"])
+        for _ in range(100):
+            if not _alive(st["pid"]):
+                break
+            time.sleep(0.1)
+        else:
+            oscompat.kill_tree(st["pid"], force=True)
+    except ProcessLookupError:
+        pass
     (_logs() / "vlm.json").unlink(missing_ok=True)
     return f"stopped {st['model']} (pid {st['pid']}, GPU {st['gpu']})"
 

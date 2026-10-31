@@ -165,6 +165,7 @@ def _read(path):
     return acc(prim["attributes"]["POSITION"], 3), acc(prim["attributes"]["NORMAL"], 3)
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(shutil.which(str(config.get("tools.blender") or "blender")) is None, reason="needs Blender")
 def test_weld_and_smooth_by_angle_in_blender(tmp_path, monkeypatch):
     """A shallow roof ridge (10 deg: smooth) on a box wall (90 deg: stays sharp), every face with its
@@ -201,6 +202,7 @@ def _boxes(boxes):
     return pos, idx
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(shutil.which(str(config.get("tools.blender") or "blender")) is None, reason="needs Blender")
 def test_a_slab_is_cut_off_and_a_podium_stays_in_blender(tmp_path, monkeypatch):
     """Two piers on a thin plate three times wider (a TRELLIS shadow slab): the plate goes, the piers

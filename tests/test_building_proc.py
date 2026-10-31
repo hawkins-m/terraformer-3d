@@ -114,6 +114,7 @@ def test_facade_grammar_parts():
     assert len(returns) == 2                                                      # the recess's return walls
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
 def test_built_meshes_face_outwards(tmp_path):
     """Every piece is a closed prism or shell with outward normals (positive signed volume).
@@ -171,6 +172,7 @@ def test_resolve_keeps_the_trim_in_front_and_moves_only_millimetres():
     assert abs(wall["z1"] - 10) <= 0.006
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
 def test_every_face_has_a_material(tmp_path):
     """Every part's material is one the build makes, and every face of the built GLB has a

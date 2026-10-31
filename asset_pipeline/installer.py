@@ -32,7 +32,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import config, models, needs, profiles, setup, wsl
+from . import config, models, needs, oscompat, profiles, setup, wsl
 
 WEB = config.REPO_ROOT / "installer" / "web"
 ASSETS = config.REPO_ROOT / "installer" / "assets"
@@ -87,6 +87,11 @@ def free_bytes(path: str | Path) -> int | None:
 COMFY_PLANNED = {"comfy_url": "http://127.0.0.1:8188", "comfy_cwd": "{storage}/ComfyUI",
                  "comfy_models_dir": "{storage}/ComfyUI/models",
                  "comfy_launch": "{storage}/ComfyUI/venv/bin/python main.py --listen 127.0.0.1 --port {port}"}
+if oscompat.IS_WINDOWS:          # the portable build windows/native_runtimes.ps1 installs
+    COMFY_PLANNED |= {"comfy_cwd": "{storage}/ComfyUI_windows_portable/ComfyUI",
+                      "comfy_models_dir": "{storage}/ComfyUI_windows_portable/ComfyUI/models",
+                      "comfy_launch": "{storage}/ComfyUI_windows_portable/python_embeded/python.exe -s main.py "
+                                      "--windows-standalone-build --listen 127.0.0.1 --port {port}"}
 COMFY_ITEMS = ("comfy_url", "sdk_url", "comfy_models_dir", "comfy_launch", "comfy_cwd")
 _comfy_cache: dict = {}
 
@@ -119,6 +124,13 @@ def comfy_found() -> dict:
             out = {"found": True, "where": f"answering at {u}"}
             break
     else:
+        if oscompat.IS_WINDOWS:                         # portable build, desktop app or checkout (win_tools)
+            from . import win_tools
+            hits = win_tools.comfy_installs(config.ap_root())
+            if hits:
+                out = {"found": True, "where": f"{hits[0]['kind']} install in {hits[0]['cwd'] or hits[0].get('exe', '')}"}
+                _comfy_cache.update(at=time.time(), found=out)
+                return out
         for d in dict.fromkeys([str(user.get("service", {}).get("cwd") or ""), "~/ComfyUI"]):
             if d and (Path(os.path.expanduser(d)) / "main.py").is_file():
                 out = {"found": True, "where": f"in {d}"}
@@ -216,10 +228,10 @@ def venv_dir() -> Path:
 
 def app_python() -> str | None:
     """A Python with the app installed: this one (`ap setup`), else the app venv's."""
-    if sys.prefix != sys.base_prefix and Path(sys.prefix, "bin", "ap").exists():
+    if sys.prefix != sys.base_prefix and oscompat.venv_bin(Path(sys.prefix), "ap").exists():
         return sys.executable
-    py = venv_dir() / "bin" / "python"
-    return str(py) if (venv_dir() / "bin" / "ap").exists() and py.exists() else None
+    py = oscompat.venv_bin(venv_dir())
+    return str(py) if oscompat.venv_bin(venv_dir(), "ap").exists() and py.exists() else None
 
 
 def _holds(cond: str, values: dict, features: set[str], todo: set[str] = frozenset()) -> bool:
@@ -228,14 +240,20 @@ def _holds(cond: str, values: dict, features: set[str], todo: set[str] = frozens
     if cond.startswith("component:"):                 # selected and not installed yet
         return cond.removeprefix("component:") in todo
     if cond.startswith("platform:"):
-        return {"linux": not wsl.is_wsl(), "wsl": wsl.is_wsl()}.get(cond.removeprefix("platform:"), False)
+        return {"linux": not wsl.is_wsl() and not oscompat.IS_WINDOWS, "wsl": wsl.is_wsl(),
+                "windows": oscompat.IS_WINDOWS}.get(cond.removeprefix("platform:"), False)
     key, _, want = cond.partition("=")
     return fnmatch.fnmatch(str(values.get(key, config.get(key, "")) or ""), want)
 
 
 def runtimes() -> list[dict]:
+    """installer/runtimes.toml. On native Windows a runtime runs its command_windows instead, and
+    one without it (a bash script: TRELLIS, the vision model...) is left out."""
     with open(RUNTIMES, "rb") as f:
-        return tomllib.load(f).get("runtime", [])
+        rts = tomllib.load(f).get("runtime", [])
+    if not oscompat.IS_WINDOWS:
+        return rts
+    return [r | {"command": r["command_windows"]} for r in rts if r.get("command_windows")]
 
 
 def setting_values(values: dict) -> dict:
@@ -412,17 +430,23 @@ class Installer:
             return True
         log = self._log("app")
         venv = venv_dir()
-        if not (venv / "bin" / "python").exists() and self.run_cmd([sys.executable, "-m", "venv", str(venv)], log):
+        py = oscompat.venv_bin(venv)
+        if not py.exists() and self.run_cmd([sys.executable, "-m", "venv", str(venv)], log):
             self._error(step, f"Couldn't create the Python environment {venv}.", f"See {log}.")
             return False
-        for cmd in ([str(venv / "bin" / "python"), "-m", "pip", "install", "-q", "--upgrade", "pip"],
-                    [str(venv / "bin" / "python"), "-m", "pip", "install", "-q", "-e", str(config.REPO_ROOT)]):
+        for cmd in ([str(py), "-m", "pip", "install", "-q", "--upgrade", "pip"],
+                    [str(py), "-m", "pip", "install", "-q", "-e", str(config.REPO_ROOT)]):
             if self.run_cmd(cmd, log):
                 self._error(step, "Installing the app's Python packages failed.", f"See {log}; then Retry.")
                 return False
         return True
 
     def _step_command(self, step: dict, _s: dict) -> bool:
+        if oscompat.IS_WINDOWS:          # %USERPROFILE%\.local\bin\ap.cmd runs the venv's ap.exe
+            cmd = Path.home() / ".local" / "bin" / "ap.cmd"
+            cmd.parent.mkdir(parents=True, exist_ok=True)
+            cmd.write_text(f'@echo off\r\nset PYTHONUTF8=1\r\n"{oscompat.venv_bin(venv_dir(), "ap")}" %*\r\n')
+            return True
         link = Path.home() / ".local" / "bin" / "ap"
         target = config.REPO_ROOT / "scripts" / "ap"
         if link.is_symlink() and link.resolve() == target.resolve():
@@ -483,6 +507,8 @@ class Installer:
 
     def _step_runtime(self, step: dict, _s: dict) -> bool:
         cmd = [re.sub(r"\{([a-z0-9_.]+)\}", lambda m: str(config.get(m.group(1), "")), a) for a in step["command"]]
+        if oscompat.IS_WINDOWS and cmd[:1] == ["ap"]:
+            cmd = [app_python() or sys.executable, "-X", "utf8", "-m", "asset_pipeline.cli", *cmd[1:]]
         name = step["id"].removeprefix("runtime:")
         log = self._log(name)
         env = {"AP_ROOT": str(config.ap_root()), "AP_TORCH": profiles.torch_tag()}
@@ -519,7 +545,7 @@ def launch_app() -> dict:
     from .launcher import DEFAULT_PORT
     url = f"http://localhost:{DEFAULT_PORT}/"
     detached = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
-                "start_new_session": True}
+                **oscompat.detached()}
     bat = ""
     if wsl.is_wsl():                              # the Terraformer window install.ps1 wrote
         try:
@@ -528,6 +554,11 @@ def launch_app() -> dict:
             bat = local + "\\Terraformer\\Terraformer.bat" if local else ""
         except (OSError, subprocess.SubprocessError):
             bat = ""
+    if oscompat.IS_WINDOWS and os.environ.get("LOCALAPPDATA"):      # the native launcher install.ps1 wrote
+        native = Path(os.environ["LOCALAPPDATA"]) / "Terraformer" / "Terraformer.bat"
+        if native.is_file():
+            subprocess.Popen(["cmd.exe", "/c", "start", "", str(native)], **detached)
+            return {"url": url, "window": True}
     if bat and Path(wsl.to_linux(bat)).is_file():
         subprocess.Popen(["cmd.exe", "/c", "start", "", bat], **detached)      # it opens the app window
         return {"url": url, "window": True}
@@ -536,9 +567,11 @@ def launch_app() -> dict:
         return {"url": url, "window": True}
     log = config.ap_root() / "logs" / "ui.log"
     log.parent.mkdir(parents=True, exist_ok=True)
+    ap = [str(config.REPO_ROOT / "scripts" / "ap")] if not oscompat.IS_WINDOWS else \
+        [app_python() or sys.executable, "-X", "utf8", "-m", "asset_pipeline.cli"]
     with open(log, "a") as out:
-        subprocess.Popen([str(config.REPO_ROOT / "scripts" / "ap"), "ui", "--port", str(DEFAULT_PORT)],
-                         stdin=subprocess.DEVNULL, stdout=out, stderr=out, start_new_session=True)
+        subprocess.Popen([*ap, "ui", "--port", str(DEFAULT_PORT)],
+                         stdin=subprocess.DEVNULL, stdout=out, stderr=out, **oscompat.detached())
     threading.Thread(target=_open_when_up, args=(url,), daemon=True).start()
     return {"url": url, "window": True}
 

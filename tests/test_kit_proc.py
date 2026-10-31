@@ -74,6 +74,7 @@ def test_three_quarter_request_asks_for_depth():
     assert "LEFT: front view" in p2
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_build_writes_a_textured_glb_at_real_size(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))

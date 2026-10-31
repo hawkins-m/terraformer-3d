@@ -47,7 +47,8 @@ def write_json(path: Path, data) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        os.fchmod(fd, 0o666 & ~_UMASK)  # mkstemp creates 0600; match normal file perms
+        if hasattr(os, "fchmod"):           # mkstemp creates 0600; match normal file perms (no fchmod on Windows)
+            os.fchmod(fd, 0o666 & ~_UMASK)
         with os.fdopen(fd, "w") as f:
             json.dump(data, f, indent=2, default=str)
             f.write("\n")
@@ -63,7 +64,8 @@ def write_bytes(path: Path, data: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".tmp")
     try:
-        os.fchmod(fd, 0o666 & ~_UMASK)
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o666 & ~_UMASK)
         with os.fdopen(fd, "wb") as f:
             f.write(data)
         os.replace(tmp, path)

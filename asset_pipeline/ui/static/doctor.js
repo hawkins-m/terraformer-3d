@@ -10,6 +10,7 @@ const ACTION_NEEDS = {
   applyAll: ["blender"], build: ["blender"], render: ["blender"], previews: ["blender"], exportUe: ["blender"],
   frames: ["comfy"], framesGenerate: ["comfy"],
   ueInit: ["unreal"], ueImport: ["unreal"], ueRender: ["unreal"], ueLook: ["unreal"], uePull: ["unreal"], ueStale: ["unreal"],
+  batchTrellis: ["trellis"],
 };
 
 // null when every feature in `feats` is available, else the first missing one's reason

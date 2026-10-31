@@ -203,6 +203,7 @@ def city_site(tmp_path, monkeypatch):
     return store
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_real_build_keeps_scale_and_shares_one_housing_mesh(city_site):
     assert sw_site.load_layout(city_site).shots                     # auto-placed at init
@@ -365,6 +366,7 @@ def test_forum_leaves_the_rest_of_the_city_alone():
     assert len(same) >= len(others) - 2      # at most a park or two the forum's olive rows join
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_forum_builds_in_blender(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))

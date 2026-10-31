@@ -19,7 +19,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, TypeAdapter, ValidationError
 
-from .. import config, library_entries, review, silhouette, ue, versions, vlm
+from .. import config, library_entries, oscompat, review, silhouette, ue, versions, vlm
 from ..comfy import service as comfy_service
 from . import messages
 from ..comfy.client import ComfyError, connect
@@ -65,13 +65,20 @@ def newer_commit(started: str, head: str, code: Path = CODE) -> bool:
     """Has the checkout moved on from the commit this server started with (a descendant)?"""
     if not started or not head or started == head:
         return False
-    r = subprocess.run(["git", "-C", str(code), "merge-base", "--is-ancestor", started, head], capture_output=True, timeout=10)
+    r = oscompat.run_git(["-C", str(code), "merge-base", "--is-ancestor", started, head], capture_output=True, timeout=10)
     return r.returncode == 0
 
 
 def restart_process() -> None:
     """Replace this ap ui process with a fresh one on the same command line (same pid and port;
-    the listening socket closes on exec and the new server binds it again)."""
+    the listening socket closes on exec and the new server binds it again). Native Windows has no
+    exec: a detached helper starts the same command once this process has exited and freed the port."""
+    if oscompat.IS_WINDOWS:
+        cmd = [sys.executable, "-X", "utf8", "-m", "asset_pipeline.cli", *sys.argv[1:]]
+        helper = ("import subprocess, sys, time; time.sleep(3); "
+                  "subprocess.Popen(sys.argv[1:], creationflags=subprocess.CREATE_NEW_CONSOLE)")
+        subprocess.Popen([sys.executable, "-c", helper, *cmd], **oscompat.detached())
+        os._exit(0)
     if os.access(sys.argv[0], os.X_OK):              # the ap script: the process keeps its name
         os.execv(sys.argv[0], sys.argv)
     os.execv(sys.executable, [sys.executable, *sys.argv])
@@ -878,7 +885,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def explore(slug: str, req: ExploreReq):
         store = _store(slug)
         job = jobs.submit("style.explore", slug, lambda: str(
-            s0_style.explore(store, req.brief, n=req.n, seed=req.seed).relative_to(store.root)),
+            s0_style.explore(store, req.brief, n=req.n, seed=req.seed).relative_to(store.root).as_posix()),
             lane="comfy", gated=_on_comfy(store, "style"))
         return job.public()
 
@@ -891,7 +898,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             raise HTTPException(400, str(e))
         job = jobs.submit("style.derive", slug, lambda: str(s0_style.derive(
             store, req.scene, req.nouns, per_noun=req.per_noun,
-            style_text=req.style_text).relative_to(store.root)), lane="comfy",
+            style_text=req.style_text).relative_to(store.root).as_posix()), lane="comfy",
             tag={"scene": req.scene})
         return job.public()
 
@@ -1319,7 +1326,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if not todo:
             raise HTTPException(400, "every shot has frames already")
         fn = lambda: [str(s0_frames.generate(store, s, n=req.n, refs=req.refs, ref_strength=req.ref_strength)  # noqa: E731
-                          .relative_to(store.root)) for s in todo]
+                          .relative_to(store.root).as_posix()) for s in todo]
         tag = {"shot": req.shot} if req.shot else {"missing": True}
         tag |= {"n": req.n, "shots": todo}
         return jobs.submit("frames.generate", slug, fn, lane="comfy", tag=tag).public()
@@ -1381,7 +1388,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             if not r["rendered"] or r["stale"]:
                 sw_shots.render(store, [shot])
             return str(s0_frames.generate(store, shot, n=req.n, refs=req.refs, ref_strength=req.ref_strength)
-                       .relative_to(store.root))
+                       .relative_to(store.root).as_posix())
         return jobs.submit("frames.generate", slug, run, lane="comfy",
                            tag={"shot": shot, "n": req.n, "shots": [shot]}).public()
 

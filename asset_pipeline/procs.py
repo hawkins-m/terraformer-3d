@@ -6,12 +6,12 @@ its pid; stopping it signals the whole group (TRELLIS's python under its bash wr
 vision model server is the one vlm.state() names (only servers this tool started). ComfyUI is
 never touched here.
 """
-import os
-import signal
 import threading
 import time
 from pathlib import Path
 from typing import Callable
+
+from . import oscompat
 
 _LIVE: dict[int, dict] = {}          # pgid -> {"what", "gpu"}
 _lock = threading.Lock()
@@ -30,13 +30,9 @@ def track(pid: int, what: str, gpu: int | None = None) -> Callable[[], None]:
 
 
 def group_pids(pgid: int) -> set[int]:
-    """Live processes of a process group (from /proc)."""
+    """Live processes of a process group (from /proc; elsewhere just its leader, if alive)."""
     if not Path("/proc").is_dir():
-        try:
-            os.killpg(pgid, 0)
-            return {pgid}
-        except (ProcessLookupError, PermissionError):
-            return set()
+        return {pgid} if oscompat.group_alive(pgid) else set()
     out = set()
     for d in Path("/proc").iterdir():
         if not d.name.isdigit():
@@ -60,7 +56,7 @@ def loaded() -> list[dict]:
         out.append({"what": "vision model", "gpu": st.get("gpu"), "pid": st["pid"], "vlm": True})
     with _lock:
         out += [{"what": v["what"], "gpu": v["gpu"], "pid": pid} for pid, v in _LIVE.items()
-                if pid > 1 and pid != os.getpgrp()]
+                if pid > 1 and pid != oscompat.own_group()]
     return out
 
 
@@ -81,12 +77,12 @@ def snapshot(vram_fn=None) -> list[dict]:
 
 
 def _kill_group(pgid: int, wait_s: float = 10) -> None:
-    for sig in (signal.SIGTERM, signal.SIGKILL):
+    for force in (False, True):
         try:
-            os.killpg(pgid, sig)
+            oscompat.kill_tree(pgid, force=force)
         except (ProcessLookupError, PermissionError):
             return
-        deadline = time.time() + wait_s
+        deadline = time.time() + (min(wait_s, 3) if oscompat.IS_WINDOWS and not force else wait_s)
         while time.time() < deadline:
             if not group_pids(pgid):
                 return

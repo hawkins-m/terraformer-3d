@@ -63,10 +63,8 @@ def _group(pid: int | None) -> set[int]:
 
 
 def _name(pid: int) -> str:
-    try:
-        return Path(f"/proc/{pid}/comm").read_text().strip()
-    except OSError:
-        return f"pid {pid}"
+    from . import oscompat
+    return oscompat.process_name(pid) or f"pid {pid}"
 
 
 class GpuPolicy:

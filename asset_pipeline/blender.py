@@ -7,13 +7,12 @@ Inside WSL a Windows Blender or Unreal (.exe) gets Windows paths (wsl.windows_cm
 outputs are read back with Linux paths (wsl.read_back).
 """
 import os
-import signal
 import subprocess
 import threading
 import time
 from pathlib import Path
 
-from . import config, wsl
+from . import config, oscompat, wsl
 from .jobs import Canceled, current_job
 
 
@@ -42,11 +41,11 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
     log_path.parent.mkdir(parents=True, exist_ok=True)
     started = time.time()
     cmd, env, watch, copies = wsl.windows_cmd(cmd)
-    log = log_path.open("a")
+    log = log_path.open("a", encoding="utf-8")
     log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} {' '.join(cmd)}\n")
     log.flush()
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            start_new_session=True, cwd=cwd, errors="replace", env=env)
+    proc = subprocess.Popen(oscompat.windows_cmdline(cmd) if oscompat.IS_WINDOWS else cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                            cwd=cwd, errors="replace", env=env, **oscompat.detached())
     def pump_lines():
         for line in proc.stdout:   # flushed per line: the UI reads progress from the log
             log.write(line)
@@ -72,16 +71,9 @@ def run_logged(cmd: list[str], log_path: Path, what: str, cwd: Path | None = Non
     if job and job.cancel_event.is_set():
         raise Canceled(f"{what} canceled")
     if proc.returncode != 0:
-        tail = log_path.read_text().splitlines()[-15:]
+        tail = log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]
         raise RuntimeError(f"{Path(cmd[0]).name} exited with code {proc.returncode}:\n" + "\n".join(tail))
 
 
 def stop(proc: subprocess.Popen) -> None:
-    try:
-        os.killpg(proc.pid, signal.SIGTERM)
-        proc.wait(timeout=10)
-    except ProcessLookupError:
-        pass
-    except subprocess.TimeoutExpired:
-        os.killpg(proc.pid, signal.SIGKILL)
-        proc.wait(timeout=10)
+    oscompat.stop_popen(proc)

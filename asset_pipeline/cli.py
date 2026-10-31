@@ -1542,7 +1542,10 @@ def cmd_ui(a) -> None:
 
 
 def cmd_launcher(a) -> None:
-    from . import launcher
+    from . import launcher, oscompat
+    if oscompat.IS_WINDOWS:
+        sys.exit("ap launcher: on Windows the installer adds the Start menu and desktop shortcuts "
+                 "(windows\\install.bat); nothing to do here")
     if a.action == "install":
         for k, v in launcher.install(port=a.port).items():
             print(f"{k}: {v}")
@@ -1589,8 +1592,19 @@ def cmd_set(a) -> None:
               f"AP_ALLOW_PAID_APIS=1 is set for the run.")
 
 
+def _utf8_rerun() -> None:
+    """Native Windows: Python 3.12 reads and writes text files in the ANSI code page unless UTF-8
+    mode is on; the project files are UTF-8. Run again in UTF-8 mode (the installer's ap.cmd sets
+    PYTHONUTF8=1, so this only happens when ap.exe is started some other way)."""
+    import subprocess
+    r = subprocess.run([sys.executable, "-X", "utf8", "-m", "asset_pipeline.cli", *sys.argv[1:]])
+    sys.exit(r.returncode)
+
+
 def main(argv: list[str] | None = None) -> None:
     from . import config
+    if argv is None and os.name == "nt" and not sys.flags.utf8_mode:
+        _utf8_rerun()
     config.load_secrets()
     ap = argparse.ArgumentParser(prog="ap", description="Terraformer (see USAGE.md)")
     sub = ap.add_subparsers(dest="cmd", required=True)

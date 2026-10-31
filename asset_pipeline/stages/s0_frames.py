@@ -352,7 +352,7 @@ def generate(store: ProjectStore, shot: str, n: int = 4, seed: int | None = None
                              control=controls(store, shot, fs), control_model=fs.model, regional=regional)
             r = backend.generate(req, out, prefix=f"tmp{i:03d}")[0]
             final = out / f"frame_{len(results):03d}.png"
-            r.path.rename(final)
+            r.path.replace(final)
             results.append({"file": final.name, "seed": r.seed,
                             "edge_match": edge_match(final, sw_shots.shot_dir(store, shot) / "canny.png")})
     finally:  # a canceled run keeps the frames already made
@@ -390,7 +390,7 @@ def refine(store: ProjectStore, shot: str, frame: str, denoise: float = 0.3, see
                      anchor=anchor, init_image=src, denoise=denoise)
     r = backend.generate(req, out, prefix="tmp")[0]
     final = out / "frame_000.png"
-    r.path.rename(final)
+    r.path.replace(final)
     meta = _shot_meta(store, shot)
     write_json(out / "meta.json", {
         "shot": shot, "prompt": prompt, "prompt_source": "refine", "view": bmeta.get("view"),

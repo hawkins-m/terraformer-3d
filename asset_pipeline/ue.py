@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import blender, config, ue_coords
+from . import blender, config, oscompat, ue_coords
 from . import gpu as gpu_mod
 from .project import ProjectStore, read_json, write_json
 from .stages import s7_export, sw_site
@@ -280,7 +280,7 @@ def run_script(store: ProjectStore, script: str, args: dict, what: str) -> dict:
     report.unlink(missing_ok=True)
     args_file = work / f"{name}_args.json"
     write_json(args_file, args | {"report": str(report)})
-    cmd = [str(editor_cmd()), str(up), "-run=pythonscript", f"-script={SCRIPTS / script} {args_file}",
+    cmd = [str(editor_cmd()), str(up), "-run=pythonscript", f"-script={oscompat.short_path(SCRIPTS / script)} {oscompat.short_path(args_file)}",
            "-unattended", "-nosplash", "-nullrhi", "-NoTraceServer", "-stdout", "-FullStdOutLogOutput", "-NoLogTimes"]
     log = work / f"{name}.log"
     log.unlink(missing_ok=True)
@@ -515,7 +515,7 @@ def _render(store: ProjectStore, map_: str, shots: list[dict], out: Path, name: 
            # textures build synchronously on load: asynchronously, freshly imported ones render as
            # the grey placeholder checker (and a tint read off their lowest mip goes wrong)
            "-NoSound", "-dpcvars=Editor.AsyncTextureCompilation=0",
-           f"-ExecCmds=py {SCRIPTS / 'ap_shot_render.py'}", "-stdout",
+           f"-ExecCmds=py {oscompat.short_path(SCRIPTS / 'ap_shot_render.py')}", "-stdout",
            "-FullStdOutLogOutput", "-NoLogTimes"]
     os.environ["AP_UE_ARGS"] = str(args_file)
     log = work / f"{name}.log"
@@ -617,7 +617,16 @@ def _ours(cmd: list[bytes]) -> bool:
 
 def editor_running(up: Path, proc: Path = Path("/proc")) -> bool:
     """Is an Unreal Editor window open on this .uproject? (checked by its command line; the
-    app's own headless runs don't count, so a running build doesn't report itself)"""
+    app's own headless runs don't count, so a running build doesn't report itself). Native
+    Windows lists UnrealEditor.exe processes instead of reading /proc."""
+    if oscompat.IS_WINDOWS:
+        want = os.path.normcase(os.path.abspath(up))
+        for argv in oscompat.processes_named("UnrealEditor.exe"):
+            cmd = [a.encode() for a in argv]
+            paths = {os.path.normcase(os.path.abspath(a)) for a in argv[1:] if a.lower().endswith(".uproject")}
+            if want in paths and not _ours(cmd):
+                return True
+        return False
     for d in proc.iterdir():
         if d.name.isdigit():
             try:
@@ -643,7 +652,7 @@ def open_editor(store: ProjectStore) -> int:
     level = [city_map(store).split(".")[0]] if map_file(store).is_file() else []
     cmd, env, _, _ = wsl.windows_cmd([full_editor(editor_cmd()), up, *level])
     proc = subprocess.Popen(cmd, cwd=up.parent, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL, start_new_session=True)
+                            stderr=subprocess.DEVNULL, **oscompat.detached())
     return proc.pid
 
 
@@ -690,15 +699,23 @@ def backup(store: ProjectStore, keep: int | None = None, force: bool = False) ->
         cmd.append(f"--link-dest={previous[-1]}")
     cmd += [f"{up.parent}/", f"{tmp}/"]
     try:
-        blender.run_logged(cmd, backup_log(store), "UE backup")
+        if shutil.which("rsync"):
+            blender.run_logged(cmd, backup_log(store), "UE backup")
+        else:                              # native Windows: no rsync
+            _copy_snapshot(up.parent, tmp, previous[-1] if previous else None, backup_log(store))
     except BaseException:                  # failed or canceled: no partial snapshot left
         shutil.rmtree(tmp, ignore_errors=True)
         raise
-    tmp.rename(dest)                       # a snapshot is complete or absent, never partial
+    os.replace(tmp, dest)                  # a snapshot is complete or absent, never partial
     latest = root / "latest"
-    if latest.is_symlink() or latest.exists():
+    if latest.is_symlink() or latest.is_file():
         latest.unlink()
-    latest.symlink_to(dest.name)
+    elif latest.is_dir():                  # a copied "latest" (no symlinks): replace it
+        shutil.rmtree(latest)
+    try:
+        latest.symlink_to(dest.name)
+    except OSError:                        # Windows without symlink rights: a text file naming it
+        latest.write_text(dest.name + "\n")
     removed = []
     for old in backups(store)[:-keep]:
         shutil.rmtree(old)
@@ -709,6 +726,42 @@ def backup(store: ProjectStore, keep: int | None = None, force: bool = False) ->
            "kept": [p.name for p in backups(store)], "removed": removed, "seconds": round(time.time() - t, 1)}
     store.log_run({"stage": "ue.backup", **{k: rep[k] for k in ("snapshot", "files", "new_mb", "seconds")}})
     return rep
+
+
+def _copy_snapshot(src: Path, dst: Path, previous: Path | None, log_path: Path) -> None:
+    """rsync -a --checksum --link-dest in Python, for machines without rsync (native Windows):
+    copies src to dst without BACKUP_EXCLUDE, hard-linking files whose content matches the
+    previous snapshot's copy. Writes rsync-style "to-chk=left/total" lines for the UI's dialog."""
+    from .jobs import Canceled, current_job
+    skip = {x.rstrip("/") for x in BACKUP_EXCLUDE}
+    files = [p for p in src.rglob("*") if p.is_file() and p.relative_to(src).parts[0] not in skip]
+    job = current_job()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    with log_path.open("a", encoding="utf-8") as log:
+        log.write(f"\n=== {time.strftime('%Y-%m-%d %H:%M:%S')} copy {src} -> {dst}"
+                  + (f" (link-dest {previous})" if previous else "") + "\n")
+        for i, f in enumerate(files, 1):
+            if job and job.cancel_event.is_set():
+                raise Canceled("UE backup canceled")
+            rel = f.relative_to(src)
+            out = dst / rel
+            out.parent.mkdir(parents=True, exist_ok=True)
+            old = previous / rel if previous else None
+            if old and old.is_file() and old.stat().st_size == f.stat().st_size and _sha(old) == _sha(f):
+                oscompat.link_or_copy(old, out)
+            else:
+                shutil.copy2(f, out)
+            if i % 50 == 0 or i == len(files):
+                log.write(f"  {i}  {100 * i // len(files)}%  (xfr#{i}, to-chk={len(files) - i}/{len(files)})\n")
+                log.flush()
+
+
+def _sha(p: Path) -> str:
+    h = hashlib.sha256()
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
 def pull_layout(store: ProjectStore) -> dict:

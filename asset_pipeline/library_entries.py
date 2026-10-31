@@ -102,7 +102,7 @@ def _retarget(target: Path, old: str, new: str) -> None:
                 f.write_text(new_txt)
     for f in sorted((p for p in (target.rglob("*") if target.is_dir() else [])), key=lambda p: -len(p.parts)):
         if rx.search(f.name):
-            f.rename(f.with_name(rx.sub(new, f.name)))
+            f.replace(f.with_name(rx.sub(new, f.name)))
 
 
 def _remove(p: Path) -> None:

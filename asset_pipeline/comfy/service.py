@@ -23,7 +23,6 @@ import json
 import os
 import re
 import shlex
-import signal
 import socket
 import subprocess
 import threading
@@ -34,7 +33,7 @@ from urllib.parse import urlparse
 
 import httpx
 
-from .. import config, gpu as gpu_mod
+from .. import config, gpu as gpu_mod, oscompat
 
 PROXY_SCRIPT = config.REPO_ROOT / "scripts" / "comfy_api_proxy.sh"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
@@ -63,7 +62,10 @@ def settings() -> dict:
 
 def command(s: dict | None = None) -> list[str]:
     s = s or settings()
-    return [os.path.expanduser(t) for t in shlex.split(str(s["launch"]).format(port=s["port"], url=s["url"]))]
+    line = str(s["launch"]).format(port=s["port"], url=s["url"])
+    if oscompat.IS_WINDOWS:          # backslashes in Windows paths aren't escapes
+        return [os.path.expanduser(t) for t in oscompat.split_windows_cmdline(line)]
+    return [os.path.expanduser(t) for t in shlex.split(line)]
 
 
 def launch_env(s: dict | None = None) -> dict:
@@ -115,23 +117,11 @@ def ready(s: dict | None = None) -> bool:
 # --- processes ------------------------------------------------------------------------------
 
 def _alive(pid: int | None) -> bool:
-    if not pid:
-        return False
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    st = Path(f"/proc/{pid}/stat")
-    return not (st.is_file() and ") Z" in st.read_text())     # a zombie isn't running
+    return oscompat.alive(pid)                    # a zombie isn't running
 
 
 def _argv(pid: int) -> list[str]:
-    try:
-        return [a.decode(errors="replace") for a in Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0") if a]
-    except OSError:
-        return []
+    return oscompat.process_argv(pid)
 
 
 def _cmdline(pid: int) -> str:
@@ -139,20 +129,16 @@ def _cmdline(pid: int) -> str:
 
 
 def listener_pid(port: int) -> int | None:
-    """The process listening on a TCP port (ss), or None. Matching by PID, never pkill -f."""
-    try:
-        out = subprocess.run(["ss", "-ltnpH", f"sport = :{port}"], capture_output=True, text=True, timeout=10).stdout
-    except (OSError, subprocess.SubprocessError):
-        return None
-    m = re.search(r"pid=(\d+)", out)
-    return int(m.group(1)) if m else None
+    """The process listening on a TCP port (ss; netstat on Windows), or None. Matching by PID,
+    never pkill -f."""
+    return oscompat.port_owner(port)
 
 
 def looks_like_comfy(argv: list[str]) -> bool:
     """A ComfyUI server: python running a main.py, or a comfyui / comfy executable. Judged by
     program names, not substrings: a substring match on the whole command line also hits
     test runs and editors with "comfy" in a path (the pkill -f trap in CLAUDE.md and docs/notes/world-and-city.md)."""
-    names = [os.path.basename(a).lower() for a in argv[:3]]
+    names = [re.sub(r"\.exe$", "", a.replace("\\", "/").rsplit("/", 1)[-1].lower()) for a in argv[:3]]
     return "main.py" in names or any(n in ("comfyui", "comfy") for n in names)
 
 
@@ -221,7 +207,7 @@ def start(log=print, on_line=None, cancel=None, s: dict | None = None) -> dict:
                 lf.flush()
                 try:
                     proc = subprocess.Popen(cmd, cwd=cwd, env=launch_env(s), stdin=subprocess.DEVNULL, stdout=lf,
-                                            stderr=subprocess.STDOUT, start_new_session=True)
+                                            stderr=subprocess.STDOUT, **oscompat.detached())
                 except OSError as e:
                     raise RuntimeError(f"could not run the launch command {cmd[0]!r}: {e}. Set [comfyui.service] launch") from e
             Path(s["pidfile"]).write_text(json.dumps({"pid": proc.pid, "port": s["port"], "cmd": cmd,
@@ -268,7 +254,7 @@ def start_proxy(s: dict | None = None, log=print) -> None:
     port = urlparse(s["sdk_url"]).port or 8190
     log(f"starting comfy-api-proxy on port {port}")
     env = dict(os.environ, COMFYUI_URL=s["url"], PROXY_PORT=str(port), AP_ROOT=str(config.ap_root()))
-    r = subprocess.run(["bash", str(PROXY_SCRIPT), "start"], env=env, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(_proxy_cmd("start", s, port), env=env, capture_output=True, text=True, timeout=60)
     if r.returncode != 0:
         raise RuntimeError(f"comfy-api-proxy did not start: {(r.stderr or r.stdout).strip()[-500:]}")
     for _ in range(30):
@@ -278,10 +264,26 @@ def start_proxy(s: dict | None = None, log=print) -> None:
     raise RuntimeError(f"comfy-api-proxy started but {s['sdk_url']} isn't answering")
 
 
+def _proxy_cmd(action: str, s: dict, port: int | None = None) -> list[str]:
+    """scripts/comfy_api_proxy.sh on Linux; on native Windows the proxy's own executable in its
+    venv ($AP_ROOT/envs/comfy-api-proxy, set up by the installer), with the script's arguments."""
+    if not oscompat.IS_WINDOWS:
+        return ["bash", str(PROXY_SCRIPT), action]
+    exe = oscompat.venv_bin(config.ap_root() / "envs" / "comfy-api-proxy", "comfy-api-proxy")
+    if not exe.is_file():
+        raise RuntimeError(f"comfy-api-proxy is not installed ({exe}): rerun windows\\install.bat, or set "
+                           "[comfyui] backend = \"httpx\"")
+    if action == "start":
+        if port == s["port"] or port in (config.backends()["comfyui"].get("other_ports") or []):
+            raise RuntimeError(f"port {port} is a ComfyUI port")
+        return [str(exe), "start", "--comfyui", s["url"], "--host", "127.0.0.1", "--port", str(port)]
+    return [str(exe), action]
+
+
 def stop_proxy(s: dict | None = None, log=print) -> None:
     s = s or settings()
     env = dict(os.environ, AP_ROOT=str(config.ap_root()))
-    r = subprocess.run(["bash", str(PROXY_SCRIPT), "stop"], env=env, capture_output=True, text=True, timeout=60)
+    r = subprocess.run(_proxy_cmd("stop", s), env=env, capture_output=True, text=True, timeout=60)
     log((r.stdout or r.stderr).strip() or "comfy-api-proxy stopped")
 
 
@@ -302,22 +304,25 @@ def stop(log=print, s: dict | None = None) -> dict:
         Path(s["pidfile"]).unlink(missing_ok=True)
         return status(s)
 
-    def send(sig):
+    def send(force):
         try:
-            os.killpg(pid, sig) if group else os.kill(pid, sig)
+            oscompat.kill_tree(pid, force=force, group=group)
         except ProcessLookupError:
             pass
     log(f"stopping ComfyUI (pid {pid})")
-    send(signal.SIGTERM)
+    send(False)
     t0 = time.time()
     while (_alive(pid) or listener_pid(s["port"])) and time.time() - t0 < float(s["stop_timeout_s"]):
         time.sleep(0.5)
     if _alive(pid) or listener_pid(s["port"]):
         log("still running after SIGTERM: SIGKILL")
-        send(signal.SIGKILL)
+        send(True)
         lp = listener_pid(s["port"])
         if lp and lp != pid and not _foreign(lp) and looks_like_comfy(_argv(lp)):
-            os.kill(lp, signal.SIGKILL)
+            try:
+                oscompat.kill_tree(lp, force=True, group=False)
+            except ProcessLookupError:
+                pass
         time.sleep(1.0)
     Path(s["pidfile"]).unlink(missing_ok=True)
     log("ComfyUI stopped")

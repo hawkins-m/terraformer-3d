@@ -40,7 +40,7 @@ ENV_OVERRIDES = {
 # (or in ENV_OVERRIDES / SECRET_KEYS).
 ENV_VARS = {
     "AP_ROOT": "storage folder for this shell (wins over [paths] ap_root)",
-    "AP_CONFIG_DIR": "the user config folder (default ~/.config/terraformer)",
+    "AP_CONFIG_DIR": "the user config folder (default ~/.config/terraformer; %APPDATA%\\terraformer on Windows)",
     "AP_VENV": "the orchestrator venv scripts/ap runs (default [paths] venv)",
     "AP_ALLOW_PAID_APIS": "1 lets paid backends run for one command",
     "AP_UE_ARGS": "extra UnrealEditor-Cmd arguments (debugging)",
@@ -66,8 +66,8 @@ SECRET_KEYS = ("COMFY_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_A
 def config_dir() -> Path:
     if os.environ.get("AP_CONFIG_DIR"):
         return Path(os.environ["AP_CONFIG_DIR"]).expanduser()
-    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
-    return Path(base).expanduser() / "terraformer"
+    from .oscompat import config_home          # ~/.config; %APPDATA% on native Windows
+    return config_home() / "terraformer"
 
 
 def user_toml() -> Path:
@@ -79,9 +79,10 @@ def secrets_toml() -> Path:
 
 
 def default_ap_root() -> Path:
-    """Where storage goes when nothing sets it: $XDG_DATA_HOME/terraformer (~/.local/share/terraformer)."""
-    base = os.environ.get("XDG_DATA_HOME") or str(Path.home() / ".local" / "share")
-    return Path(base).expanduser() / "terraformer"
+    """Where storage goes when nothing sets it: $XDG_DATA_HOME/terraformer (~/.local/share/terraformer;
+    %LOCALAPPDATA%\\terraformer on native Windows)."""
+    from .oscompat import data_home
+    return data_home() / "terraformer"
 
 
 def _read(path: Path) -> dict:

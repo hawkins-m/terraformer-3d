@@ -14,7 +14,7 @@ from dataclasses import asdict, dataclass, field
 
 import httpx
 
-from . import config, gpu, needs, preflight, setup, wsl
+from . import config, gpu, needs, oscompat, preflight, setup, wsl
 
 # feature -> what it is in plain words (the UI says "<what> needs <check>")
 FEATURES = {
@@ -247,8 +247,10 @@ def check_unreal() -> Check:
             return _c("unreal", "Unreal Engine (optional)", False, f"{full} not found (renders need the full editor)",
                       "Point `ap setup` at a full UE install (built or from Epic).", ["unreal"], optional=True)
     return _c("unreal", "Unreal Engine (optional)", r["ok"], r["message"].removeprefix("Found ").replace(" Not started by this test.", ""),
-              "Fix the path in `ap setup` (…/Engine/Binaries/Linux/UnrealEditor-Cmd"
-              + (", or a Windows install's …\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe" if wsl.is_wsl() else "") + ").", ["unreal"], optional=True)
+              "Fix the path in `ap setup` (" + ("…\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe" if oscompat.IS_WINDOWS else
+              "…/Engine/Binaries/Linux/UnrealEditor-Cmd"
+              + (", or a Windows install's …\\Engine\\Binaries\\Win64\\UnrealEditor-Cmd.exe" if wsl.is_wsl() else "")) + ").",
+              ["unreal"], optional=True)
 
 
 def _model_check(id_, name, feature, required_only, env_paths, env_fix, optional=False) -> Check:
@@ -270,7 +272,23 @@ def _model_check(id_, name, feature, required_only, env_paths, env_fix, optional
     return _c(id_, name, True, ", ".join(ids) + " installed", optional=optional)
 
 
+def check_native_windows() -> list[Check]:
+    """Native Windows (beta): the greybox path only. The vision model, segmentation/depth and TRELLIS
+    are off there with one line pointing at the WSL install."""
+    if not oscompat.IS_WINDOWS:
+        return []
+    note = oscompat.NATIVE_WINDOWS_NOTE
+    fix = "Install through WSL for these: windows\\install.bat, choose WSL (the default)."
+    return [_c("native_windows", "Native Windows (beta)", True, "the greybox path: Layout, Greybox, Shots, Frames "
+               "and Build city in Unreal. Report what breaks (docs/windows-native-test.md)", warn=True),
+            _c("vlm", "Vision LLM", False, note, fix, ["vlm"], optional=True),
+            _c("segdepth", "Segmentation and depth", False, note, fix, ["segdepth"], optional=True),
+            _c("trellis", "TRELLIS.2 (optional)", False, note, fix, ["trellis"], optional=True)]
+
+
 def check_local() -> list[Check]:
+    if oscompat.IS_WINDOWS:
+        return check_native_windows()
     local = config.backends().get("local", {})
     backend = (local.get("models", {}).get(str(local.get("model", "32b"))) or {}).get("backend")
     vlm_env = ["envs/llamacpp/llama-server"] if backend == "llamacpp" else ["envs/qwen-vl/bin/python"]

@@ -200,6 +200,7 @@ def site(tmp_path, monkeypatch):
     return store
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_build_extract_and_hand_edit_protection(site):
     assert site.load().mode == "world"
@@ -228,6 +229,7 @@ def test_build_extract_and_hand_edit_protection(site):
     assert (site.root / "site/greybox.prev.blend").is_file() and not sw_site.edited(site)
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_add_shot_and_passes_are_exact(site):
     sw_site.build(site)
@@ -253,6 +255,7 @@ def test_add_shot_and_passes_are_exact(site):
     assert [s["id"] for s in sw_shots.status(site)] == ["down", "look"]
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not Path("/snap/bin/blender").exists(), reason="needs Blender")
 def test_arched_walls_have_open_arches_in_blender(tmp_path):
     """A notched outline triangulated over its openings once (solid walls in every pass):

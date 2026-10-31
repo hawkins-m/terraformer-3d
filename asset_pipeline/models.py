@@ -419,7 +419,8 @@ def _install(m: Model, f: File, src: Source, part: Path) -> Path:
     os.replace(part, blob)
     if final.is_symlink() or final.exists():
         final.unlink()
-    final.symlink_to(os.path.relpath(blob, final.parent))
+    from . import oscompat
+    oscompat.symlink_or_copy(os.path.relpath(blob, final.parent), final)   # HF cache layout; a copy without symlink rights
     ref = repo_dir / "refs" / "main"
     if not ref.exists():
         ref.parent.mkdir(parents=True, exist_ok=True)

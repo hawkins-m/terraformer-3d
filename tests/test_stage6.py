@@ -121,6 +121,7 @@ bpy.ops.export_scene.gltf(filepath=out, export_format="GLB")
 """
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_real_blender_scales_pivots_decimates_and_bakes(tmp_path):
     box, out, rep = tmp_path / "box.glb", tmp_path / "out.glb", tmp_path / "out.json"
@@ -156,6 +157,7 @@ print("CHECK", json.dumps({"min_z": min(zs), "cx": (min(xs) + max(xs)) / 2, "cy"
     assert got["images"] == ["base_color", "normal", "roughness"]
 
 
+@pytest.mark.blender
 @pytest.mark.skipif(not REAL_BLENDER.exists(), reason="needs Blender")
 def test_module_launches_real_blender(tmp_path, monkeypatch):
     """Through s6_cleanup.run, as the UI and CLI do: the snap Blender silently does nothing

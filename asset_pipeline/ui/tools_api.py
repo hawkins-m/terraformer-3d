@@ -15,10 +15,9 @@ anything slow is a job (kinds and lanes below).
     POST      /api/vlm/up, /api/vlm/down                              jobs vlm.up / vlm.down (gpu0)
     GET/POST  /api/launcher[/install|/remove]
 """
-import os
 import re
-import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Literal
@@ -26,7 +25,7 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from .. import areas, config, kit_proc, launcher, preflight, review, ue, vlm
+from .. import areas, config, kit_proc, launcher, oscompat, preflight, review, ue, vlm
 from ..jobs import check_canceled, current_job
 from ..project import ProjectStore, read_json, write_json
 from ..schema import DressingOptions
@@ -176,19 +175,53 @@ class VlmDownReq(BaseModel):
     force: bool = False
 
 
+DEMO_STYLE = ("sunlit classical town, honed limestone and white marble, terracotta accents, umbrella pines and "
+              "cypresses, clear Mediterranean light, photoreal")
+
+
+def _demo_steps(args: list[str]) -> list[list[str]]:
+    """scripts/demo.sh starter as `ap` commands, for native Windows (no bash)."""
+    if args[0] != "starter":
+        raise RuntimeError(f"the {args[0]} demo needs bash (scripts/demo.sh): on native Windows run its steps "
+                           f"by hand, or use the WSL install")
+    slug = args[1]
+    return [["new", slug], ["site", "init", slug], ["site", "build", slug], ["shots", "render", slug],
+            ["shots", "list", slug], ["style", "text", slug, DEMO_STYLE],
+            ["frames", "generate", slug, "street", "-n", "2", "--seed", "7"], ["frames", "show", slug, "--prompt"]]
+
+
+def _signal_demo(proc: subprocess.Popen) -> None:
+    try:
+        oscompat.kill_tree(proc.pid, force=oscompat.IS_WINDOWS)    # SIGTERM; Windows console programs need /F
+    except ProcessLookupError:
+        pass
+
+
 def _run_demo_script(args: list[str], note, log: Path, cancel_hook) -> int:
-    """scripts/demo.sh as a subprocess; its output lines go to the job's note and a log file."""
-    script = config.REPO_ROOT / "scripts" / "demo.sh"
+    """scripts/demo.sh as a subprocess (on native Windows, its starter steps as `ap` commands); its
+    output lines go to the job's note and a log file."""
     log.parent.mkdir(parents=True, exist_ok=True)
-    proc = subprocess.Popen(["bash", str(script), *args], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-                            cwd=str(config.REPO_ROOT), start_new_session=True)
-    cancel_hook(lambda: os.killpg(proc.pid, signal.SIGTERM))
-    with log.open("w") as f:
-        for line in proc.stdout:
-            f.write(line)
-            f.flush()
-            note(line.strip())
-    return proc.wait()
+    if oscompat.IS_WINDOWS:
+        cmds = [[sys.executable, "-m", "asset_pipeline.cli", *a] for a in _demo_steps(args)]
+    else:
+        cmds = [["bash", str(config.REPO_ROOT / "scripts" / "demo.sh"), *args]]
+    stopped = []
+    with log.open("w", encoding="utf-8") as f:
+        for cmd in cmds:
+            if stopped:
+                return 1
+            if oscompat.IS_WINDOWS:
+                f.write(f"\n=== ap {' '.join(cmd[3:])}\n")
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8",
+                                    errors="replace", cwd=str(config.REPO_ROOT), **oscompat.detached())
+            cancel_hook(lambda p=proc: (stopped.append(1), _signal_demo(p)))
+            for line in proc.stdout:
+                f.write(line)
+                f.flush()
+                note(line.strip())
+            if (rc := proc.wait()) != 0:
+                return rc
+    return 0
 
 
 def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
@@ -761,7 +794,7 @@ def register(app: FastAPI, jobs, store_of, comfy_up, on_comfy) -> None:
     # --- project repo: the end-of-day commit (each project folder is its own private git repo) ---
 
     def _git(store, *args, timeout=60):
-        return subprocess.run(["git", "-C", str(store.root), *args], capture_output=True, text=True, timeout=timeout)
+        return oscompat.run_git(["-C", str(store.root), *args], capture_output=True, text=True, timeout=timeout)
 
     @app.get("/api/projects/{slug}/git")
     def project_git(slug: str):

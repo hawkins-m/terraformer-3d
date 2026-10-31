@@ -10,6 +10,8 @@
 # once is skipped on later runs (ap setup). stage = "before-models" runs it before the downloads;
 # step: the Installing page's line (default "Installing <label>"). [runtime.component] makes it a
 # checkbox on the Components page (title, group, size_gb, license, used_by), checked by default.
+# command_windows: what runs on native Windows (beta); a runtime without it is skipped there. A
+# leading "ap" there runs the app venv's Python with -m asset_pipeline.cli.
 
 [[runtime]]
 id = "comfyui"
@@ -17,6 +19,7 @@ label = "ComfyUI on this computer"
 stage = "before-models"             # the model downloads go into its models folder
 when = ["component:comfyui"]
 command = ["scripts/install_comfyui.sh", "{comfyui.service.cwd}"]
+command_windows = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "windows/native_runtimes.ps1", "-Action", "comfyui", "-Target", "{comfyui.service.cwd}"]
 weight = 10
 [runtime.component]                 # offered only when no ComfyUI was found (asset_pipeline/installer.py)
 title = "Install ComfyUI (local)"
@@ -30,6 +33,7 @@ id = "comfy-api-proxy"
 label = "the Comfy API proxy"
 when = ["comfyui.backend=sdk"]
 command = ["scripts/comfy_api_proxy.sh", "install"]
+command_windows = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "windows/native_runtimes.ps1", "-Action", "proxy"]
 weight = 1
 
 [[runtime]]
@@ -73,6 +77,7 @@ label = "ComfyUI"
 step = "Starting ComfyUI"
 when = ["component:comfyui"]
 command = ["scripts/ap", "comfy", "start"]
+command_windows = ["ap", "comfy", "start"]
 weight = 1
 
 [[runtime]]
