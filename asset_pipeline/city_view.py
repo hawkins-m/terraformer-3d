@@ -186,7 +186,7 @@ def background(bg, hs, extent_m: float) -> dict:
     return {"half": _r(bg.half), "terrain": {"n": int(hd.shape[0]), "span": _r(bg.far["cell"] * step * (hd.shape[0] - 1)),
                                              "z": [_r(v) for v in hd.ravel()]},
             "forest": [v for (x, y, w, hh), zz in zip(bg.forest, fz) for v in (_r(x), _r(y), _r(zz), _r(w), _r(hh))],
-            "fields": [[[[_r(x), _r(y)] for x, y in q.exterior.coords[:-1]]], int(crop)] for q, crop in bg.fields],
+            "fields": [[[[[_r(x), _r(y)] for x, y in q.exterior.coords[:-1]]], int(crop)] for q, crop in bg.fields],
             "houses": [v for (x, y, w, d, rot, hh), zz in zip(houses, hz) for v in (_r(x), _r(y), _r(zz), _r(w), _r(d), _r(hh), _r(rot))],
             "ways": ways}
 
