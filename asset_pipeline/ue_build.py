@@ -221,8 +221,16 @@ def _build(store: ProjectStore, use_active: bool = False, reset_layout: bool = F
     elif not (store.root / terrain_build.FAR_DIR / "outer.glb").is_file() and not landscape.wanted(store):
         warnings.append("no outer ring built (ap terrain outer): the terrain-outer greybox stays")
     if landscape.wanted(store):                 # a generated terrain: a Landscape of its own (heightmap projects keep theirs)
-        lrec = step("landscape", lambda: generated_landscape(store, log))
-        log(f"landscape: {lrec['size'][0]} x {lrec['size'][1]} samples, {lrec['spacing_m']} m apart")
+        try:
+            lrec = step("landscape", lambda: generated_landscape(store, log))
+            log(f"landscape: {lrec['size'][0]} x {lrec['size'][1]} samples, {lrec['spacing_m']} m apart")
+        except ue.PluginUnavailable as e:       # native Windows without Visual Studio: the terrain stays a static mesh
+            warnings.append(f"static-mesh terrain, no Landscape: {e}. Install Visual Studio 2022 with \"Desktop "
+                            f"development with C++\" and build again for a Landscape")
+            log(f"warning: {warnings[-1]}")
+            man = s7_export.load_manifest(store)
+            if man.pop("landscape_build", None) is not None:      # no stale Landscape spec from an earlier build
+                write_json(s7_export.export_dir(store) / "manifest.json", man)
     opts = dressing if dressing is not None else dress.options(store)
     dress.save(store, opts)
     drec = step("dressing", lambda: dress.prepare(store, opts, log=log))

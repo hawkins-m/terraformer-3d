@@ -367,3 +367,51 @@ def test_the_terrain_assets_are_remade_when_their_material_changes(tmp_path, mon
     assert not ue_build.terrain_due(store)
     write_json(far / "ue_assets.json", {"ok": True})                    # made before the material had a version
     assert ue_build.terrain_due(store)
+
+
+def test_no_landscape_plugin_falls_back_to_the_static_mesh_terrain(stub_build, monkeypatch):
+    """Native Windows without Visual Studio: the APLandscape plugin can't be built, so the build goes
+    on with the terrain as a static mesh and says so in the report."""
+    from asset_pipeline import landscape
+
+    def unavailable(st, log=print):
+        raise ue.PluginUnavailable("APLandscape has no Win64 binaries and no Visual Studio was found to build them")
+    monkeypatch.setattr(landscape, "wanted", lambda st: True)
+    monkeypatch.setattr(ue_build, "generated_landscape", unavailable)
+    r = ue_build.build(stub_build.store, log=lambda *a: None)
+    assert r["ok"] and any(w.startswith("static-mesh terrain, no Landscape: APLandscape has no Win64") for w in r["warnings"])
+    assert any("static-mesh terrain" in ln for ln in ue_build.report_lines(r))
+
+
+def test_build_plugin_on_native_windows(monkeypatch, tmp_path):
+    """Win64: prebuilt binaries are used as they are; without them and without Visual Studio,
+    PluginUnavailable; with Visual Studio, RunUAT.bat BuildPlugin -TargetPlatforms=Win64."""
+    from asset_pipeline import config, oscompat
+    import subprocess
+    repo, eng = tmp_path / "repo", tmp_path / "UE_5.8" / "Engine"
+    (repo / "unreal/plugins/P/Source").mkdir(parents=True)
+    (repo / "unreal/plugins/P/P.uplugin").write_text("{}")
+    exe = eng / "Binaries/Win64/UnrealEditor-Cmd.exe"
+    exe.parent.mkdir(parents=True)
+    exe.write_text("")
+    monkeypatch.setattr(config, "REPO_ROOT", repo)
+    monkeypatch.setattr(ue, "plugin_build_dir", lambda: tmp_path / "built")
+    monkeypatch.setattr(ue, "editor_cmd", lambda: exe)
+    monkeypatch.setattr(oscompat, "IS_WINDOWS", True)
+    monkeypatch.setattr(ue, "_visual_studio", lambda: "")
+    import pytest
+    with pytest.raises(ue.PluginUnavailable, match="no Visual Studio"):
+        ue.build_plugin("P", log=lambda *a: None)
+    ran = []
+
+    def uat(cmd, **kw):
+        ran.append(cmd)
+        out = Path(next(a for a in cmd if a.startswith("-Package=")).split("=", 1)[1])
+        (out / "Binaries/Win64").mkdir(parents=True)
+        (out / "Binaries/Win64/UnrealEditor-P.dll").write_text("")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+    monkeypatch.setattr(ue, "_visual_studio", lambda: r"C:\VS\2022")
+    monkeypatch.setattr(ue.subprocess, "run", uat)
+    out = ue.build_plugin("P", log=lambda *a: None)
+    assert ran[0][0].endswith("RunUAT.bat") and "-TargetPlatforms=Win64" in ran[0] and (out / ".ap_source").is_file()
+    assert ue.build_plugin("P", log=lambda *a: None) == out and len(ran) == 1      # kept until the source changes

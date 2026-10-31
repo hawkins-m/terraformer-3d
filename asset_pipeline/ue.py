@@ -213,10 +213,32 @@ def plugin_build_dir() -> Path:
     return config.ap_root() / "unreal" / "plugins"
 
 
+class PluginUnavailable(RuntimeError):
+    """A repo plugin can't be compiled for this engine (native Windows without Visual Studio, a failed
+    Windows build, or a Windows engine under WSL): the build goes on without what it adds."""
+
+
+def _visual_studio() -> str:
+    """Native Windows: the newest Visual Studio with the C++ tools Unreal compiles with (vswhere), or ""."""
+    base = os.environ.get("ProgramFiles(x86)") or os.environ.get("ProgramFiles") or ""
+    vswhere = Path(base) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not vswhere.is_file():
+        return ""
+    try:
+        r = subprocess.run([str(vswhere), "-latest", "-products", "*", "-requires",
+                            "Microsoft.VisualStudio.Component.VC.Tools.x86.x64", "-property", "installationPath"],
+                           capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return r.stdout.strip().splitlines()[0] if r.returncode == 0 and r.stdout.strip() else ""
+
+
 def build_plugin(name: str, log=print) -> Path:
     """The repo's plugin unreal/plugins/<name> compiled for this engine (RunUAT BuildPlugin, a few
-    minutes the first time; kept until the source changes). Linux engines; a Windows engine
-    (UnrealEditor-Cmd.exe under WSL) is untested and refused."""
+    minutes the first time; kept until the source changes). Linux engines (RunUAT.sh); native
+    Windows (RunUAT.bat, Win64) when Visual Studio with the C++ tools is installed, or when the
+    plugin folder already holds Win64 binaries. Otherwise, and for a Windows engine under WSL
+    (untested), PluginUnavailable."""
     src = config.REPO_ROOT / "unreal" / "plugins" / name
     out = plugin_build_dir() / name
     tag = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(src.rglob("*")) if p.is_file())).hexdigest()[:12]
@@ -224,17 +246,28 @@ def build_plugin(name: str, log=print) -> Path:
     if stamp.is_file() and stamp.read_text().strip() == tag:
         return out
     cmd = editor_cmd()
-    if cmd.suffix.lower() == ".exe":
-        raise RuntimeError(f"{name}: building editor plugins for a Windows engine isn't supported yet (untested)")
-    uat = cmd.parents[2] / "Build" / "BatchFiles" / "RunUAT.sh"
+    win = oscompat.IS_WINDOWS
+    if cmd.suffix.lower() == ".exe" and not win:
+        raise PluginUnavailable(f"{name}: building editor plugins for a Windows engine from WSL isn't supported yet (untested)")
+    if win and any((src / "Binaries" / "Win64").glob("*.dll")):      # shipped prebuilt: use as it is
+        shutil.rmtree(out, ignore_errors=True)
+        shutil.copytree(src, out, ignore=shutil.ignore_patterns("Intermediate"))
+        stamp.write_text(tag)
+        return out
+    if win and not _visual_studio():
+        raise PluginUnavailable(f"{name} has no Win64 binaries and no Visual Studio with the C++ tools (\"Desktop "
+                                f"development with C++\") was found to build them")
+    uat = cmd.parents[2] / "Build" / "BatchFiles" / ("RunUAT.bat" if win else "RunUAT.sh")
+    platform, lib = ("Win64", "*.dll") if win else ("Linux", "*.so")
     shutil.rmtree(out, ignore_errors=True)
     out.parent.mkdir(parents=True, exist_ok=True)
     log(f"building the {name} editor plugin for {cmd.parents[3].name} (once)")
-    r = subprocess.run([str(uat), "BuildPlugin", f"-Plugin={src / (name + '.uplugin')}", f"-Package={out}", "-TargetPlatforms=Linux"],
+    r = subprocess.run([str(uat), "BuildPlugin", f"-Plugin={src / (name + '.uplugin')}", f"-Package={out}", f"-TargetPlatforms={platform}"],
                        capture_output=True, text=True)
-    if r.returncode != 0 or not any((out / "Binaries").rglob("*.so")):
+    if r.returncode != 0 or not any((out / "Binaries").rglob(lib)):
         (out.parent / f"{name}.build.log").write_text(r.stdout + r.stderr)
-        raise RuntimeError(f"{name}: RunUAT BuildPlugin failed (exit {r.returncode}); log {out.parent / (name + '.build.log')}")
+        msg = f"{name}: RunUAT BuildPlugin failed (exit {r.returncode}); log {out.parent / (name + '.build.log')}"
+        raise PluginUnavailable(msg) if win else RuntimeError(msg)
     shutil.rmtree(out / "HostProject", ignore_errors=True)
     stamp.write_text(tag)
     return out
