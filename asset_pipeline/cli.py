@@ -1499,6 +1499,9 @@ def cmd_ue(a) -> None:
         off = {k: False for k in ("ground", "rocks", "vegetation", "megascans")} | {"water": "off"} if a.no_dressing else {}
         opts = dressing.merged(store, **(off | {k: getattr(a, v) for k, v in DRESS_FLAGS.items() if getattr(a, v) is not None}))
         unplaced = {"avoid_locked": not a.unplaced_in_locked_shots, "seed": a.unplaced_seed} if a.use_unplaced else None
+        if a.merge_ground:
+            from . import ground_merge
+            ground_merge.save_mode(store, a.merge_ground)
         r = ue_build.build(store, use_active=a.use_active, reset_layout=a.reset_layout, render=a.render, dressing=opts,
                            unplaced=unplaced)
         print("\n".join(ue_build.report_lines(r)))
@@ -2277,6 +2280,9 @@ def main(argv: list[str] | None = None) -> None:
                    help="build --use-unplaced: may also take places a locked shot's frame shows (default: avoided)")
     p.add_argument("--unplaced-seed", type=int, default=0, metavar="N",
                    help="build --use-unplaced: which places it takes (the same seed picks the same places)")
+    p.add_argument("--merge-ground", choices=["off", "auto", "on"],
+                   help="build: street, road and field surfaces merged into ~1 km tiles (auto: a metro city only); "
+                        "remembered per project. Merged ground can't be moved piece by piece in Unreal")
     dg = p.add_argument_group("world dressing (build; unset = the project's last-used choice, which these update)")
     bo = argparse.BooleanOptionalAction
     dg.add_argument("--ground", action=bo, default=None, help="ground textures by slope and height (Light)")

@@ -102,13 +102,16 @@ def _tint(slot_type: str, piece: str) -> list[float]:
     return list(TINTS.get(slot_type, BUILDING_TINT))
 
 
-def manifest(gb: dict, index: dict, layout=None, project: str = "") -> dict:
-    """Build the manifest from greybox.json data and the mesh export index (pure)."""
+def manifest(gb: dict, index: dict, layout=None, project: str = "", skip: dict | None = None) -> dict:
+    """Build the manifest from greybox.json data and the mesh export index (pure). skip: {slot id:
+    piece names} merged into ground tiles (ground_merge.apply adds those)."""
     assets: dict[str, dict] = {}
     slots = []
     for s in gb["slots"]:
         comps: dict[str, list] = {}
         for p in s["pieces"]:
+            if skip and p["name"] in skip.get(s["id"], ()):
+                continue
             entry = index.get(p["mesh"])
             if entry is None:
                 raise ValueError(f"slot {s['id']}: mesh {p['mesh']} was not exported")
@@ -190,11 +193,19 @@ def export(store: ProjectStore, assets: bool = False, use_active: bool = False, 
     t = time.time()
     shutil.rmtree(out / "assets", ignore_errors=True)
     (out / "assets").mkdir(parents=True)
-    blender.run(SCRIPT, ["--out-dir", out / "assets", "--index", out / "mesh_index.json"],
+    layout = sw_site.load_layout(store)
+    from .. import ground_merge
+    merge = ground_merge.plan(gb) if ground_merge.wanted(store, layout) else None
+    extra = []
+    if merge is not None:                          # street, road and field surfaces in ~1 km tiles
+        write_json(out / "ground_merge.json", {"tiles": merge["tiles"]})
+        extra = ["--merge", out / "ground_merge.json"]
+    blender.run(SCRIPT, ["--out-dir", out / "assets", "--index", out / "mesh_index.json", *extra],
                 out / "blender.log", "stand-in export", blend=sw_site.blend_path(store))
     index = json.loads((out / "mesh_index.json").read_text())
-    layout = sw_site.load_layout(store)
-    m = manifest(gb, index, layout, store.load().slug)
+    m = manifest(gb, index, layout, store.load().slug, skip=merge["taken"] if merge else None)
+    if merge is not None:
+        ground_merge.apply(m, gb, index, merge)
     if assets:
         from .. import city_library
         city_library.add_to_manifest(store, m, gb, index, out, use_active=use_active, log=log, unplaced=unplaced)

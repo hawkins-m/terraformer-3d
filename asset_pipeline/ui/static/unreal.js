@@ -55,6 +55,7 @@ function renderUnreal() {
   $("#ue-build-state").innerHTML = buildWhy ? `<span class="${u.editor_open ? "error" : "ue-why"}">${esc(buildWhy)}</span>`
     : building.length ? "Progress and Stop: Jobs panel." : !u.project ? "No UE project yet: the build creates it." : "";
   setStop("#ue-build-stop", building);
+  paintMergeGround(u);
   const openWhy = ueOpenWhy(u);
   $("#ue-open").disabled = u.editor_open || !!openWhy;
   $("#ue-open").textContent = u.editor_open ? "Unreal is open" : "Open in Unreal";
@@ -382,3 +383,16 @@ async function dressFind() {
     }}, {label: "Cancel"}]});
 }
 $("#dr-find").onclick = () => dressFind();
+
+// Merge ground surfaces (ground_merge.py): off / auto (Metro only) / on, saved for the project at once
+function paintMergeGround(u) {
+  const sel = $("#ueb-merge-ground"), mg = u.merge_ground;
+  if (!mg) return;
+  if (document.activeElement !== sel) sel.value = mg.mode;
+  $("#ueb-merge-note").textContent = mg.now ? "The next build merges ground." : "";
+}
+$("#ueb-merge-ground").onchange = async e => {
+  try { unrealData.merge_ground = await api(`/api/projects/${slug}/ue/merge-ground`, {mode: e.target.value}); }
+  catch (err) { alert(errorText(err)); }
+  paintMergeGround(unrealData);
+};

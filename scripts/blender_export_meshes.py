@@ -8,14 +8,19 @@ origin with no transform, as DIR/<asset id>/SM_<asset id>.glb with no materials 
 importer assigns its own). The index maps mesh name -> asset id, file and bounds (m).
 Asset ids are the mesh names made file-safe (classical:column-base#3fa2c1 ->
 classical-column-base-3fa2c1).
+
+--merge MERGE.json (asset_pipeline/ground_merge.py): {"tiles": {name: {origin, parts [[mesh, world
+4x4]]}}}: each tile's parts are joined into one mesh in world space relative to its origin and
+written under the tile's name; the merged meshes aren't written on their own.
 """
 import json
 import os
 import re
 import sys
 
+import bmesh
 import bpy
-from mathutils import Vector
+from mathutils import Matrix, Vector
 
 args = sys.argv[sys.argv.index("--") + 1:]
 out_dir = args[args.index("--out-dir") + 1]
@@ -37,6 +42,21 @@ def slot_of(o):
 # an instancer (a large / metro greybox: blender_greybox.Instancer) stands for the mesh it instances
 meshes = sorted({o["ap_instances"] if "ap_instances" in o else o.data.name
                  for o in bpy.context.scene.objects if o.type == "MESH" and slot_of(o)})
+tiles = json.load(open(args[args.index("--merge") + 1]))["tiles"] if "--merge" in args else {}
+merged = {mesh for t in tiles.values() for mesh, _ in t["parts"]}
+meshes = [m for m in meshes if m not in merged]
+for name, t in sorted(tiles.items()):          # the ground tiles: their parts joined, relative to the origin
+    bm = bmesh.new()
+    off = Matrix.Translation(Vector(t["origin"])).inverted()
+    for mesh, W in t["parts"]:
+        n0 = len(bm.verts)
+        bm.from_mesh(bpy.data.meshes[mesh])
+        bm.verts.ensure_lookup_table()
+        bmesh.ops.transform(bm, matrix=off @ Matrix(W), verts=bm.verts[n0:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    meshes.append(name)
 print("EXPORT_TOTAL", len(meshes), flush=True)   # the UI counts GLBs against it
 # Each mesh goes out from an empty scene of its own: the exporter walks the whole scene even
 # with use_selection, which took ~3.5 s a mesh on an 80k-object city greybox (0.09 s here;

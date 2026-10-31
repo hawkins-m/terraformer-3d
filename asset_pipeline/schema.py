@@ -105,6 +105,9 @@ class UnrealSettings(BaseModel):
     dressing_library: dict[str, str | list[str]] = Field(default_factory=dict)   # mesh roles may hold a list
     dressing_folders: list[str] = Field(default_factory=list)
     ground_rule: Literal["lowest", "centre", "mean", "highest"] = "lowest"
+    # street, road and field surfaces merged into ~1 km tiles in the export (ground_merge.py): off,
+    # auto (a metro city only) or on. Left out of project.json at its default
+    merge_ground: Literal["off", "auto", "on"] = Field(default="auto", exclude_if=lambda v: v == "auto")
     sunk_m: float = Field(default=0.3, ge=0)        # base below the ground rule's height by more: sunk
     floating_m: float = Field(default=0.3, ge=0)    # base above it by more: floating
     place_m: float = Field(default=0.05, ge=0)      # actor away from its manifest place by more: moved

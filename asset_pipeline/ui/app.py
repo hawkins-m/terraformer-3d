@@ -336,6 +336,10 @@ class DescribeReq(BaseModel):
     preset: str | None = None          # the picker's preset: the keywords' fallback when no word matches
 
 
+class MergeGroundReq(BaseModel):
+    mode: Literal["off", "auto", "on"]
+
+
 class SizeReq(BaseModel):
     size: Literal["standard", "large", "metro"]
     background: bool | None = None                  # None: the layout's own
@@ -2124,12 +2128,22 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                           "shots": {p.stem: p.stat().st_mtime for p in renders}} if renders else None
         out["shot_ids"] = [s["id"] for s in read_json(man)["shots"]] if man.is_file() else []   # the shots a render needs
         out["looks"] = look.presets(store)
+        from .. import ground_merge
+        out["merge_ground"] = {"mode": ground_merge.mode(store), "now": ground_merge.wanted(store)}
         from .. import ue_build
         out["build"] = read_json(ue_build.report_path(store), default=None)    # the last `ap ue build` from the UI
         mood = s0_frames.mood_shots(store) if out["greybox"] else set()
         out["approved_shots"] = sorted(s for s, k in s0_frames.locked(store).items()
                                        if k != s0_frames.LOCK_GREYBOX and s not in mood) if out["greybox"] else []
         return out
+
+    @app.post("/api/projects/{slug}/ue/merge-ground")
+    def ue_merge_ground(slug: str, req: MergeGroundReq):
+        """Merge ground surfaces (ground_merge): off, auto or on, remembered for the project's builds."""
+        from .. import ground_merge
+        store = _store(slug)
+        ground_merge.save_mode(store, req.mode)
+        return {"mode": req.mode, "now": ground_merge.wanted(store)}
 
     @app.get("/api/projects/{slug}/next-build")
     def next_build_(slug: str, use_active: bool = False):

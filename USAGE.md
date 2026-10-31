@@ -545,7 +545,14 @@ ap ue build my-project --use-active    # every built asset's Active version, app
 ap ue build my-project --use-unplaced  # built assets with no slot also stand in the city (below)
 ap ue build my-project --reset-layout  # also move back slots you moved by hand in Unreal
 ap ue build my-project --render        # then render the shots (GPU 1, only while ComfyUI is down)
+ap ue build my-project --merge-ground on   # street, road and field surfaces in ~1 km tiles (off | auto | on)
 ```
+
+**Merge ground surfaces** (Unreal tab, under the build; `--merge-ground`, remembered per project): Off
+builds one actor per street, road and field slot; *Auto* (the default) merges them for a Metro-size city
+only; On always. Merged, they're tiles of about 1 km, one mesh per tile and surface (streets, fields, each
+road type), with the same look and placement: far fewer meshes to import. Buildings, vegetation, rocks,
+parks and water are never merged. Merged ground can't be moved piece by piece in Unreal.
 
 **`ap ue build`** runs, with the editor closed: backup → export with library builds → the
 terrain assets if the outer ring changed → import → the project's default light → optional
