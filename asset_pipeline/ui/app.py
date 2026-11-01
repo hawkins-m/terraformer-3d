@@ -1609,7 +1609,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             pick = terrain_describe.describe(req.text, prefer=req.preset)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        return {k: pick[k] for k in ("preset", "tweaks", "source", "summary")} | {"settings": pick["settings"].model_dump()}
+        return {k: pick[k] for k in ("preset", "tweaks", "source", "summary", "matched", "understood", "not_understood", "try")} | {"settings": pick["settings"].model_dump()}
 
     @app.post("/api/projects/{slug}/site/roll/step")
     def site_roll_step(slug: str, req: StepReq):

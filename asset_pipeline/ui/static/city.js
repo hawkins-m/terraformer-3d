@@ -371,7 +371,42 @@ function renderRoll() {
   }
   paintRoll();
 }
+// The picks Apply sent stay in their fields (dirty) until that job is done, so a poll or a refetch
+// never blanks or resets them; a canceled or failed job leaves them as the user picked.
+// rollHold: {id, els} of the job the picks belong to.
+let rollHold = null;
+const ROLL_FIELDS = ["#city-layout-preset", "#city-layout-seed", "#city-terrain-preset", "#city-terrain-seed"];
+function rollHoldRelease() {
+  const h = rollHold;
+  if (!h) return;
+  const j = data && data.jobs.find(x => x.id === h.id);
+  if (j && isActive(j)) return;
+  if (!j && Date.now() - h.at < 15000) return;           // not listed yet
+  rollHold = null;
+  if (j && j.status === "done") for (const el of h.els) delete el.dataset.dirty;   // the server has them now
+}
+function rollRandomKey() { return `ap.rollRandom.${slug}`; }
+function rollRandom() { try { return JSON.parse(localStorage.getItem(rollRandomKey()) || "{}"); } catch (_) { return {}; } }
+function rollRandomSave(o) { try { localStorage.setItem(rollRandomKey(), JSON.stringify(o)); } catch (_) { /* private window */ } }
+const newSeed = () => 1 + Math.floor(Math.random() * 2147483646);
+// a ticked Random writes a new seed into its field (kept as the user's pick) before the job starts
+function rollSeedFor(which) {
+  const box = $(`#city-${which}-seed-random`), f = $(`#city-${which}-seed`);
+  if (box.checked) { f.value = newSeed(); f.dataset.dirty = "1"; }
+}
+function paintRandomTicks(busy) {
+  const o = rollRandom();
+  for (const w of ["layout", "terrain"]) {
+    const box = $(`#city-${w}-seed-random`);
+    if (box.dataset.ready !== slug) {
+      box.dataset.ready = slug; box.checked = !!o[w];
+      box.onchange = () => { rollRandomSave({...rollRandom(), [w]: box.checked}); paintRoll(); };
+    }
+    $(`#city-${w}-seed`).disabled = busy || box.checked;
+  }
+}
 function paintRoll() {
+  rollHoldRelease();
   const d = rollData, busy = !!activeJobs("site.plan").length;
   const p = data && data.project;
   $("#city-roll-hint").hidden = !(p && p.start === "city" && !(siteData && siteData.layout));
@@ -388,6 +423,9 @@ function paintRoll() {
   paintTerrain();
   paintSize();
   $("#city-layout-apply").disabled = busy || sel.value === "random";
+  sel.disabled = busy;
+  $("#city-terrain-preset").disabled = busy;
+  paintRandomTicks(busy);
   const keepBox = $("#city-roll-keep");
   if (d && !keepBox.children.length) {
     const keep = new Set(rollKeep());
@@ -416,16 +454,23 @@ async function rollCity() {
   const v = $("#city-roll-seed").value.trim();
   const keep = [...$("#city-roll-keep").querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep);
   const size = $("#city-size").value || null;
-  await siteAction("site/roll", {seed: v === "" ? null : Number(v), keep, keep_shape: $("#city-roll-keep-shape").checked,
-                                 ...layoutChoice(), size});
+  const body = {seed: v === "" ? null : Number(v), keep, keep_shape: $("#city-roll-keep-shape").checked, ...layoutChoice(), size};
+  holdPicks(await siteAction("site/roll", body));
+}
+// keep the layout (and terrain) picks on show until the job they started is done
+function holdPicks(job) {
+  if (!job || typeof job.id !== "number") return;
+  const els = ROLL_FIELDS.map(s => $(s)).filter(el => el.dataset.dirty);
+  rollHold = {id: job.id, els, at: Date.now()};
 }
 // The layout preset and layout seed as picked (unchanged ones go as null: the layout's own)
 function layoutChoice() {
+  rollSeedFor("layout");
   const sel = $("#city-layout-preset"), ls = $("#city-layout-seed").value.trim();
   const d = rollData || {};
   const out = {preset: sel.value && sel.value !== d.preset ? sel.value : null,
                layout_seed: ls === "" || Number(ls) === d.layout_seed ? null : Number(ls)};
-  delete sel.dataset.dirty; delete $("#city-layout-seed").dataset.dirty;
+  sel.dataset.dirty = "1";                       // the pick stays on show until the job is done (rollHold)
   return out;
 }
 // --- Terrain (terrain_gen.py): its own presets and seed, apart from the layout -------------------
@@ -451,10 +496,18 @@ async function describeTerrain() {
   out.textContent = "Reading the description…";
   try {
     const r = await api(`/api/projects/${slug}/site/terrain/describe`, {text, preset: $("#city-terrain-preset").value || null});
+    if (!r.matched) {                    // keywords found nothing: say so, leave the picker as it is
+      terrainPick = null;
+      out.textContent = `Couldn't match this to a terrain. Try words like: ${r.try.join(", ")}.`;
+      return;
+    }
     terrainPick = r;
     const sel = $("#city-terrain-preset");
-    sel.value = r.preset; delete sel.dataset.dirty;
-    out.textContent = `Chosen: ${r.summary} (${r.source === "vlm" ? "the local model" : "keyword matching: the local model isn't running"}). Apply terrain to make it.`;
+    sel.value = r.preset; sel.dataset.dirty = "1";
+    out.textContent = (r.source === "vlm" ? "Local vision model" : "Keyword matching (the local model isn't running)")
+      + (r.understood.length ? `. Understood: ${r.understood.join(", ")}` : "")
+      + (r.not_understood.length ? `. Not understood: ${r.not_understood.join(", ")}` : "")
+      + ". Apply terrain to make it.";
     paintTerrain();
     $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length;
   } catch (err) { out.textContent = errorText(err); }
@@ -462,6 +515,7 @@ async function describeTerrain() {
 $("#city-terrain-describe-go").onclick = () => describeTerrain();
 $("#city-terrain-describe").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); describeTerrain(); } };
 async function applyTerrain(extra) {
+  rollSeedFor("terrain");
   const sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed").value.trim(), d = (rollData && rollData.terrain) || {};
   const body = {preset: sel.value || null, seed: ls === "" ? null : Number(ls), ...(extra || {})};
   if (terrainPick && terrainPick.preset === sel.value) body.settings = terrainPick.settings;   // exactly what Describe showed
@@ -471,8 +525,8 @@ async function applyTerrain(extra) {
     if (!ok) return;
     body.replace_heightmap = true;
   }
-  delete sel.dataset.dirty; delete $("#city-terrain-seed").dataset.dirty;
-  await siteAction("site/terrain", body);
+  sel.dataset.dirty = "1";                       // the pick stays on show until the job is done (rollHold)
+  holdPicks(await siteAction("site/terrain", body));
 }
 $("#city-terrain-preset").onchange = e => { e.target.dataset.dirty = "1"; terrainPick = null; $("#city-terrain-chosen").textContent = ""; paintTerrain(); };
 $("#city-terrain-seed").oninput = e => { e.target.dataset.dirty = "1"; };
@@ -516,7 +570,7 @@ function paintLayoutDesc() {
 }
 $("#city-layout-preset").onchange = e => { e.target.dataset.dirty = "1"; paintLayoutDesc(); };
 $("#city-layout-seed").oninput = e => { e.target.dataset.dirty = "1"; };
-$("#city-layout-apply").onclick = () => siteAction("site/preset", layoutChoice());
+$("#city-layout-apply").onclick = async () => holdPicks(await siteAction("site/preset", layoutChoice()));
 async function rollStep(delta) {
   if (!(await rollConfirm())) return;
   await siteAction("site/roll/step", {delta});

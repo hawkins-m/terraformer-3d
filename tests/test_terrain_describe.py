@@ -114,6 +114,7 @@ def test_describe_api_shows_the_choice_and_apply_makes_exactly_it(client, capsys
     r = c.post("/api/projects/t/site/terrain/describe", json={"text": "a rugged island with cliffs"}).json()
     assert r["preset"] == "island" and r["source"] == "keywords" and r["settings"]["base"] == "rugged"
     assert r["settings"]["beach_m"] == 0.0 and "rugged" in r["summary"]
+    assert r["matched"] and r["understood"][0] == "rugged" and r["not_understood"] == []
     j = c.post("/api/projects/t/site/terrain", json={"settings": r["settings"], "seed": 8}).json()
     for _ in range(300):
         st = c.get(f"/api/jobs/{j['id']}").json()
@@ -137,4 +138,18 @@ def test_the_text_box_sits_with_the_terrain_picker():
     assert html.index('id="city-terrain-preset"') < html.index('id="city-terrain-describe"') < html.index('id="city-roll-keep-shape"')
     assert "Describe the terrain" in html and 'id="city-terrain-chosen"' in html
     js = (STATIC / "city.js").read_text()
-    assert "site/terrain/describe" in js and "keyword matching" in js
+    assert "site/terrain/describe" in js and "Keyword matching" in js
+
+
+def test_describe_says_what_it_understood_and_what_it_didnt():
+    r = td.describe("island, hills, volcano, cities circling it", use_vlm=False)
+    assert r["matched"] and r["understood"] == ["island", "hills"]
+    assert r["not_understood"] == ["volcano", "cities circling it"]
+    r = td.describe("an island with no mountains", use_vlm=False)
+    assert r["understood"] == ["island", "no mountains"] and r["not_understood"] == []
+
+
+def test_describe_flags_a_description_nothing_matched():
+    r = td.describe("somewhere nice", use_vlm=False)
+    assert not r["matched"] and r["understood"] == [] and "island" in r["try"]
+    assert r["preset"] == "coastal-plain"                      # what the CLI and Apply always did

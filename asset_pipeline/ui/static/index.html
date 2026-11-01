@@ -174,12 +174,14 @@
           <div class="row">
             <label title="The city's overall shape; a roll and Apply layout use it">Layout: <select id="city-layout-preset"></select></label>
             <label title="Re-rolls only the layout's own shape (a blob outline, organic avenues), apart from the city seed">Layout seed: <input type="number" id="city-layout-seed" min="0" max="2147483647" step="1" style="width:7em"></label>
+            <label class="check" title="Apply picks a new random layout seed and writes it into the field first, so untick Random to reproduce the result"><input type="checkbox" id="city-layout-seed-random"> Random</label>
             <button type="button" id="city-layout-apply" class="small" title="Use this layout and layout seed and re-plan; the city rules and seed stay">Apply layout</button>
           </div>
           <p class="hint" id="city-layout-desc" style="margin:0 0 6px"></p>
           <div class="row">
             <label title="The ground the city stands on, apart from its layout: rerolling the terrain keeps the layout, rerolling the city keeps the terrain">Terrain: <select id="city-terrain-preset"></select></label>
             <label title="The terrain's own seed: the same preset and seed give the same ground (empty: a new one)">Terrain seed: <input type="number" id="city-terrain-seed" min="0" max="2147483647" step="1" placeholder="random" style="width:7em"></label>
+            <label class="check" title="Apply picks a new random terrain seed and writes it into the field first, so untick Random to reproduce the result"><input type="checkbox" id="city-terrain-seed-random"> Random</label>
             <button type="button" id="city-terrain-apply" class="small" title="Make this terrain and re-plan the city on it; the layout, its seeds and rules stay">Apply terrain</button>
           </div>
           <p class="hint" id="city-terrain-desc" style="margin:0 0 6px"></p>

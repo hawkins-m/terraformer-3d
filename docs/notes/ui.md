@@ -224,3 +224,13 @@ The browser UI: static versioning, script scope, list layout, polling redraws, j
 - `protected` in project.json: None = protected while the project has approved assets (library_review.json `_reviews` or a
   version marked approved); True / False is the user's choice. The open project is passed by the page (`current`).
 - Last opened lives in $AP_ROOT/project-meta.json (machine fact, not project content), touched by GET /api/projects/{slug}.
+
+## Layout tab: picks stay on show, Random seeds, Describe line (2026-11-01)
+- Apply layout / Apply terrain / Roll a city keep the picked preset and seeds in their fields
+  (`dataset.dirty`) until the job they started is done (`rollHold` in city.js); a poll or refetch never
+  blanks or resets them, and Cancel / Run in background / a failed job leave them as picked. The fields are
+  greyed while a plan job runs.
+- Random ticks (`#city-layout-seed-random`, `#city-terrain-seed-random`, per project in
+  `ap.rollRandom.<slug>`): Apply writes a new seed into the field first and greys it.
+- Describe returns `matched`, `understood`, `not_understood`, `try` (terrain_describe.understood: clause
+  split on commas / and / with; the model path asks for `not_understood`). Nothing matched: no change to the picker.

@@ -93,12 +93,60 @@ def keywords(text: str, prefer: str | None = None) -> dict:
                 else:
                     tweaks.pop(k, None)           # the preset already has it off: undo a tweak that turned it on
             why.append(reason)
-    return {"preset": name, "tweaks": tweaks, "why": why}
+    return {"preset": name, "tweaks": tweaks, "why": why, "matched": bool(best or why)}
+
+
+# words shown when nothing matched (a few of what keywords() understands)
+TRY_WORDS = ("island", "canyon", "mountains", "river valley", "hills", "plateau", "coast", "beach", "flat plain",
+             "rugged", "rolling", "steep", "cliffs", "terraces", "inland")
+_SPLIT = re.compile(r"[,;.\n]|\b(?:and|with|but|plus|then)\b")
+_LEAD = {"a", "an", "the", "some", "of", "in", "on", "at", "by", "to", "around", "and", "with", "also", "really", "very"}
+_FILLER = _LEAD | {"it", "its", "is", "are", "be", "there", "city", "town", "land", "terrain", "ground", "landscape",
+                   "place", "area", "please", "make", "want", "like", "near", "that", "this", "has", "have", "for"}
+
+
+def _vocab():
+    pats = [re.escape(w) for ws in PRESET_WORDS.values() for w in ws]
+    return [re.compile(r"\b(?:" + "|".join(sorted(pats, key=len, reverse=True)) + r")\w*")] + \
+        [re.compile(p) for p, _, _ in TWEAKS] + [re.compile(p) for p, _, _ in NEGATED]
+
+
+def understood(text: str) -> tuple[list[str], list[str]]:
+    """(the words keywords() recognised, as written, a negated one as "no river"; the parts it didn't:
+    clauses with no recognised word and something besides filler)."""
+    t = " " + re.sub(r"\s+", " ", text.lower()).strip() + " "
+    neg = [(m.start(1), m.end(1), m.group(0).split()[0]) for m in _NEG.finditer(t)]
+    hits = []
+    for rx in _vocab():
+        for m in rx.finditer(t):
+            hits.append((m.start(), m.end()))
+    hits = [h for h in hits if not any(o != h and o[0] <= h[0] and h[1] <= o[1] for o in hits)]   # keep the longest
+    hits = sorted(set(hits))
+    seen, got = set(), []
+    for a, b in hits:
+        n = next((w for x, y, w in neg if x <= a and b <= y), None)
+        label = f"{n} {t[a:b].strip()}" if n else t[a:b].strip()
+        if label not in seen:
+            seen.add(label)
+            got.append(label)
+    lost, pos = [], 0
+    for m in list(_SPLIT.finditer(t)) + [re.search(r"$", t)]:
+        a, b = pos, m.start()
+        pos = m.end()
+        if any(a <= h[0] and h[1] <= b + 1 for h in hits):
+            continue
+        words = t[a:b].split()
+        while words and words[0].strip("'\"()") in _LEAD:
+            words.pop(0)
+        if any(w.strip("'\"()") not in _FILLER for w in words):
+            lost.append(" ".join(words))
+    return got, lost
 
 
 SYSTEM = ("You map a short description of a landscape to one terrain preset and a few setting tweaks for a "
           "procedural terrain generator. Answer with JSON only. Choose the preset closest to the description, and "
-          "tweak only what the description asks for that the preset doesn't already have.")
+          "tweak only what the description asks for that the preset doesn't already have. In not_understood, list "
+          "any part of the description no preset or setting can show (an empty list when all of it fits).")
 
 
 def _prompt(text: str) -> str:
@@ -112,7 +160,8 @@ def _prompt(text: str) -> str:
 SCHEMA = {"type": "object", "properties": {
     "preset": {"type": "string", "enum": list(terrain_gen.PRESETS)},
     "tweaks": {"type": "object"},
-    "reason": {"type": "string"}}, "required": ["preset", "tweaks"]}
+    "reason": {"type": "string"},
+    "not_understood": {"type": "array", "items": {"type": "string"}}}, "required": ["preset", "tweaks"]}
 
 
 def vlm_pick(text: str) -> dict | None:
@@ -132,13 +181,16 @@ def vlm_pick(text: str) -> dict | None:
             return None
         tweaks = {k: v for k, v in (got.get("tweaks") or {}).items() if k in TWEAKABLE}
         _apply(name, tweaks)                      # validates (a bad value: the keywords instead)
-        return {"preset": name, "tweaks": tweaks, "why": [str(got.get("reason") or "").strip()][:1]}
+        lost = [str(x).strip() for x in (got.get("not_understood") or []) if str(x).strip()][:6]
+        return {"preset": name, "tweaks": tweaks, "why": [str(got.get("reason") or "").strip()][:1],
+                "matched": True, "not_understood": lost}
     except Exception:                             # noqa: BLE001 - any failure: the keywords decide
         return None
 
 
 def describe(text: str, prefer: str | None = None, use_vlm: bool = True) -> dict:
-    """{preset, tweaks, settings (TerrainSettings), source: vlm | keywords, summary}."""
+    """{preset, tweaks, settings (TerrainSettings), source: vlm | keywords, summary, matched (False: keyword
+    matching found no word it knows, so the preset is only the fallback), understood, not_understood}."""
     if not (text or "").strip():
         raise ValueError("describe the terrain in a few words")
     pick = vlm_pick(text) if use_vlm else None
@@ -147,5 +199,10 @@ def describe(text: str, prefer: str | None = None, use_vlm: bool = True) -> dict
     s = _apply(pick["preset"], pick["tweaks"])
     tw = ", ".join(f"{k}={v}" for k, v in pick["tweaks"].items())
     why = "; ".join(w for w in pick["why"] if w)
+    if source == "vlm":
+        got, lost = [pick["preset"]] + [f"{k} {v}" for k, v in pick["tweaks"].items()], pick["not_understood"]
+    else:
+        got, lost = understood(text)
     return {"preset": pick["preset"], "tweaks": pick["tweaks"], "settings": s, "source": source,
+            "matched": pick["matched"], "understood": got, "not_understood": lost, "try": list(TRY_WORDS),
             "summary": f"{pick['preset']}" + (f" with {tw}" if tw else "") + (f" ({why})" if why else "")}

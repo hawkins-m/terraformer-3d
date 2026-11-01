@@ -49,13 +49,15 @@ function renderSite() {
 }
 
 async function siteAction(path, body = {}) {
-  try { await api(`/api/projects/${slug}/${path}`, body); }
+  let job = null;
+  try { job = await api(`/api/projects/${slug}/${path}`, body); }
   catch (err) {
     if (err.message.includes("edited in Blender") && confirm(`${errorText(err)}. Rebuild anyway? (the old file is kept as greybox.prev.blend)`))
       return siteAction(path, {...body, force: true});
     if (!err.message.includes("edited in Blender")) alert(errorText(err));
   }
   await load();
+  return job;
 }
 
 $("#site-init").onclick = () => siteAction("site/init");
