@@ -7,12 +7,15 @@ import math
 from pathlib import Path
 
 import numpy as np
+import shapely
 import pytest
 
 from asset_pipeline import city, city_background, city_library, city_size, city_view, greybox, layout_presets
 from asset_pipeline.project import ProjectStore, write_json
 from asset_pipeline.schema import CitySpec, SiteLayout
 from asset_pipeline.stages import s7_export, sw_site
+from shapely.geometry import Point
+from shapely.ops import unary_union
 from test_city import heights, small_city
 from test_classic_metro import on_terrain, shaped, spec_digest
 from test_layout_presets import digest
@@ -144,10 +147,14 @@ def test_the_background_is_round_the_city_and_cheap(backed):
     c = B.counts()
     assert B.half >= city_background.REACH * city_size.across(L.city.bounds) / 2 - 1
     assert c["forest_clumps"] > 500 and c["fields"] > 20 and c["ways"] >= 1
-    x0, y0, x1, y1 = L.city.bounds
-    clear = city_background.CITY_CLEAR_M - 1
-    inside = [t for t in B.forest if x0 - clear < t[0] < x1 + clear and y0 - clear < t[1] < y1 + clear]
-    assert not inside                                            # nothing in the city
+    blocks = unary_union(P.blocks + P.parks)
+    for xs, ys in ([t[0] for t in B.forest], [t[1] for t in B.forest]), ([t[0] for t in B.farms], [t[1] for t in B.farms]):
+        assert not shapely.contains_xy(blocks, np.array(xs), np.array(ys)).any()      # nothing on the city's blocks
+    assert not any(q.intersects(blocks) for q, _ in B.fields)
+    # ... but the country starts right at its edge: no empty ring round it
+    near = blocks.buffer(city_background.FRINGE_M / 2)
+    assert sum(near.contains(q.centroid) for q, _ in B.fields) > 10
+    assert sum(near.contains(Point(t[0], t[1])) for t in B.forest + B.farms) > 50
     z = B.z(np.array([t[0] for t in B.forest]), np.array([t[1] for t in B.forest]))
     assert float(z.min()) > L.sea_level                          # on land
     # the far terrain meets the tile at its edge, and climbs to hills away from it
@@ -159,21 +166,50 @@ def test_the_background_is_round_the_city_and_cheap(backed):
     assert again.forest == B.forest and again.counts() == c     # its own stream: reproducible
 
 
+def test_the_country_has_strip_fields_lanes_farmsteads_and_village_streets(backed):
+    _, _, _, B = backed
+    c = B.counts()
+    assert c["lanes"] >= 5 and c["hedges"] > 0 and c["village_streets"] >= 3 * c["villages"] > 0
+    ratio, turns = [], set()
+    for q, _ in B.fields:
+        r = q.minimum_rotated_rectangle
+        e = np.diff(np.asarray(r.exterior.coords)[:3], axis=0)
+        a, b = np.hypot(*e.T)
+        ratio.append(max(a, b) / max(min(a, b), 1e-6))
+        k = int(np.argmax([a, b]))
+        turns.add(round(math.degrees(math.atan2(e[k][1], e[k][0])) % 180 / 15))
+    assert np.median(ratio) > 2.5 and len(turns) >= 6              # long strips, many headings
+    kinds = [f[6] for f in B.farms]
+    assert kinds.count("barn") >= 5 and kinds.count("house") > kinds.count("barn")
+    for i, houses in enumerate(B.villages):                         # houses along the streets, clear of them
+        streets = [ln for lid, k, ln, _ in B.lanes if k == "street" and lid.startswith(f"v{i}-")]
+        assert len(streets) >= 2
+        st = unary_union(streets)
+        d = [st.distance(Point(h[0], h[1])) for h in houses]
+        assert min(d) > 3 and np.median(d) < 40
+
+
 def test_background_slots_are_instanced_pieces_and_the_viewer_gets_them(backed, tmp_path):
     L, h, P, B = backed
     keep: dict = {}
     spec = greybox.build_spec(L, h, keep=keep)
     assert keep["background"].counts() == B.counts() and spec["background"] == B.counts()
     forest = [s for s in spec["slots"] if s["type"] == "forest"]
-    assert forest and {p["piece"] for s in forest for p in s["pieces"]} == {"forest:clump"}
+    assert forest and {p["piece"] for s in forest for p in s["pieces"]} == {"forest:clump", "forest:hedge"}
     assert len({json.dumps(p["prim"], sort_keys=True) for s in forest for p in s["pieces"]}) == 1   # one mesh
+    assert {p["piece"] for s in forest for p in s["pieces"]} <= {"forest:clump", "forest:hedge"}
+    for t in ("lane", "village"):
+        assert any(s["type"] == t and s["id"].startswith(("lanes-", "farms-")) for s in spec["slots"])
+    country = [s for s in spec["slots"] if s["type"] in ("village", "forest")]
+    assert {p["prim"]["kind"] for s in country for p in s["pieces"]} <= {"box", "gable", "dome"}   # instanced
     city_background.save_far(B, tmp_path / "far.npz")
     z = np.load(tmp_path / "far.npz")
     assert float(z["x0"]) == -B.half and z["h"].shape[0] == z["h"].shape[1]
     core = L.terrain.extent_m / 2
     assert (core - (-B.half)) / float(z["cell"]) == pytest.approx(round((core + B.half) / float(z["cell"])))  # lines on the tile's edge
     v = city_view.background(B, greybox.Heights(h, L.terrain.extent_m), L.terrain.extent_m)
-    assert len(v["forest"]) == 5 * len(B.forest) and len(v["fields"]) == len(B.fields)
+    assert len(v["forest"]) == 5 * len(B.forest) and len(v["fields"]) == len(B.fields) and len(v["hedges"]) == 7 * len(B.hedges)
+    assert len(v["houses"]) == 7 * (len(B.farms) + sum(len(h) for h in B.villages)) and len(v["ways"]) == len(B.ways) + len(B.lanes)
     assert v["terrain"]["n"] <= city_view.BG_TERRAIN_N and len(v["terrain"]["z"]) == v["terrain"]["n"] ** 2
     json.dumps(v)
     im = city_background.plan_image(B, P.layout, P, px=400)

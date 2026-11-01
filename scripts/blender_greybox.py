@@ -53,7 +53,8 @@ COLORS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0
           "plinth": (0.80, 0.78, 0.72), "basin-kerb": (0.66, 0.64, 0.60), "paving": (0.62, 0.60, 0.56),
           # the background region (city_background)
           "forest": (0.09, 0.20, 0.07), "field:crop": (0.55, 0.50, 0.24), "field:fallow": (0.40, 0.36, 0.20),
-          "village": (0.72, 0.62, 0.50), "village:roof": (0.45, 0.22, 0.16)}
+          "village": (0.72, 0.62, 0.50), "village:roof": (0.45, 0.22, 0.16),
+          "village:barn": (0.48, 0.30, 0.22), "country:lane": (0.52, 0.48, 0.40)}
 WATER = {"pool-water", "court-pool", "canal"}
 MERGED = {"ribbon", "poly"}       # unique per piece: merged into one mesh per slot
 

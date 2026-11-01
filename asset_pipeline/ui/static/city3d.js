@@ -9,7 +9,7 @@ const C3D_COLORS = {tower: 0x7d86a6, midrise: 0xb39572, rowhouse: 0xa86b55, hous
   landmark: 0xf0e2a8, other: 0xbdbdbd};
 const C3D_ROADS = {highway: 0x7b7b7b, boulevard: 0xb4afa2, avenue: 0xd2cdbf, street: 0xe2ded3};
 const C3D_WATER = 0x3d6f98, C3D_PARK = 0x6d9a4f, C3D_PAVING = 0xc9c2b2, C3D_SKY = 0xc7d5e2;
-const C3D_FOREST = 0x3f6236, C3D_CROP = 0xc9b45e, C3D_FALLOW = 0x9a8a55, C3D_VILLAGE = 0xc9a487;
+const C3D_LANE = 0xc8bc9c, C3D_FOREST = 0x3f6236, C3D_CROP = 0xc9b45e, C3D_FALLOW = 0x9a8a55, C3D_VILLAGE = 0xc9a487;
 // A large or metro city (more buildings than this): instances chunked on a C3D_CHUNK_M grid so the
 // renderer culls what's off screen, and the small types dropped past these distances from the camera
 // (or that wide a top-down view); the background's forest clumps likewise. A standard city draws as before.
@@ -302,8 +302,8 @@ function c3dLodAdd(mesh, far) {
 }
 
 // The background region (city_view.background): its coarse terrain round the tile, tinted where the
-// forest and fields are; forest clumps (instanced domes, chunked, dropped far off), fields, village
-// houses and the highways and rivers carried on. All in the "country" group (its own toggle).
+// forest and fields are; forest clumps and hedges (instanced domes, chunked, dropped far off), fields,
+// village and farm buildings, lanes and the highways and rivers carried on. All in the "country" group (its own toggle).
 function c3dBackground(d, bg) {
   const T = c3d.T, G = c3d.groups.country, n = bg.terrain.n, span = bg.terrain.span, half = bg.half, core = d.extent / 2;
   const geo = new T.PlaneGeometry(span, span, n - 1, n - 1);
@@ -329,11 +329,12 @@ function c3dBackground(d, bg) {
   G.add(c3dPolys(d, fields[1], C3D_CROP, 0.6, fz));
   G.add(c3dPolys(d, fields[0], C3D_FALLOW, 0.6, fz));
   const roads = bg.ways.filter(w => w.kind !== "river"), water = bg.ways.filter(w => w.kind === "river");
-  G.add(c3dRibbons(roads, w => C3D_ROADS[w.kind] || C3D_ROADS.street, 2));
+  G.add(c3dRibbons(roads, w => w.kind === "lane" ? C3D_LANE : C3D_ROADS[w.kind] || C3D_ROADS.street, 2));
   G.add(c3dRibbons(water, () => C3D_WATER, 1));
   const dome = new T.SphereGeometry(0.5, 7, 3, 0, 2 * Math.PI, 0, Math.PI / 2);
   dome.scale(1, 1, 2).rotateX(Math.PI / 2);
   c3dInstances(G, dome, C3D_FOREST, bg.forest, 5, r => [r[0], r[1], r[2] - 2, r[3], r[3], r[4], 0], "forest");
+  c3dInstances(G, dome, C3D_FOREST, bg.hedges || [], 7, r => [r[0], r[1], r[2] - 1, r[3], r[4], r[5], r[6]], "forest");
   const box = new T.BoxGeometry(1, 1, 1);
   box.translate(0, 0, 0.5);
   c3dInstances(G, box, C3D_VILLAGE, bg.houses, 7, r => [r[0], r[1], r[2] - 0.3, r[3], r[4], r[5], r[6]], "village");

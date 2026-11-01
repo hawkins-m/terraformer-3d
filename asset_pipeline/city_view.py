@@ -164,8 +164,8 @@ BG_TERRAIN_N = 257
 
 def background(bg, hs, extent_m: float) -> dict:
     """The background region for the viewer: its coarse terrain (rows north -> south, the tile cut
-    out by the viewer), forest clumps [x, y, z, w, h], fields (ring, crop), village houses
-    [x, y, z, w, d, h, rot] and ways, all draped."""
+    out by the viewer), forest clumps [x, y, z, w, h], hedges [x, y, z, length, width, h, rot], fields
+    (ring, crop), village and farm buildings [x, y, z, w, d, h, rot] and ways (lanes too), all draped."""
     core = extent_m / 2
 
     def z(x, y):
@@ -177,16 +177,19 @@ def background(bg, hs, extent_m: float) -> dict:
     fx = np.array([f[0] for f in bg.forest]) if bg.forest else np.zeros(0)
     fy = np.array([f[1] for f in bg.forest]) if bg.forest else np.zeros(0)
     fz = z(fx, fy) if len(fx) else []
-    houses = [hh for v in bg.villages for hh in v]
+    houses = [hh[:6] for v in bg.villages + [bg.farms] for hh in v]
+    hx = np.array([t[0] for t in bg.hedges]) if bg.hedges else np.zeros(0)
+    hdz = z(hx, np.array([t[1] for t in bg.hedges])) if bg.hedges else []
     hz = z([hh[0] for hh in houses], [hh[1] for hh in houses]) if houses else []
     ways = []
-    for _, kind, ln, w in bg.ways:
+    for _, kind, ln, w in bg.ways + bg.lanes:
         pts = city._drape(z, list(ln.coords), city.WATER_LIFT if kind in WATER else 0.4, 40.0)
         ways.append({"kind": kind, "w": _r(w), "pts": [[_r(a), _r(b), _r(zz)] for a, b, zz in pts]})
     return {"half": _r(bg.half), "terrain": {"n": int(hd.shape[0]), "span": _r(bg.far["cell"] * step * (hd.shape[0] - 1)),
                                              "z": [_r(v) for v in hd.ravel()]},
             "forest": [v for (x, y, w, hh), zz in zip(bg.forest, fz) for v in (_r(x), _r(y), _r(zz), _r(w), _r(hh))],
             "fields": [[[[[_r(x), _r(y)] for x, y in q.exterior.coords[:-1]]], int(crop)] for q, crop in bg.fields],
+            "hedges": [v for (x, y, ln, w, hh, rot), zz in zip(bg.hedges, hdz) for v in (_r(x), _r(y), _r(zz), _r(ln), _r(w), _r(hh), _r(rot))],
             "houses": [v for (x, y, w, d, rot, hh), zz in zip(houses, hz) for v in (_r(x), _r(y), _r(zz), _r(w), _r(d), _r(hh), _r(rot))],
             "ways": ways}
 

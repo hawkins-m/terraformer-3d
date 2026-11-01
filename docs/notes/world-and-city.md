@@ -329,8 +329,8 @@ World and city mode: greybox and passes, concept frames and their control settin
 - `city_background.py`: the far terrain is the project's own generator over the whole region at ~30-35 m
   (its noise is grid-indexed, so it only matches the tile at the edge: the tile's edge heights fade into
   it over 1.5 km), hills rising to 260 m at the region's edge; grid lines meet the tile's edge so the
-  greybox's `npz_mesh` cut-out lines up. A city clearance with round corners let clumps into the bounds'
-  corners: the buffer is mitred.
+  greybox's `npz_mesh` cut-out lines up. (Its first version cleared the bounds + 350 m: an empty ring;
+  see "The background starts at the city's edge" below.)
 - Greybox collection instancing (large / metro): Blender 5.2 refused a collection as a Geometry Nodes
   modifier input (`id properties not supported`), so each mesh has its own node group copy with the
   Collection Info set on the node. Cycles gives GN instances the instancer's object colour: the ID pass
@@ -365,6 +365,39 @@ World and city mode: greybox and passes, concept frames and their control settin
   fields, ways: one GLB per slot), not the instances; it is labelled experimental in the UI
   (`city_size.EXPERIMENTAL`). The editor's own 120 fps cap holds with the cvars off; GPU load is the
   better gauge. Software GL (swiftshader): metro's viewer 1.5 fps at the whole city, 3.0 with its LOD.
+
+## The background starts at the city's edge (2026-11-01)
+- `city_background._Edge`: the city's blocks, parks, markets, buildings, pads and civic cores on a 20 m
+  raster (scipy EDT): distance from its built edge; plus its streets and trees: distance from anything
+  of it (nothing within 25 m). The bounds' box isn't used: the large scratch city's blocks fill only
+  part of it (stepped outline), and the old bounds + 350 m clearance left a bare ring 0.5-1.5 km wide.
+- Bands by distance from that edge x (1 + 0.35 noise): fringe < 900 m (houses along every road, small
+  farms of 20-60 m strips, copses), belt < 4.2 km (farm estates, woods between, rare meadows), then
+  forest with clearings; farms there only within 1.5 km of a road or river on flat ground.
+- Farmland: Voronoi estates (650 m seeds), each lined up with the nearest road / river / city street
+  (one in four turned 90 deg), rows of strips of mixed widths, one row in five turned across; hedges
+  (one stretched dome per <= 220 m) or tree lines on some long sides. An estate whose seed lies in the
+  city or the sea still gets its strips: each strip is tested on its own (else bare blobs at the edge).
+- Lanes grow in 50 m steps (heading noise 0.6 x turn + N(0, 1.2 deg)) off the highways every 0.9-1.9 km
+  and out of the city's edge every ~900 m; they stop on water, the city, a village or the region's edge,
+  and join another road (100 m cells). Farmsteads (house + 1-2 barns, 48 m yard) along lanes and highways
+  past the fringe. Villages: a main street off the highway, 2-4 side streets, houses along both, a hall.
+- Cost (Unreal assets are one per slot and draped piece): fields per 3 km slot (was 2 km), lanes and
+  village streets per 4 km slot, houses / barns / hedges on the existing box, gable and dome meshes.
+  Scratch large (classic, seed 3), Unreal on a fresh UE project:
+
+  | Large | before | after |
+  |---|---|---|
+  | fields / forest clumps / hedges | 1,845 / 18.7k / - | 5,040 / 29.7k / 220 |
+  | villages (houses) / farm buildings / lanes + village streets | 7 (160) / - / - | 10 (1,238) / 422 / 59 + 29 |
+  | background plan | 0.4 s | 3.3 s |
+  | slots / Unreal assets / instances | 834 / 471 / 37.8k | 896 / 439 / 52.1k |
+  | greybox build | 34 s | 38 s |
+  | Unreal build, fresh project, warm DDC | 2.7 min (import 90 s) | 2.6 min (import 97 s) |
+  | first build after the change (new meshes not cached) | - | 3.9 min (import 161 s) |
+  | viewer (R9700): scene built / frame orbiting | 82 ms / 0.3 ms | 105 ms / 0.3 ms |
+- Measured bare land (nothing on it, by distance from the edge) after: 0-300 m 29 % (yards, meadows),
+  300-900 m 12 %, 0.9-2 km 10 %, 2-4.2 km 8 %, beyond 7 % (lattice gaps).
 
 ## Merge ground surfaces (2026-10-31)
 - `ground_merge.py` (project.json `unreal.merge_ground`: off / auto = metro only / on): the export joins each
