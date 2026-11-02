@@ -177,7 +177,7 @@ def test_the_layout_tab_shows_the_line_and_applies_the_spec():
     html = (STATIC / "index.html").read_text()
     assert html.index('id="city-terrain-preset"') < html.index('id="city-terrain-describe"') < html.index('id="city-terrain-chosen"')
     js = (STATIC / "city.js").read_text()
-    assert "site/terrain/describe" in js and 'value="described"' in js and "body.compose = spec.compose" in js
+    assert "site/terrain/describe" in js and 'value="described"' in js and "out.compose = spec.compose" in js
     assert "Ignored:" in js and "local vision model" in js and "keywords (the local model isn't running)" in js
 
 

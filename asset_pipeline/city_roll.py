@@ -205,6 +205,7 @@ def summary(store: ProjectStore) -> dict:
             terrain |= {"line": terrain_compose.line(ts.compose), "compose": ts.compose.model_dump(mode="json")}
     except FileNotFoundError:
         pass
+    terrain["described"] = described(store, terrain)
     terrain["presets"] = terrain_gen.summary()
     size |= {"sizes": city_size.summary(), "detail_radius_default": city_size.default_detail_radius()}
     return {"groups": GROUPS, "seed": seed, "preset": preset, "layout_seed": layout_seed, "terrain": terrain, "size": size,
@@ -250,9 +251,17 @@ def _with_shape(layout: SiteLayout, preset: str | None, layout_seed: int | None)
     return layout
 
 
-def set_preset(store: ProjectStore, preset: str | None = None, layout_seed: int | None = None, log=print) -> dict:
+def set_preset(store: ProjectStore, preset: str | None = None, layout_seed: int | None = None, log=print,
+               terrain: dict | None = None, replace_heightmap: bool = False) -> dict:
     """Change the layout preset and/or layout seed alone and re-plan (rules, seed and shots stay).
+    `terrain`: the Terrain pick as shown ({preset, seed, compose, own}); built first when it isn't the active one.
     Returns the stats."""
+    if terrain:
+        s, changed = terrain_choice(_layout_or_starter(store), terrain)
+        if changed:
+            if s is not None and s.compose is not None:
+                remember_described(store, s.compose, terrain.get("text") or "")
+            set_terrain(store, s, log=log, shots=False, replace_heightmap=replace_heightmap)
     layout = _with_shape(_layout_or_starter(store), preset, layout_seed)
     stats = _plan(store, layout, log)
     store.log_run({"stage": "site.preset", "preset": layout.city.preset.name, "layout_seed": layout.city.layout_seed,
@@ -264,12 +273,118 @@ class HeightmapInUse(ValueError):
     """The project's terrain is a heightmap (a terrain build): a generated terrain would replace it."""
 
 
+# --- which terrain is active: the project's own, a preset, or the described one ----------------------
+# The described spec (and the words it came from) is kept apart from the active terrain, so picking "described"
+# again works after another terrain was built. Likewise the project's own coast's fields (the legacy generator).
+OWN_FIELDS = ("sea_dir", "bay_m", "bay_lateral_m", "bay_width_m", "headland_m", "headland_width_m", "city_radius_m", "z_range")
+
+
+def described_path(store: ProjectStore):
+    from .stages import sw_site
+    return sw_site.site_dir(store) / "terrain_described.json"
+
+
+def remember_described(store: ProjectStore, compose, text: str = "") -> None:
+    """Keep the spec Describe made (a TerrainCompose) and the words that made it."""
+    old = read_json(described_path(store)) or {}
+    c = compose.model_dump(mode="json")
+    if not text and old.get("compose") == c:       # the same spec again: the words behind it stay
+        text = old.get("text", "")
+    write_json(described_path(store), {"compose": c, "text": text or ""})
+
+
+def described(store: ProjectStore, terrain: dict | None = None) -> dict | None:
+    """{compose, line, text} of the kept described spec; else the active terrain's own spec; else None."""
+    from . import terrain_compose
+    from .schema import TerrainCompose
+    d = read_json(described_path(store))
+    try:
+        if d:
+            spec = TerrainCompose.model_validate(d["compose"])
+            return {"compose": spec.model_dump(mode="json"), "line": terrain_compose.line(spec), "text": d.get("text", "")}
+    except (KeyError, ValueError):
+        pass
+    if terrain and terrain.get("compose"):
+        return {"compose": terrain["compose"], "line": terrain["line"], "text": ""}
+    return None
+
+
+def _own_path(store: ProjectStore):
+    from .stages import sw_site
+    return sw_site.site_dir(store) / "terrain_own.json"
+
+
+def terrain_with(store: ProjectStore, t: TerrainSpec, s) -> TerrainSpec:
+    """The terrain spec with these TerrainSettings; s None: the project's own coast again (its legacy
+    fields as they were before a generated terrain first replaced them)."""
+    from . import terrain_gen
+    if s is not None:
+        if t.settings is None and not _own_path(store).exists():
+            write_json(_own_path(store), {f: getattr(t, f) for f in OWN_FIELDS})
+        return terrain_gen.with_settings(t, s)
+    if t.settings is None:
+        return t
+    snap = read_json(_own_path(store)) or {}
+    upd = {f: snap.get(f, TerrainSpec.model_fields[f].default) for f in OWN_FIELDS}
+    return TerrainSpec.model_validate({**t.model_dump(mode="json"), **upd, "settings": None})
+
+
+def terrain_choice(layout: SiteLayout, choice: dict | None):
+    """What a Terrain pick (the dropdown and seed as shown) asks for, against the layout's active terrain:
+    (settings, changed). settings None with changed: the project's own. `choice` is {preset, seed, compose, own}."""
+    from . import terrain_compose, terrain_gen
+    from .schema import TerrainCompose
+    if not choice:
+        return None, False
+    act = layout.terrain.settings
+    seed = choice.get("seed")
+    if choice.get("own"):
+        return None, act is not None
+    if choice.get("compose") is not None:
+        spec = TerrainCompose.model_validate(choice["compose"])
+        changed = act is None or act.compose != spec or (seed is not None and seed != act.seed)
+        if seed is None:
+            seed = act.seed if act is not None and not changed else int(np.random.default_rng().integers(1, 2**31 - 1))
+        return terrain_compose.compose(spec, seed=seed, extent_m=layout.terrain.extent_m), changed
+    name = choice.get("preset")
+    if not name:
+        return None, False
+    changed = act is None or act.name != name or act.compose is not None or (seed is not None and seed != act.seed)
+    if seed is None:
+        seed = act.seed if act is not None and not changed else int(np.random.default_rng().integers(1, 2**31 - 1))
+    return terrain_gen.get(name).model_copy(update={"seed": seed}), changed
+
+
+def pick_terrain(store: ProjectStore, choice: dict | None, replace_heightmap: bool = False):
+    """Make the Terrain pick active in the saved layout (the city standard-sized, its districts as they
+    were; the caller plans). Returns the layout it replaced, or None when the pick is already active."""
+    from . import city_size
+    layout = _layout_or_starter(store)
+    s, changed = terrain_choice(layout, choice)
+    if not changed:
+        return None
+    if layout.terrain.heightmap and not replace_heightmap:
+        raise HeightmapInUse(f"the terrain is a heightmap ({layout.terrain.heightmap}): a generated terrain replaces it "
+                             "(replace_heightmap / --replace-heightmap)")
+    if s is not None and s.compose is not None:
+        remember_described(store, s.compose, (choice or {}).get("text") or "")
+    L = city_size.sized(layout, "standard").model_copy(deep=True)
+    x0, y0, x1, y1 = L.city.bounds
+    if s is not None and s.centre == (0.0, 0.0):
+        s = s.model_copy(update={"centre": ((x0 + x1) / 2, (y0 + y1) / 2)})
+    L.terrain = terrain_with(store, L.terrain, s)
+    L = SiteLayout.model_validate(L.model_dump(mode="json"))
+    from .stages import sw_site
+    sw_site.save_layout(store, L)
+    return layout
+
+
 def set_terrain(store: ProjectStore, settings, log=print, shots: bool = True, replace_heightmap: bool = False) -> dict:
-    """The terrain from these TerrainSettings (terrain_gen), the city's layout preset, its seeds and
+    """The terrain from these TerrainSettings (terrain_gen; None: the project's own coast), the city's
+    layout preset, its seeds and
     rules kept: the districts are placed again on the new ground (a preset with a shape recipe: the
     same recipe and seed; utopia: moved out of any water), then the plan and the auto shots.
     A heightmap terrain is replaced only with replace_heightmap. Returns the stats."""
-    from . import terrain_gen
     from .stages import sw_site
     layout = _layout_or_starter(store)
     if layout.terrain.heightmap and not replace_heightmap:
@@ -278,8 +393,8 @@ def set_terrain(store: ProjectStore, settings, log=print, shots: bool = True, re
     from . import city_size
     L = city_size.sized(layout, "standard").model_copy(deep=True)    # a large / metro city: its standard one, scaled again below
     x0, y0, x1, y1 = L.city.bounds
-    s = settings.model_copy(update={"centre": ((x0 + x1) / 2, (y0 + y1) / 2)}) if settings.centre == (0.0, 0.0) else settings
-    L.terrain = terrain_gen.with_settings(L.terrain, s)
+    s = settings.model_copy(update={"centre": ((x0 + x1) / 2, (y0 + y1) / 2)}) if settings is not None and settings.centre == (0.0, 0.0) else settings
+    L.terrain = terrain_with(store, L.terrain, s)
     L = SiteLayout.model_validate(L.model_dump(mode="json"))
     if layout.city.size != "standard":
         L = city_size.sized(L, layout.city.size)
@@ -291,13 +406,13 @@ def set_terrain(store: ProjectStore, settings, log=print, shots: bool = True, re
             L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))
     else:
         L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))
-    if s.compose is not None and s.compose.city and city_shape.has_recipe(L.city.preset.name):
+    if s is not None and s.compose is not None and s.compose.city and city_shape.has_recipe(L.city.preset.name):
         L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))      # a described terrain's city hints place the districts
     L.city.preset, L.city.layout_seed = layout.city.preset.model_copy(deep=True), layout.city.layout_seed   # exactly as it was
     stats = _plan(store, L, log)
     if shots:
         sw_site.set_city_shots(store)
-    store.log_run({"stage": "site.terrain", "terrain": s.name, "terrain_seed": s.seed, "buildings": stats.get("buildings")})
+    store.log_run({"stage": "site.terrain", "terrain": s.name if s else "own", "terrain_seed": s.seed if s else None, "buildings": stats.get("buildings")})
     return stats
 
 
@@ -310,7 +425,24 @@ def _keep_shape_of(layout: SiteLayout, own: SiteLayout) -> SiteLayout:
 
 def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True,
          preset: str | None = None, layout_seed: int | None = None, keep_shape: bool = False,
-         size: str | None = None, extended: bool = True) -> dict:
+         size: str | None = None, extended: bool = True, terrain: dict | None = None,
+         replace_heightmap: bool = False) -> dict:
+    """roll(), on the terrain as picked: `terrain` ({preset, seed, compose, own}) is made active first when it
+    isn't already (the saved layout is put back if the roll then fails)."""
+    before = pick_terrain(store, terrain, replace_heightmap) if terrain else None
+    try:
+        return _roll(store, seed, keep, log, shots, preset, layout_seed, keep_shape,
+                     size if size is not None or before is None else before.city.size, extended)
+    except Exception:
+        if before is not None:
+            from .stages import sw_site
+            sw_site.save_layout(store, before)
+        raise
+
+
+def _roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True,
+          preset: str | None = None, layout_seed: int | None = None, keep_shape: bool = False,
+          size: str | None = None, extended: bool = True) -> dict:
     """Roll the city rules (the groups in `keep` stay) with `seed` (None: a random one, rolled
     again while the plan fails the housing-share check), save, re-plan and remember it. `preset`
     / `layout_seed`: the city's shape (None: the layout's own; preset "random": one drawn from each

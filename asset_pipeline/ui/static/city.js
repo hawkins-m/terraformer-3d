@@ -454,7 +454,9 @@ async function rollCity() {
   const v = $("#city-roll-seed").value.trim();
   const keep = [...$("#city-roll-keep").querySelectorAll("[data-keep]:checked")].map(x => x.dataset.keep);
   const size = $("#city-size").value || null;
-  const body = {seed: v === "" ? null : Number(v), keep, keep_shape: $("#city-roll-keep-shape").checked, ...layoutChoice(), size};
+  const terrain = await terrainChoice();
+  if (terrain === false) return;
+  const body = {seed: v === "" ? null : Number(v), keep, keep_shape: $("#city-roll-keep-shape").checked, ...layoutChoice(), size, terrain};
   holdPicks(await siteAction("site/roll", body));
 }
 // keep the layout (and terrain) picks on show until the job they started is done
@@ -486,17 +488,21 @@ function paintTerrain() {
     sel.value = d.name === "described" ? "described" : d.name && d.presets.some(p => p.name === d.name) ? d.name : "";
   if (document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.seed ?? "";
   const p = d.presets.find(x => x.name === sel.value), spec = describedSpec();
+  const box = $("#city-terrain-describe");     // the words behind the stored spec, unless the user is typing
+  if (d.described && d.described.text && document.activeElement !== box && !box.dataset.dirty) box.value = d.described.text;
   $("#city-terrain-desc").textContent = sel.value === "described"
     ? (spec ? spec.line : "Describe the terrain below first, then Apply terrain.")
     : p ? p.description
     : d.heightmap ? `The terrain is the heightmap ${d.heightmap}; a terrain preset replaces it (it asks first).` : "The project's own generated coast.";
-  $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length || !sel.value || (sel.value === "described" && !spec);
+  const act = d.name === "described" ? "described" : d.name && d.presets.some(x => x.name === d.name) ? d.name : "";
+  const seedText = ls.value.trim(), differs = sel.value !== act || (seedText !== "" && Number(seedText) !== d.seed);
+  $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length || !differs || (sel.value === "described" && !spec);
 }
 // what Describe made (a terrain spec, terrain_compose): Apply terrain builds exactly that while "described" is picked
 let terrainPick = null;
 function describedSpec() {          // {compose, line}: Describe's latest, else the terrain's own (Apply again: a new terrain seed)
   const d = rollData && rollData.terrain;
-  return terrainPick || (d && d.compose ? {compose: d.compose, line: d.line} : null);
+  return terrainPick || (d && d.described ? {compose: d.described.compose, line: d.described.line} : null);
 }
 async function describeTerrain() {
   const text = $("#city-terrain-describe").value.trim(), out = $("#city-terrain-chosen");
@@ -554,29 +560,40 @@ $("#city-terrain-spec-check").onclick = async () => {
     showDescribed(r);
   } catch (err) { msg.textContent = errorText(err); }
 };
+$("#city-terrain-describe").oninput = e => { e.target.dataset.dirty = "1"; };
 $("#city-terrain-describe-go").onclick = () => describeTerrain();
 $("#city-terrain-describe").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); describeTerrain(); } };
-async function applyTerrain(extra) {
+// The Terrain dropdown and seed exactly as shown now (null: nothing to send; false: the user said no to replacing a
+// heightmap). The server builds it first when it isn't the active terrain; the dropdown is never switched here.
+async function terrainChoice() {
+  const sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed").value.trim(), d = (rollData && rollData.terrain) || null;
+  if (!d) return null;
   rollSeedFor("terrain");
-  const sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed").value.trim(), d = (rollData && rollData.terrain) || {};
-  const body = {preset: sel.value && sel.value !== "described" ? sel.value : null, seed: ls === "" ? null : Number(ls), ...(extra || {})};
-  if (sel.value === "described") {           // exactly the spec Describe showed (or the terrain's own: a new terrain seed)
+  const seed = $("#city-terrain-seed").value.trim() === "" ? null : Number($("#city-terrain-seed").value);
+  const out = {seed};
+  if (sel.value === "") out.own = true;
+  else if (sel.value === "described") {
     const spec = describedSpec();
-    if (!spec) return;
-    body.compose = spec.compose;
-  }
-  if (d.heightmap) {
+    if (!spec) return null;
+    out.compose = spec.compose; out.text = $("#city-terrain-describe").value.trim();
+  } else out.preset = sel.value;
+  sel.dataset.dirty = "1";                       // the pick stays on show until the job is done (rollHold)
+  if (d.heightmap && sel.value !== "") {
     const ok = await confirmDialog({title: "Replace the heightmap?", button: "Replace",
       body: `<p>The terrain is the heightmap <code>${esc(d.heightmap)}</code> (a terrain build). A generated terrain replaces it; the city's layout stays.</p>`});
-    if (!ok) return;
-    body.replace_heightmap = true;
+    if (!ok) return false;
+    out.replace_heightmap = true;
   }
-  sel.dataset.dirty = "1";                       // the pick stays on show until the job is done (rollHold)
-  holdPicks(await siteAction("site/terrain", body));
+  return out;
+}
+async function applyTerrain(extra) {
+  const t = await terrainChoice();
+  if (!t) return;
+  const {replace_heightmap, ...rest} = t;
+  holdPicks(await siteAction("site/terrain", {...rest, ...(replace_heightmap ? {replace_heightmap} : {}), ...(extra || {})}));
 }
 $("#city-terrain-preset").onchange = e => {
   e.target.dataset.dirty = "1";
-  if (e.target.value !== "described") { terrainPick = null; $("#city-terrain-chosen").textContent = ""; }
   paintTerrain();
 };
 $("#city-terrain-seed").oninput = e => { e.target.dataset.dirty = "1"; };
@@ -624,7 +641,11 @@ function paintLayoutDesc() {
 }
 $("#city-layout-preset").onchange = e => { e.target.dataset.dirty = "1"; paintLayoutDesc(); };
 $("#city-layout-seed").oninput = e => { e.target.dataset.dirty = "1"; };
-$("#city-layout-apply").onclick = async () => holdPicks(await siteAction("site/preset", layoutChoice()));
+$("#city-layout-apply").onclick = async () => {
+  const terrain = await terrainChoice();
+  if (terrain === false) return;
+  holdPicks(await siteAction("site/preset", {...layoutChoice(), terrain}));
+};
 async function rollStep(delta) {
   if (!(await rollConfirm())) return;
   await siteAction("site/roll/step", {delta});

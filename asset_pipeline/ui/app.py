@@ -315,6 +315,16 @@ class SiteReq(BaseModel):
     city: bool = False            # site/init: the starter city instead of the starter precinct
 
 
+class TerrainPick(BaseModel):
+    """The Terrain dropdown and seed as shown at the click: built first when it isn't the active terrain."""
+    preset: str | None = None          # a terrain preset; with compose / own unset
+    seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    compose: dict | None = None        # "described": exactly this spec (schema.TerrainCompose)
+    text: str = Field(default="", max_length=600)   # the words the spec came from (kept for the Describe box)
+    own: bool = False                  # "the project's own"
+    replace_heightmap: bool = False
+
+
 class RollReq(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
     keep: list[str] = []          # rule groups a roll leaves as they are (city_roll.GROUPS)
@@ -322,6 +332,7 @@ class RollReq(BaseModel):
     layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
     keep_shape: bool = False      # keep the current outline and districts (new streets only)
     size: Literal["standard", "large", "metro"] | None = None   # the city size (city_size); None: the layout's own
+    terrain: TerrainPick | None = None
 
 
 class TerrainReq(BaseModel):
@@ -329,6 +340,8 @@ class TerrainReq(BaseModel):
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
     describe: str | None = Field(default=None, max_length=600)    # words, made into a terrain spec (terrain_describe)
     compose: dict | None = None        # exactly this terrain spec (schema.TerrainCompose: what Describe showed); wins over describe
+    text: str = Field(default="", max_length=600)   # the words the spec came from (kept for the Describe box)
+    own: bool = False                  # the project's own terrain (the legacy coast), no preset
     settings: dict | None = None       # exactly these TerrainSettings; wins over preset / describe / compose
     replace_heightmap: bool = False
 
@@ -356,6 +369,7 @@ class SizeReq(BaseModel):
 class PresetReq(BaseModel):
     preset: str | None = None
     layout_seed: int | None = Field(default=None, ge=0, le=2**31 - 1)
+    terrain: TerrainPick | None = None
 
 
 class StepReq(BaseModel):
@@ -1524,14 +1538,43 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         if bad:
             raise HTTPException(400, f"unknown rule group(s): {', '.join(sorted(bad))}")
         _preset_check(req.preset, random_ok=True)
+        pick, replace = _pick(req)
+        _heightmap_check(store, pick, replace)
 
         def run():
             from ..jobs import current_job
             job = current_job()
             r = city_roll.roll(store, req.seed, req.keep, log=(lambda m: setattr(job, "note", str(m)[:200])) if job else print,
-                               preset=req.preset, layout_seed=req.layout_seed, keep_shape=req.keep_shape, size=req.size)
+                               preset=req.preset, layout_seed=req.layout_seed, keep_shape=req.keep_shape, size=req.size,
+                               terrain=pick, replace_heightmap=replace)
             return {"seed": r["seed"], "tries": r["tries"], "buildings": r["stats"]["buildings"], "warnings": r["stats"]["warnings"]}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True}).public()
+
+    def _pick(req):
+        """A request's Terrain pick as the dict city_roll takes (checked), and whether it replaces a heightmap."""
+        from .. import terrain_gen
+        from ..schema import TerrainCompose
+        t = req.terrain
+        if t is None:
+            return None, False
+        if t.preset is not None and t.preset not in terrain_gen.PRESETS:
+            raise HTTPException(400, f"unknown terrain preset {t.preset!r} (presets: {', '.join(terrain_gen.PRESETS)})")
+        try:
+            if t.compose is not None:
+                TerrainCompose.model_validate(t.compose)
+        except ValueError as e:
+            raise HTTPException(400, f"terrain spec: {e}")
+        return t.model_dump(exclude={"replace_heightmap"}), t.replace_heightmap
+
+    def _heightmap_check(store, pick, replace):
+        """A pick that would change a heightmap terrain needs the user's yes (replace_heightmap)."""
+        from .. import city_roll
+        try:
+            lay = sw_site.load_layout(store)
+        except FileNotFoundError:
+            return
+        if pick and lay.terrain.heightmap and not replace and city_roll.terrain_choice(lay, pick)[1]:
+            raise HTTPException(409, f"the terrain is a heightmap ({lay.terrain.heightmap}): confirm to replace it")
 
     def _preset_check(name, random_ok=False):
         from .. import layout_presets
@@ -1546,7 +1589,10 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         store = _store(slug)
         _roll_check(store)
         _preset_check(req.preset)
-        return jobs.submit("site.plan", slug, lambda: city_roll.set_preset(store, req.preset, req.layout_seed)["buildings"],
+        pick, replace = _pick(req)
+        _heightmap_check(store, pick, replace)
+        return jobs.submit("site.plan", slug, lambda: city_roll.set_preset(store, req.preset, req.layout_seed, terrain=pick,
+                                                                          replace_heightmap=replace)["buildings"],
                            lane="cpu", tag={"roll": True}).public()
 
     @app.post("/api/projects/{slug}/site/extended")
@@ -1589,7 +1635,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _roll_check(store)
         if req.preset is not None and req.preset not in terrain_gen.PRESETS:
             raise HTTPException(400, f"unknown terrain preset {req.preset!r} (presets: {', '.join(terrain_gen.PRESETS)})")
-        if not req.preset and not (req.describe or "").strip() and not req.settings and not req.compose:
+        if not req.preset and not req.own and not (req.describe or "").strip() and not req.settings and not req.compose:
             raise HTTPException(400, "give a terrain preset or a description")
         from ..schema import TerrainCompose, TerrainSettings
         try:
@@ -1611,7 +1657,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             log = (lambda m: setattr(job, "note", str(m)[:200])) if job else print
             from .. import terrain_compose, terrain_describe
             pick = None
-            if exact is not None:
+            if req.own and exact is None and spec is None and not (req.describe or "").strip():
+                settings = None
+            elif exact is not None:
                 settings = exact
             elif spec is not None or (req.describe or "").strip():
                 sp = spec
@@ -1621,11 +1669,12 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
                 ext = city_roll._layout_or_starter(store).terrain.extent_m
                 settings = terrain_describe.settings(sp, seed, ext)
                 pick = {"source": pick["source"] if pick else "spec", "line": terrain_compose.line(sp)}
+                city_roll.remember_described(store, sp, req.text or (req.describe or "").strip())
             else:
                 settings = terrain_gen.get(req.preset)
-            st = city_roll.set_terrain(store, settings.model_copy(update={"seed": seed}), log=log,
+            st = city_roll.set_terrain(store, settings.model_copy(update={"seed": seed}) if settings else None, log=log,
                                        replace_heightmap=req.replace_heightmap)
-            return {"terrain": settings.name, "seed": seed, "buildings": st["buildings"], "warnings": st["warnings"],
+            return {"terrain": settings.name if settings else "own", "seed": seed, "buildings": st["buildings"], "warnings": st["warnings"],
                     **({"described": pick} if pick else {})}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True, "terrain": True}).public()
 

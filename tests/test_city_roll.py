@@ -184,3 +184,80 @@ def test_a_roll_on_a_heightmap_terrain_places_its_shots_on_the_heightmap(store):
     assert any(abs(s.pos[2] - 1.7 - gen(*s.pos[:2])) > 5.0 for s in meds)
     with pytest.raises(ValueError, match="give the store"):
         sw_site.city_shots(lay)
+
+
+# --- Roll / Apply layout / Apply terrain use the Terrain pick as shown ---------------------------------
+
+VOLCANO = {"base": "island", "side": "south", "ground": "rolling",
+           "features": [{"type": "volcano", "at": "centre", "size": "large"}], "city": []}
+
+
+def _terrain_of(store):
+    t = sw_site.load_layout(store).terrain
+    return (t.settings.name if t.settings else None), (t.settings.seed if t.settings else None)
+
+
+@pytest.fixture
+def volcano(store, fast):
+    """A project whose terrain was built from Describe (a volcano island), with the words kept."""
+    from asset_pipeline.schema import TerrainCompose
+    spec = TerrainCompose.model_validate(VOLCANO)
+    pick = {"compose": VOLCANO, "seed": 11, "text": "a volcano island"}
+    city_roll.set_terrain(store, city_roll.terrain_choice(sw_site.load_layout(store), pick)[0], shots=False)
+    city_roll.remember_described(store, spec, "a volcano island")
+    assert _terrain_of(store) == ("described", 11)
+    return store
+
+
+def test_switching_from_described_to_a_preset_then_rolling_uses_the_preset(volcano):
+    r = city_roll.roll(volcano, 5, shots=False, terrain={"preset": "hill-city", "seed": 3})
+    assert r["seed"] == 5 and _terrain_of(volcano) == ("hill-city", 3)
+    assert city_roll.summary(volcano)["terrain"]["name"] == "hill-city"
+    # the volcano is kept for later, with the words behind it
+    d = city_roll.summary(volcano)["terrain"]["described"]
+    assert d["text"] == "a volcano island" and d["compose"]["features"][0]["type"] == "volcano"
+
+
+def test_the_projects_own_terrain_becomes_active_and_the_legacy_coast_returns(store, fast):
+    legacy = sw_site.load_layout(store).terrain
+    city_roll.roll(store, 5, shots=False, terrain={"preset": "hill-city", "seed": 3})
+    assert sw_site.load_layout(store).terrain.settings is not None
+    assert city_roll.terrain_choice(sw_site.load_layout(store), {"own": True}) == (None, True)
+    city_roll.set_terrain(store, None, shots=False)
+    t = sw_site.load_layout(store).terrain
+    assert t.settings is None and t.model_dump(mode="json") == legacy.model_dump(mode="json")
+    assert city_roll.summary(store)["terrain"]["name"] is None
+    city_roll.roll(store, 6, shots=False, terrain={"own": True})       # already active: nothing rebuilt
+    assert sw_site.load_layout(store).terrain.settings is None
+
+
+def test_switching_back_to_described_then_rolling_uses_the_stored_spec(volcano):
+    city_roll.roll(volcano, 5, shots=False, terrain={"own": True})
+    assert _terrain_of(volcano) == (None, None)
+    d = city_roll.summary(volcano)["terrain"]["described"]
+    city_roll.roll(volcano, 6, shots=False, terrain={"compose": d["compose"], "seed": 11, "text": d["text"]})
+    assert _terrain_of(volcano) == ("described", 11)
+    assert sw_site.load_layout(volcano).terrain.settings.compose.features[0].type == "volcano"
+    city_roll.roll(volcano, 7, shots=False, terrain={"compose": d["compose"], "seed": 12})   # no words sent: kept
+    assert city_roll.summary(volcano)["terrain"]["described"]["text"] == "a volcano island"
+
+
+def test_a_pick_changed_without_apply_terrain_is_used_by_apply_layout(volcano):
+    city_roll.set_preset(volcano, None, None, terrain={"preset": "flat-plain", "seed": 4})
+    assert _terrain_of(volcano) == ("flat-plain", 4)
+
+
+def test_the_active_pick_is_left_alone_and_a_failed_roll_puts_the_layout_back(volcano):
+    before = json.dumps(sw_site.load_layout(volcano).model_dump(mode="json"), sort_keys=True)
+    city_roll.roll(volcano, 5, shots=False, terrain={"compose": VOLCANO, "seed": 11})   # already active: not rebuilt
+    assert _terrain_of(volcano) == ("described", 11)
+    with pytest.raises(ValueError):
+        city_roll.roll(volcano, 5, shots=False, preset="no-such-preset", terrain={"preset": "hill-city", "seed": 3})
+    assert _terrain_of(volcano) == ("described", 11)
+    assert before  # the layout was saved before and after; the terrain is the one that matters
+
+
+def test_the_ui_sends_the_pick_and_apply_terrain_follows_the_dropdown():
+    js = (STATIC / "city.js").read_text()
+    assert js.count("await terrainChoice()") == 3 and "size, terrain}" in js
+    assert "sel.value !== act" in js
