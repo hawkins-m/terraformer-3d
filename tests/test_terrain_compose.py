@@ -102,7 +102,8 @@ def test_city_hints_are_weights():
 def test_apply_a_described_terrain_plans_builds_and_draws_like_a_preset(tmp_path, monkeypatch, name):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))
     store = ProjectStore.create("p", start="city")
-    L = sw_site.starter_city()
+    from asset_pipeline import layout_presets
+    L = layout_presets.apply(sw_site.starter_city(), "classic")      # a new project's (its recipe fits the bounds to an island)
     L.terrain = L.terrain.model_copy(update={"resolution": 513})
     sw_site.save_layout(store, L)
     s = TC.compose(TerrainCompose.model_validate(SPECS[name]), seed=4, extent_m=L.terrain.extent_m)
@@ -123,3 +124,12 @@ def test_apply_a_described_terrain_plans_builds_and_draws_like_a_preset(tmp_path
         C = L2.terrain.settings.centre
         ds = [math.dist(n.center, C) for n in L2.city.nodes]
         assert sum(0.6 * R < d_ < 1.7 * R for d_ in ds) >= len(ds) - 1
+        a = [math.degrees(math.atan2(b.y - C[1], b.x - C[0])) for b in P.buildings]
+        assert (np.histogram(a, bins=12, range=(-180, 180))[0] > 20).sum() >= 9        # built all round the cone
+
+
+def test_heights_are_clamped_per_landform():
+    from asset_pipeline.schema import TerrainFeature
+    assert TC.height(TerrainFeature(type="lake", height_m=1000)) == 30.0
+    assert TC.height(TerrainFeature(type="plateau", height_m=1500)) == 600.0
+    assert TC.height(TerrainFeature(type="peak", height_m=500)) == 500.0

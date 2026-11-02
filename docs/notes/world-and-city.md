@@ -506,3 +506,12 @@ World and city mode: greybox and passes, concept frames and their control settin
 - Describe never changes the layout; Apply terrain sends the spec (`compose`) and the server composes it with
   the terrain seed and the layout's extent. The Terrain picker's "described" entry shows the spec's line and
   re-applies it with a new terrain seed.
+- Scratch check (2026-11-02, five descriptions, Describe -> Apply terrain in the browser on a new classic project):
+  every one built and drew. The classic metro fills blocks by its own density round downtown, so districts on
+  a hint's ring alone left a city on one shore: with hints, `Fields.density` takes max(own, 0.55 x weight)
+  (`hint_grid`, 257 per side). The volcano island then has buildings in every 30 deg sector round the cone.
+- Local model path (Qwen3-VL 32B on GPU 0 under a scratch root, stopped after): with the bare schema it gave a
+  1500 m plateau with a "1000 m" lake (height is a lake's depth), a delta on an island, ridges across a valley.
+  The prompt now gives typical heights, what each base already includes, the depth meaning, one example on an
+  unrelated landscape; `terrain_compose.MAX_HEIGHT` clamps per landform. Then all five validated first try and
+  matched the text (one earlier answer needed the retry).

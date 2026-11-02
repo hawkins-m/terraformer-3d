@@ -242,12 +242,31 @@ SYSTEM = ("You turn a short description of a landscape into a terrain spec for a
           "any part of the description the spec can't show (an empty list when all of it fits).")
 
 
+EXAMPLE = ("a rocky coast to the north with two small peaks inland and the town by the sea",
+           {"base": "coast", "side": "north", "ground": "rugged",
+            "features": [{"type": "peak", "at": "inland", "size": "small", "count": 1},
+                         {"type": "peak", "at": "south", "size": "small", "count": 1}],
+            "city": [{"kind": "coast"}]})
+
+
 def _prompt(text: str, error: str | None = None) -> str:
     schema = json.dumps(TerrainCompose.model_json_schema())
-    out = (f"Spec schema (JSON Schema): {schema}\n\nbase: island (the sea all round), coast (the sea on `side`), inland "
-           "(no sea), valley (two ridges either side of a valley to the sea on `side`), plateau (a raised table). "
-           "A volcano with a crater sets crater true. A delta is one river with count 4-6. A ring hint's feature is "
-           "the index of the landform it rings.\n\n"
+    ex_text, ex_spec = EXAMPLE
+    out = (f"Spec schema (JSON Schema): {schema}\n\n"
+           "Rules:\n"
+           "- base: coast unless the description says island, inland (no sea), valley or plateau. A delta, a bay, a "
+           "harbour or cliffs are on a coast; side is where the sea is (default south).\n"
+           "- A valley base already has its valley and the two ridges either side; don't list them (but a river valley "
+           "still lists its river). A plateau base "
+           "already is the raised table; list a plateau feature only to give its size or height.\n"
+           "- height_m is metres above the ground around it, null unless the description gives a height. Typical: "
+           "hills 40-120, ridge 150-500, peak 300-900, volcano 400-1200, plateau 80-400, cliffs 30-120. For a lake "
+           "or a valley it is the depth: lake 3-20, valley 30-200.\n"
+           "- A volcano with a crater sets crater true. A delta is one river with count 4-6 at the coast's centre. "
+           "Several hills or channels are one feature with a count.\n"
+           "- city: ring (round a landform; feature = its index), coast, valley, river, plateau; only what the "
+           "description says about where the city goes.\n\n"
+           f"Example: {ex_text}\nAnswer: {json.dumps({'spec': ex_spec, 'ignored': []})}\n\n"
            f"Description: {text.strip()}\n\nAnswer as {{\"spec\": <the spec>, \"ignored\": [<parts>]}}.")
     if error:
         out += f"\n\nYour last answer didn't validate: {error[:600]}. Answer again, valid this time."

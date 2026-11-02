@@ -60,8 +60,13 @@ def radius(t: TerrainSpec, f: TerrainFeature) -> float:
     return r0(t) * SIZE[f.size] * SHAPE[f.type] * SPREAD[f.steepness]
 
 
+# the most a landform may rise (a lake's or valley's depth), whatever a description or the model says
+MAX_HEIGHT = {"peak": 1400.0, "volcano": 1600.0, "ridge": 900.0, "hills": 250.0, "plateau": 600.0, "cliffs": 200.0,
+              "headland": 40.0, "valley": 300.0, "lake": 30.0, "bay": 0.0, "river": 0.0}
+
+
 def height(f: TerrainFeature) -> float:
-    h = f.height_m if f.height_m is not None else HEIGHT[f.type]
+    h = min(f.height_m, MAX_HEIGHT[f.type]) if f.height_m is not None else HEIGHT[f.type]
     return h * (1.4 if f.size == "large" and f.height_m is None else 0.7 if f.size == "small" and f.height_m is None else 1.0)
 
 

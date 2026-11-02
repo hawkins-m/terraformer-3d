@@ -137,6 +137,10 @@ class CityPlan:
 
 # --- fields ---------------------------------------------------------------------------------
 
+HINT_N = 257                 # the city hints' grid (Fields.hint_grid)
+HINT_DENSITY = 0.55          # the density a full hint weight gives (middle ring: terraces, mid-rise)
+
+
 class Fields:
     """Terrain height, slope, land and the density field, sampled at points."""
 
@@ -163,6 +167,12 @@ class Fields:
         self.outline = Outline(self.city, self) if self.city.preset.outline != "coastal" else None
         e = self.city.enclosure
         self.star = wall_outline(e) if e is not None and e.shape == "star" else None
+        self.hint_grid = None          # a described terrain's city hints (terrain_compose.weight), on a coarse grid
+        if ts is not None and ts.compose is not None and ts.compose.city:
+            from . import terrain_compose
+            g = np.linspace(-self.t.extent_m / 2, self.t.extent_m / 2, HINT_N)
+            hx, hy = np.meshgrid(g, g[::-1])
+            self.hint_grid = terrain_compose.weight(self.t, hx, hy)
 
     def z(self, x, y):
         return self.hs.many(x, y)
@@ -206,6 +216,15 @@ class Fields:
         return out & ~self.water(x, y) if self.water_grid is not None else out
 
     def density(self, x, y):
+        if self.hint_grid is not None:    # a described terrain's city hints raise the density where they weigh
+            x, y = np.asarray(x, float), np.asarray(y, float)
+            e = self.t.extent_m
+            j = np.clip(np.round((x / e + 0.5) * (HINT_N - 1)).astype(int), 0, HINT_N - 1)
+            i = np.clip(np.round((0.5 - y / e) * (HINT_N - 1)).astype(int), 0, HINT_N - 1)
+            return np.maximum(self._density(x, y), HINT_DENSITY * self.hint_grid[i, j])
+        return self._density(x, y)
+
+    def _density(self, x, y):
         x, y = np.asarray(x, float), np.asarray(y, float)
         c = self.city
         pr = c.preset
