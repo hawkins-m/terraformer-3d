@@ -54,7 +54,9 @@ COLORS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0
           # the background region (city_background)
           "forest": (0.09, 0.20, 0.07), "field:crop": (0.55, 0.50, 0.24), "field:fallow": (0.40, 0.36, 0.20),
           "village": (0.72, 0.62, 0.50), "village:roof": (0.45, 0.22, 0.16),
-          "village:barn": (0.48, 0.30, 0.22), "country:lane": (0.52, 0.48, 0.40)}
+          "village:barn": (0.48, 0.30, 0.22), "country:lane": (0.52, 0.48, 0.40),
+          # extended building types (city_extended)
+          "castle": (0.58, 0.55, 0.48)}
 WATER = {"pool-water", "court-pool", "canal"}
 MERGED = {"ribbon", "poly"}       # unique per piece: merged into one mesh per slot
 
@@ -195,6 +197,10 @@ def make_mesh(prim, name):
     elif k == "cylinder":
         bmesh.ops.create_cone(bm, cap_ends=True, segments=prim["seg"], radius1=prim["r"],
                               radius2=prim["r"], depth=prim["h"])
+        for v in bm.verts:
+            v.co.z += prim["h"] / 2
+    elif k == "cone":             # spires and tower roofs (city_extended): point up, base at z 0
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=prim["seg"], radius1=prim["r"], radius2=0.0, depth=prim["h"])
         for v in bm.verts:
             v.co.z += prim["h"] / 2
     elif k == "dome":

@@ -34,6 +34,7 @@ from ..imagegen.registry import backend_for
 from ..project import ProjectStore, read_json, save_image, write_json
 from ..schema import FrameSettings, Material, StyleAnchor
 from . import sw_shots, sw_site
+from ..city_extended import all_typologies as _ext_types
 
 FRAMES = "frames"
 MIN_COVERAGE = 0.01          # slot types under this share of the frame aren't named
@@ -162,7 +163,7 @@ def landmark_refs(store: ProjectStore, shot: str, out: Path, min_cover: float = 
     (landmarks) and cover at least `min_cover` of the frame: the reference shapes that
     building only."""
     layout = sw_site.load_layout(store)
-    cat = {t.id: t for t in (layout.city.typologies if layout.city else []) if t.ref and t.ref_strength > 0}
+    cat = {t.id: t for t in _ext_types(layout.city) if t.ref and t.ref_strength > 0}
     types, _ = visible(store, shot)
     refs = []
     for k, f in types:
@@ -198,7 +199,7 @@ def auto_prompt(store: ProjectStore, shot: str) -> str:
     types, districts = visible(store, shot)
     layout = sw_site.load_layout(store)
     notes = {d.id: d.notes for d in layout.districts if d.notes}
-    cat = {t.id: t for t in (layout.city.typologies if layout.city else [])}
+    cat = {t.id: t for t in _ext_types(layout.city)}
     parts = [s["notes"]] if s.get("notes") else [TIER.get(s["tier"], "view")]
     # landmarks (catalog types with a reference image) on screen are always named, first
     shown = [t for t, f in types if f >= MIN_COVERAGE and t not in GROUND_TYPES]

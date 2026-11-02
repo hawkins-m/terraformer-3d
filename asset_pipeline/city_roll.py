@@ -196,6 +196,7 @@ def summary(store: ProjectStore) -> dict:
         if lay.city:
             seed, preset, layout_seed = lay.city.seed, lay.city.preset.name, lay.city.layout_seed
             size = {"size": lay.city.size, "background": lay.city.background, "detail_radius_m": lay.city.detail_radius_m,
+                    "extended_types": lay.city.extended_types,
                     "across_m": round(city_size.across(lay.city.bounds)), "terrain_m": lay.terrain.extent_m}
         ts = lay.terrain.settings
         terrain = {"name": ts.name if ts else None, "seed": ts.seed if ts else None, "heightmap": lay.terrain.heightmap}
@@ -304,12 +305,13 @@ def _keep_shape_of(layout: SiteLayout, own: SiteLayout) -> SiteLayout:
 
 def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots: bool = True,
          preset: str | None = None, layout_seed: int | None = None, keep_shape: bool = False,
-         size: str | None = None) -> dict:
+         size: str | None = None, extended: bool = True) -> dict:
     """Roll the city rules (the groups in `keep` stay) with `seed` (None: a random one, rolled
     again while the plan fails the housing-share check), save, re-plan and remember it. `preset`
     / `layout_seed`: the city's shape (None: the layout's own; preset "random": one drawn from each
-    seed tried). `size`: the city size (city_size.py; None: the layout's own). The rules are rolled
-    on the standard city, then scaled to the size. Returns {seed, keep, stats, tries, history}."""
+    seed tried). `size`: the city size (city_size.py; None: the layout's own). `extended`: the extended
+    building types (city_extended), on for a roll. The rules are rolled on the standard city, then scaled
+    to the size. Returns {seed, keep, stats, tries, history}."""
     from . import city_size
     from .stages import sw_site
     own = _layout_or_starter(store)
@@ -335,6 +337,7 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
         if size != "standard":
             layout = city_size.sized(layout, size)
         layout.city.background, layout.city.detail_radius_m = background, detail
+        layout.city.extended_types = extended     # a rolled city gets the extended building types (city_extended)
         shaped = not keep_shape and "civic" not in keep and city_shape.has_recipe(layout.city.preset.name)
         if shaped:
             try:
@@ -366,6 +369,18 @@ def roll(store: ProjectStore, seed: int | None = None, keep=(), log=print, shots
                           "at": datetime.now(timezone.utc).isoformat(timespec="seconds")})
     store.log_run({"stage": "site.roll", "seed": s, "keep": sorted(keep), "preset": layout.city.preset.name, "tries": i + 1, "buildings": stats.get("buildings")})
     return {"seed": s, "keep": sorted(keep), "stats": stats, "tries": i + 1, "history": {"pos": h["pos"], "count": len(h["rolls"])}}
+
+
+def set_extended(store: ProjectStore, on: bool, log=print, shots: bool = True) -> dict:
+    """Turn the extended building types (city_extended) on or off, then re-plan. Returns the plan's stats."""
+    from .stages import sw_site
+    L = _layout_or_starter(store).model_copy(deep=True)
+    L.city.extended_types = bool(on)
+    stats = _plan(store, SiteLayout.model_validate(L.model_dump(mode="json")), log)
+    if shots:
+        sw_site.set_city_shots(store)
+    store.log_run({"stage": "site.extended", "on": bool(on), "buildings": stats.get("buildings")})
+    return stats
 
 
 def step(store: ProjectStore, delta: int, log=print, shots: bool = True) -> dict:

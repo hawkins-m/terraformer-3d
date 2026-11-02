@@ -14,11 +14,13 @@ import math
 
 import numpy as np
 
-from . import city
+from . import city, city_extended
 from .project import ProjectStore, read_json, write_json
 
 VERSION = 1
-TYPES = ["tower", "midrise", "rowhouse", "house", "industry", "landmark", "other"]
+TYPES = ["tower", "midrise", "rowhouse", "house", "industry", "landmark", "other",
+         # extended building types (city_extended; their rows carry a shape in column 9 unless a box)
+         "castle"]
 TERRAIN_N = 257
 WATER = ("river", "canal")
 STEP_M = 20.0
@@ -124,6 +126,10 @@ def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None, bg=Non
         for pt in b.parts:
             if pt.role in city.SOLID_ROLES and isinstance(pt.prim, str):
                 rows.append([_r(pt.x), _r(pt.y), _r(pt.z), _r(pt.w), _r(pt.d), _r(pt.h), _r(pt.rot), ty, di.get(b.district, -1)])
+    if P.extended:
+        ext = lambda t: TYPES.index(t) if t in TYPES else TYPES.index("other")  # noqa: E731
+        for row, sid in city_extended.view_rows(P, ext, lambda d: di.get(d, -1)):
+            add(row, sid)
     cover = None
     if c.preset.metro:
         from . import city_metro
@@ -146,6 +152,7 @@ def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None, bg=Non
     hd = sw_site._downsample(heights, TERRAIN_N)
     x0, y0, x1, y1 = c.bounds
     out = {"sig": sig(store), "version": VERSION, "types": TYPES, "districts": districts,
+           **({"shapes": list(city_extended.SHAPES)} if P.extended else {}),
            "preset": c.preset.name, "storey_m": sm, "sea_level": L.sea_level,
            "extent": t.extent_m, "bounds": [x0, y0, x1, y1], "centre": list(city.main_centre(c)),
            "terrain": {"n": int(hd.shape[0]), "z": [_r(v) for v in hd.ravel()]},

@@ -28,6 +28,7 @@ from ..project import ProjectStore, read_json, unique_slug
 from .. import catalog as cat
 from ..schema import AssetPlan, District, Material, Overlay, RepetitionChecks, StreetTrees, Typology, Variation
 from ..stages import s0_frames, s0_style, s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, s7_export, sw_library, sw_shots, sw_site
+from .. import city_extended
 
 STATIC = Path(__file__).parent / "static"
 STATIC_REF = re.compile(r'((?:src|href)=")/static/([^"?#]+)(")')
@@ -338,6 +339,10 @@ class DescribeReq(BaseModel):
 
 class MergeGroundReq(BaseModel):
     mode: Literal["off", "auto", "on"]
+
+
+class ExtendedReq(BaseModel):
+    on: bool
 
 
 class SizeReq(BaseModel):
@@ -1417,7 +1422,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         return {"city": L.city is not None,
                 "districts": [d.model_dump(mode="json") for d in L.districts],
                 "materials": [m.model_dump(mode="json") for m in L.materials],
-                "typologies": [t.model_dump(mode="json") for t in L.city.typologies] if L.city else [],
+                "typologies": ([t.model_dump(mode="json") for t in L.city.typologies]
+                               + [t.model_dump(mode="json") | {"extended": True} for t in city_extended.types(L.city)]) if L.city else [],
                 "overlays": {k: o.model_dump(mode="json") for k, o in L.city.overlays.items()} if L.city else {},
                 "checks": L.city.checks.model_dump(mode="json") if L.city else None,
                 "variation": L.city.variation.model_dump(mode="json") if L.city else None,
@@ -1441,6 +1447,12 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             new = adapter.validate_python(body)
         except ValidationError as e:
             raise HTTPException(400, str(e))
+        ext = []
+        if section == "typologies":     # the extended types' entries (city_extended) are kept apart from the catalog
+            ext = [t for t in new if t.id in city_extended.DEFAULTS]
+            new = [t for t in new if t.id not in city_extended.DEFAULTS]
+            L.city.extended_looks = [t for t in cat.mark_user_edits(city_extended.types(L.city), ext)
+                                     if t != city_extended.DEFAULTS[t.id]]
         if rows:
             ids = [x.id for x in new]
             if len(set(ids)) != len(ids) or not all(ids):
@@ -1533,6 +1545,15 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _roll_check(store)
         _preset_check(req.preset)
         return jobs.submit("site.plan", slug, lambda: city_roll.set_preset(store, req.preset, req.layout_seed)["buildings"],
+                           lane="cpu", tag={"roll": True}).public()
+
+    @app.post("/api/projects/{slug}/site/extended")
+    def site_extended(slug: str, req: ExtendedReq):
+        """The extended building types (city_extended) on or off, then the re-plan: a site.plan job."""
+        from .. import city_roll
+        store = _store(slug)
+        _roll_check(store)
+        return jobs.submit("site.plan", slug, lambda: city_roll.set_extended(store, req.on)["buildings"],
                            lane="cpu", tag={"roll": True}).public()
 
     @app.post("/api/projects/{slug}/site/size")
@@ -1724,7 +1745,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         form = brief.get("form") or brief.get("kind")
         e = lr.entry_of(store, asset)
         layout = sw_site.load_layout(store)
-        typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
+        typ = {t.id: t for t in city_extended.all_typologies(layout.city)}.get((e or {}).get("typology"))
         building = brief.get("kind") == "building"
         views = []
         if building and brief.get("sheet"):   # briefs from a frame crop have no sheet

@@ -542,6 +542,9 @@ function paintSize() {
   }
   if (document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.size;
   if (!bg.dataset.dirty) bg.checked = !!d.background;
+  const ext = $("#city-extended");
+  ext.checked = !!d.extended_types;
+  ext.disabled = !!activeJobs("site.plan").length;
   if (document.activeElement !== rad && !rad.dataset.dirty) rad.value = d.detail_radius_m ?? "";
   rad.placeholder = String(d.detail_radius_default);
   rad.disabled = sel.value === "standard";
@@ -561,6 +564,7 @@ $("#city-size").onchange = e => { e.target.dataset.dirty = "1"; paintSize(); };
 $("#city-background").onchange = e => { e.target.dataset.dirty = "1"; };
 $("#city-detail-radius").oninput = e => { e.target.dataset.dirty = "1"; paintSize(); };
 $("#city-size-apply").onclick = () => siteAction("site/size", sizeChoice());
+$("#city-extended").onchange = e => siteAction("site/extended", {on: e.target.checked});
 
 // The picked preset's one-line description under the picker
 function paintLayoutDesc() {

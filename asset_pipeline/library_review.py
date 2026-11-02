@@ -22,6 +22,7 @@ from . import blender, building_gen, filestore, kit_proc
 from .building_parts import merged
 from .project import ProjectStore, read_json, write_json
 from .stages import sw_library, sw_shots, sw_site
+from .city_extended import all_typologies as _ext_types
 
 STATUSES = {"approved": "Approved", "needs_changes": "Needs changes", "needs_feature": "Needs new feature",
             "ready": "Ready for review", "needs_review": "Needs review"}
@@ -574,7 +575,7 @@ def validate(store: ProjectStore, asset: str, brief: dict) -> dict:
         errs.append(f"shading {brief['shading']!r}: auto, smooth or flat")
     e = entry_of(store, asset)
     layout = sw_site.load_layout(store)
-    typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get((e or {}).get("typology"))
+    typ = {t.id: t for t in _ext_types(layout.city)}.get((e or {}).get("typology"))
     w, d, h = dims
     p = brief.get("params") or {}
     if typ is not None and typ.width and typ.depth:      # landmark types carry no size ranges

@@ -195,6 +195,7 @@ def init(store: ProjectStore, layout_file: Path | None = None, force: bool = Fal
     if city_mode and not layout_file:        # a new city starts on the new-project preset (existing ones keep theirs)
         from .. import layout_presets
         layout.city.preset = layout_presets.get(layout_presets.NEW_PROJECT)
+        layout.city.extended_types = True     # the extended building types (city_extended): on for new projects
     if layout.city is not None and not layout.shots:
         layout.shots = city_shots(layout, store)
     save_layout(store, layout)

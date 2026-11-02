@@ -46,6 +46,7 @@ from PIL import Image, ImageEnhance
 from .. import crop_refine, review
 from ..project import ProjectStore, read_json, write_json
 from . import s0_frames, sw_shots, sw_site
+from ..city_extended import all_typologies as _ext_types
 
 LIBRARY_DIR = "library"
 MIN_SHARE = 0.005            # an entry needs this share of some source frame to have a usable crop
@@ -268,7 +269,7 @@ def plan(store: ProjectStore, min_share: float = MIN_SHARE) -> dict:
     layout = sw_site.load_layout(store)
     gb = sw_site.load_greybox(store)
     slots = {s["id"]: s for s in gb["slots"]}
-    catalog = {t.id: t for t in (layout.city.typologies if layout.city else [])}
+    catalog = {t.id: t for t in _ext_types(layout.city)}
     mats = {m.id: m for m in layout.materials}
     cands = candidates(store)
     src = sources(store, cands)

@@ -37,6 +37,7 @@ import math
 import numpy as np
 
 from .project import ProjectStore, read_json
+from .city_extended import all_typologies as _ext_types
 
 FIT_TOL = 0.25              # footprint within this (each side), after scaling
 SCALE = (0.5, 2.0)          # uniform scale an asset may take to fit a place
@@ -269,7 +270,7 @@ def _families(store: ProjectStore) -> dict:
         layout = sw_site.load_layout(store)
     except FileNotFoundError:
         return {}
-    return {t.id: t for t in (layout.city.typologies if layout.city else [])}
+    return {t.id: t for t in _ext_types(layout.city)}
 
 
 def _model(store: ProjectStore, entry: str, ent: dict, bounds: dict) -> dict | None:

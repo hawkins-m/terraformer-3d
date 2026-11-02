@@ -689,6 +689,11 @@ class CitySpec(BaseModel):
     # library builds (TRELLIS included) stand within this of a shot camera or downtown; beyond it the
     # stand-in (large / metro only; None: the [city] detail_radius_m setting)
     detail_radius_m: float | None = Field(default=None, gt=0, exclude_if=lambda v: v is None)
+    # extended building types (city_extended.py: castle, landmarks, industry, homes). Off for every project
+    # made before them and left out of layout.json while off, so their plans stay byte for byte; new
+    # projects and Roll a city turn it on. extended_looks: the user's edits of their editor entries
+    extended_types: bool = Field(default=False, exclude_if=lambda v: not v)
+    extended_looks: list[Typology] = Field(default_factory=list, exclude_if=lambda v: not v)
 
 
 Tier = Literal["wide", "medium", "tight"]

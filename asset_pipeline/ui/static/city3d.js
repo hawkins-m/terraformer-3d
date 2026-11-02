@@ -6,7 +6,9 @@
 // Without WebGL it shows the plan image (the top-down map) instead.
 
 const C3D_COLORS = {tower: 0x7d86a6, midrise: 0xb39572, rowhouse: 0xa86b55, house: 0xdcc8a2, industry: 0x7f8f99,
-  landmark: 0xf0e2a8, other: 0xbdbdbd};
+  landmark: 0xf0e2a8, other: 0xbdbdbd,
+  // extended building types (city_extended.py)
+  castle: 0x8a7f6a};
 const C3D_ROADS = {highway: 0x7b7b7b, boulevard: 0xb4afa2, avenue: 0xd2cdbf, street: 0xe2ded3};
 const C3D_WATER = 0x3d6f98, C3D_PARK = 0x6d9a4f, C3D_PAVING = 0xc9c2b2, C3D_SKY = 0xc7d5e2;
 const C3D_LANE = 0xc8bc9c, C3D_FOREST = 0x3f6236, C3D_CROP = 0xc9b45e, C3D_FALLOW = 0x9a8a55, C3D_VILLAGE = 0xc9a487;
@@ -263,22 +265,42 @@ function c3dPolys(d, polys, color, lift, zf) {
     polygonOffsetFactor: -1, polygonOffsetUnits: -2}));
 }
 
-// One instanced box mesh per building type (a large / metro city: per type and chunk, c3dLod);
+// The unit shapes of the extended building types' pieces (row column 9, d.shapes; a box when left out),
+// each 1 x 1 x 1 standing on z 0 like the greybox's unit meshes.
+function c3dShape(name) {
+  const T = c3d.T;
+  let g;
+  if (name === "cyl") g = new T.CylinderGeometry(0.5, 0.5, 1, 16).rotateX(Math.PI / 2);
+  else if (name === "cone") g = new T.ConeGeometry(0.5, 1, 16).rotateX(Math.PI / 2);
+  else if (name === "dome") g = new T.SphereGeometry(0.5, 16, 6, 0, 2 * Math.PI, 0, Math.PI / 2).scale(1, 1, 2).rotateX(Math.PI / 2).translate(0, 0, -0.5);
+  else if (name === "gable") {          // the ridge runs along y, as the greybox's gable
+    g = new T.BufferGeometry();
+    const p = [[-.5, -.5, 0], [.5, -.5, 0], [0, -.5, 1], [-.5, .5, 0], [.5, .5, 0], [0, .5, 1]];
+    const tri = [0, 1, 2, 5, 4, 3, 0, 3, 4, 0, 4, 1, 0, 2, 5, 0, 5, 3, 1, 4, 5, 1, 5, 2];
+    g.setAttribute("position", new T.BufferAttribute(new Float32Array(tri.flatMap(i => p[i])), 3));
+    g.computeVertexNormals();
+    return g;
+  } else return new T.BoxGeometry(1, 1, 1).translate(0, 0, 0.5);
+  return g.translate(0, 0, 0.5);
+}
+
+// One instanced mesh per building type and shape (a large / metro city: per type and chunk, c3dLod);
 // each instance knows its row (for picking).
 function c3dBuildings(d) {
-  const T = c3d.T, G = c3d.groups, box = new T.BoxGeometry(1, 1, 1);
-  box.translate(0, 0, 0.5);
+  const T = c3d.T, G = c3d.groups, geos = new Map();
+  const geo = si => { if (!geos.has(si)) geos.set(si, c3dShape((d.shapes || [])[si] || "box")); return geos.get(si); };
   const groups = new Map();
   d.buildings.forEach((b, i) => {
-    const key = c3d.lod ? `${b[7]}:${Math.floor(b[0] / C3D_CHUNK_M)}:${Math.floor(b[1] / C3D_CHUNK_M)}` : b[7];
-    if (!groups.has(key)) groups.set(key, {ti: b[7], rows: []});
+    const si = b[9] || 0;
+    const key = (c3d.lod ? `${b[7]}:${Math.floor(b[0] / C3D_CHUNK_M)}:${Math.floor(b[1] / C3D_CHUNK_M)}` : `${b[7]}`) + (si ? `:s${si}` : "");
+    if (!groups.has(key)) groups.set(key, {ti: b[7], si, rows: []});
     groups.get(key).rows.push(i);
   });
   const m = new T.Matrix4(), q = new T.Quaternion(), zAxis = new T.Vector3(0, 0, 1), v = new T.Vector3(), s = new T.Vector3();
   const mat = new T.MeshLambertMaterial({color: 0xffffff});
   c3d.meshes = [];
-  for (const {ti, rows} of [...groups.values()].sort((a, b) => a.ti - b.ti)) {
-    const mesh = new T.InstancedMesh(box, mat, rows.length);
+  for (const {ti, si, rows} of [...groups.values()].sort((a, b) => a.ti - b.ti || a.si - b.si)) {
+    const mesh = new T.InstancedMesh(geo(si), mat, rows.length);
     rows.forEach((ri, k) => {
       const b = d.buildings[ri];
       q.setFromAxisAngle(zAxis, b[6] * Math.PI / 180);

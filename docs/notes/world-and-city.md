@@ -418,3 +418,27 @@ World and city mode: greybox and passes, concept frames and their control settin
   The first metro build's 21.6 min had the shaders cached but not the meshes. Cold, the HLOD builder
   (which renders) compiles shaders for ~13 min whatever the merge. Metro stays experimental.
 - The import check (`ue.verify_samples`) skips merged pieces and the tile slots.
+
+## Extended building types (2026-11-01)
+- `city_extended.py`, behind `CitySpec.extended_types` (Layout tab tick box "Extended building types";
+  `POST site/extended`). Off for every project made before it and left out of layout.json while off, so
+  every preset's plan, the standard size and the byte-identity tests are untouched; `sw_site.init` (new
+  city projects) and `city_roll.roll` turn it on (`roll(extended=False)` for a test that pins a roll).
+- Each type is a `Structure` of `Piece`s on the shared unit meshes (box, gable, cylinder, dome and a new
+  16-sided `cone`, `blender_greybox.make_mesh`), so Blender and the Unreal stand-in instance them like the
+  housing boxes. One greybox slot per type and tile (slot type = type id, `typology` = type id). Placed at
+  the end of `city.plan` from its own stream (`city_extended.rng`); it clears buildings, pads, trees and
+  stalls under its footprint.
+- The viewer's building rows gain a 10th column (index into `shapes`) for non-box pieces; boxes keep 9, so
+  a city with the setting off has the same rows as before (`types` gained the new names at the end).
+- Building types editor: the catalog GET appends the types' entries (`"extended": true`), the PUT splits
+  them off into `CitySpec.extended_looks` (only the ones that differ from `DEFAULTS`). They never join
+  `city.typologies`: a non-empty catalog switches the whole fill to `city_types.mass`.
+  `city_extended.all_typologies` is what frame prompts (`s0_frames`) and the library look up by id.
+- Castle (walled-castle: `inner_wall`; star fortress: a star wall): on the main node, which then gets only a
+  paved forecourt (no monument, stoas, rings or civic ring row). A rolled walled-castle's castle node is an
+  organic hill node: its summit pad is levelled to the castle's corners (`castle_pad_r`), lanes and streets
+  are cut out of that disc (`clip_ways`) and it joins the plan's `cut` (no blocks). The gate faces
+  `castle-gate-av` (which now ends at the gatehouse), else the widest road ending at the hub, squared to a
+  grid city. Curtain walls go in <= 24 m segments, each on its own ground, so they step down a slope. The
+  node's tight shot looks at the castle (it replaced the monument the shot used to look up).

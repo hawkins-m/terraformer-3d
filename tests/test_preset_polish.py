@@ -15,7 +15,7 @@ from test_layout_presets import slot_overlaps
 
 
 def rolled(store, name, seed=3):
-    city_roll.roll(store, seed=seed, preset=name, log=lambda *a: None, shots=False)
+    city_roll.roll(store, seed=seed, preset=name, log=lambda *a: None, shots=False, extended=False)
     L = sw_site.load_layout(store)
     h = sw_site.plan_terrain(store, L)
     return L, h, city.plan(L, h)

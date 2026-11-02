@@ -33,6 +33,7 @@ from pathlib import Path
 from . import filestore, kit_proc, review
 from .project import ProjectStore, read_json, write_json
 from .stages import s1_plan, s2_refs, s3_views, s5_3d, s6_cleanup, sw_library
+from .city_extended import all_typologies as _ext_types
 
 ID_RE = re.compile(r"[a-z0-9][a-z0-9-]{0,62}")
 KINDS = ("building", "prop")
@@ -604,7 +605,7 @@ def catalog_form(store: ProjectStore, e: dict) -> str | None:
         layout = sw_site.load_layout(store)
     except FileNotFoundError:                     # no site layout: no catalog
         return None
-    typ = {t.id: t for t in (layout.city.typologies if layout.city else [])}.get(e["typology"])
+    typ = {t.id: t for t in _ext_types(layout.city)}.get(e["typology"])
     form = FORM_OF.get(typ.form) if typ else None
     return "basilica" if e["typology"] == "basilica" else form
 

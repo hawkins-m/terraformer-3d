@@ -130,6 +130,7 @@ class CityPlan:
     moat: list[Polygon] = field(default_factory=list)     # the enclosure's moat (water), open at the bridges
     culdesacs: list[Polygon] = field(default_factory=list)  # turning circles at the end of dead-end streets
     pads: list[tuple] = field(default_factory=list)       # flat pads under buildings on slopes: x y w d rot z_lo z_top
+    extended: list = field(default_factory=list)           # city_extended.Structure (the extended building types)
     dropped: int = 0                                       # buildings clear_overlaps took out
     stats: dict = field(default_factory=dict)
 
@@ -418,10 +419,12 @@ def pads(layout: SiteLayout, heights: np.ndarray) -> list[tuple[float, float, fl
     from .greybox import Heights
     hs = Heights(heights, layout.terrain.extent_m)
     out = []
+    from . import city_extended
+    castle = city_extended.castle_node(layout.city)
     for nd in layout.city.nodes:
         if nd.layout == "organic":
             sx, sy = summit(nd, hs.many)
-            r = organic_plaza_r(nd) * 1.15
+            r = organic_plaza_r(nd) * 1.15 if nd is not castle else city_extended.castle_pad_r(nd)
             a = np.linspace(0, 2 * math.pi, 24, endpoint=False)
             z = float(np.percentile(hs.many(sx + r * np.cos(a), sy + r * np.sin(a)), 85))
             out.append((sx, sy, r, max(z, layout.sea_level + 3.0), ORGANIC_PAD_BLEND_M))
@@ -587,12 +590,18 @@ def civic_layout(layout: SiteLayout, f: Fields) -> SiteLayout:
         L.kits.append(kit)
     radii = set(kit.ring_radii)
     have = {d.id for d in L.districts}
+    from . import city_extended
+    castle = city_extended.castle_node(L.city)
     for nd in L.city.nodes:
         if nd.id not in have:
             L.districts.append(District(id=nd.id, name=nd.id, notes=nd.notes))
         c = tuple(nd.center)
         r = _rings(nd)
         pr = r["plaza"]
+        if castle is not None and nd.id == castle.id:    # the castle fills the hub (city_extended), on a paved forecourt
+            L.plazas.append(Plaza(id=f"{nd.id}-plaza", center=city_extended.castle_centre(nd, f),
+                                  radius=round(city_extended.castle_reach(nd) * 1.25, 1), type="paved", district=nd.id))
+            continue
         if nd.layout == "organic":
             organic_core(L, nd, f, kit)
             continue
@@ -1979,6 +1988,9 @@ def inner_ward(c: CitySpec, f: Fields, ways_: list[Way], gates: list[float]):
         o = min((o for o in c.nodes if o is not nd), key=lambda o: math.dist(o.center, ctr), default=None)
         gp = np.array(o.center) if o is not None else ctr + 3 * R * _dir(270)
     pc, pr_ = (np.array(summit(nd, f.z)), organic_plaza_r(nd)) if nd.layout == "organic" else (ctr, _rings(nd)["plaza"])
+    from . import city_extended
+    if city_extended.castle_node(c) is nd:      # the road ends at the castle's gatehouse
+        pr_ = city_extended.castle_reach(nd)
     hd = math.degrees(math.atan2(pc[1] - gp[1], pc[0] - gp[0]))
     end = pc - (pr_ + 2) * _dir(hd)
     road = _trace(f, gp, hd, 3 * max(math.dist(gp, end), 1.0), 0.0, target=end)
@@ -2292,6 +2304,12 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
                          else hub_poly(c, n, _rings(n)["core"]) for n in c.nodes]
                       + [Point(tw.center).buffer(TOWN_PLAZA_M, quad_segs=24) for tw in c.towns]
                       + P.interchanges)
+    if c.extended_types:          # the castle's ground: no blocks, and only its own road reaches in (city_extended)
+        from . import city_extended
+        keep_out = city_extended.castle_ground(c, f)
+        if keep_out is not None:
+            P.ways = city_extended.clip_ways(P.ways, keep_out)
+            cut = cut.union(keep_out)
     if inner is not None:
         nd, ie, igates, _ = inner
         cut = cut.union(Point(nd.center).buffer(ie.radius + 14, quad_segs=48).difference(
@@ -2477,6 +2495,9 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
 
     if c.trees:
         P.trees = trees(P, f, rng) + forum_trees
+    if c.extended_types:       # the extended building types, on their own streams (city_extended)
+        from . import city_extended
+        city_extended.place(P, f)
     P.stats = stats(P)
     return P
 
@@ -2612,11 +2633,17 @@ def stats(P: CityPlan) -> dict:
             **({"dropped_overlaps": P.dropped} if P.layout.city.preset.clear_overlaps else {}),
             "markets": len(P.markets), "trees": len(P.trees),
             "monuments": sum(1 for n in P.layout.city.nodes if n.monument),
+            **({"extended": city_extended_stats(P)} if P.layout.city.extended_types else {}),
             "footprint_m2": {k: round(v) for k, v in foot.items()}, "footprint_share": share,
             "floor_m2": {k: round(v) for k, v in floor.items()},
             "height_m": {"median": round(float(np.median(hs)), 1), "p90": round(float(np.percentile(hs, 90)), 1)},
             "extent_m": [round(float(max(xs[2::4]) - min(xs[0::4]))), round(float(max(xs[3::4]) - min(xs[1::4])))] if xs else [0, 0],
             "warnings": warn}
+
+
+def city_extended_stats(P: CityPlan) -> dict:
+    from . import city_extended
+    return city_extended.stats(P)
 
 
 # --- slots ------------------------------------------------------------------------------------
@@ -2749,6 +2776,9 @@ def add_slots(P: CityPlan, new, hs) -> None:
         sb = new("quay", "quay", (b0.x, b0.y, b0.z), district=b0.district)
         for b in P.piers:
             sb.add("quay:pier", UNIT_BOX, (b.x, b.y, b.z), b.rot, (b.w, b.d, b.h))
+    if P.extended:
+        from . import city_extended
+        city_extended.add_slots(P, new, hs)
     walls: dict[str, list[WallPart]] = {}
     for wp in P.walls:
         walls.setdefault(wp.group, []).append(wp)
@@ -2910,6 +2940,16 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
         u, v = _dir(pl.rot) * pl.size[0] / 2, _dir(pl.rot + 90) * pl.size[1] / 2     # its footprint, rotated
         pts = [np.array([cx, cy]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
         d.polygon([to(*p) for p in pts], fill=PLAN_COLORS["civic"], outline=(90, 90, 90))
+    for st in P.extended:      # the extended building types' pieces (over their plaza), towers as discs
+        from .city_extended import PLAN_COLORS as EXT_COLORS
+        for pt in st.parts:
+            col = EXT_COLORS.get(st.type, PLAN_COLORS["civic"])
+            if pt.prim in ("cyl", "cone", "dome"):
+                d.ellipse([to(pt.x - pt.w / 2, pt.y + pt.w / 2), to(pt.x + pt.w / 2, pt.y - pt.w / 2)], fill=col)
+                continue
+            u, v = _dir(pt.rot) * pt.w / 2, _dir(pt.rot + 90) * pt.d / 2
+            pts = [np.array([pt.x, pt.y]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
+            d.polygon([to(*p) for p in pts], fill=col)
     for tr in P.trees[::3]:
         x, y = to(tr[0], tr[1])
         d.point((x, y), fill=PLAN_COLORS["tree"])
@@ -3006,7 +3046,16 @@ def shots(layout: SiteLayout, heights: np.ndarray) -> list:
         out.append(ShotSpec(id=f"med-{nd.id}-high", tier="medium", pos=(*p, float(hs(*p)) + up),
                             look_at=(*centre, cz), lens_mm=24.0, district=nd.id,
                             notes=f"raised view over the {nd.role} quarter"))
-        if nd.monument:
+        from . import city_extended
+        if city_extended.castle_node(c) is nd:        # the castle replaced the monument (city_extended)
+            rr = city_extended.castle_reach(nd)
+            cc = np.array(city_extended.castle_centre(nd, f))
+            p = cc + (rr + 70) * _dir(a + 8)
+            mz = float(hs(*cc))
+            out.append(ShotSpec(id=f"tight-{nd.id}", tier="tight", pos=(*p, max(mz, float(hs(*p))) + 1.7),
+                                look_at=(*cc, mz + 14.0), lens_mm=35.0, district=nd.id,
+                                notes="the castle's walls and towers from below"))
+        elif nd.monument:
             mon = next(pl for pl in civic_layout(layout, f).plots if pl.id == f"{nd.id}-{nd.monument}")
             rr = max(mon.size[0], mon.size[1]) / 2
             p = np.array(mon.center) + (rr + 26) * _dir(a + 8)
