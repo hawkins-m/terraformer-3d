@@ -90,6 +90,7 @@ class Background:
     lanes: list = field(default_factory=list)   # (id, kind, LineString, width): lanes, village streets
     hedges: list = field(default_factory=list)  # (x, y, length, width, height, rot)
     farms: list = field(default_factory=list)   # (x, y, w, d, rot, h, kind): farmhouses, barns, houses
+    churches: list = field(default_factory=list)   # city_extended.Structure: village churches (extended types on)
 
     def z(self, x, y) -> np.ndarray:
         """The far terrain's height, bilinear (inside the tile: the tile's, resampled)."""
@@ -360,7 +361,16 @@ def plan(layout: SiteLayout, P, tile: np.ndarray) -> Background:
     hw_area = unary_union([ln.buffer(HIGHWAY_W / 2 + 12) for ln in hw]) if hw else Polygon()
     shapely.prepare(hw_area)
     zone = _waves(rng, 8, (3000, 9000))
-    villages = _villages(B, rng, E, K, hw, wet, sea)
+    halls = [] if c.extended_types else None
+    villages = _villages(B, rng, E, K, hw, wet, sea, halls)
+    if halls:                     # extended building types: each village hall becomes a church (city_extended)
+        from . import city_extended
+        ground = city_extended.FarGround(B, sea)
+        for vi, hall, facing in halls:
+            if vi < len(B.villages) and hall in B.villages[vi]:
+                B.villages[vi] = [h for h in B.villages[vi] if h is not hall]
+                B.churches.append(city_extended.church(ground, hall[0], hall[1], facing,
+                                                       city_extended.rng(c, "village-church", vi), small=True))
     _lanes(B, rng, E, K, hw, wet, hw_area, sea, villages)
     _farmsteads(B, rng, E, K, hw, sea)
     _fields(B, rng, E, K, zone, hw, rivers, P, sea)
@@ -399,7 +409,7 @@ def _houses_along(B, rng, E, K, ln: LineString, step, setback, size, p, s0=0.0, 
     return out
 
 
-def _villages(B, rng, E, K, hw, wet, sea) -> list:
+def _villages(B, rng, E, K, hw, wet, sea, halls: list | None = None) -> list:
     """Villages along the highways past the fringe: a main street off the highway, side streets
     across it, houses along both and a hall on the main street. Returns their areas."""
     areas = []
@@ -451,6 +461,8 @@ def _villages(B, rng, E, K, hw, wet, sea) -> list:
                 if _ok_ground(B, E, hx, hy, sea):                  # the hall (or church) on the main street
                     houses = [h for h in houses if math.dist((h[0], h[1]), (hx, hy)) > 19]
                     houses.append((round(float(hx), 2), round(float(hy), 2), 13.0, 24.0, round(math.degrees(out), 2), 11.0))
+                    if halls is not None:       # it faces the main street: (village, its hall, facing)
+                        halls.append((len(B.villages), houses[-1], math.degrees(out) - 90))
                 if len(houses) >= 12:
                     B.villages.append(houses)
                     for j, st in enumerate(streets):
@@ -827,6 +839,9 @@ def add_slots(B: Background, new, hs_tile, extent_m: float) -> None:
         cx, cy = float(np.mean([h[0] for h in houses])), float(np.mean([h[1] for h in houses]))
         sb = new(f"village-{i}", "village", (cx, cy, float(z_many(cx, cy))))
         buildings(sb, houses)
+    if B.churches:
+        from . import city_extended
+        city_extended.emit(B.churches, new, lambda x, y: float(z_many(x, y)), GROUP_M, prefix="bg-")
 
 
 def plan_image(B: Background, layout: SiteLayout, P=None, px: int = 1600):

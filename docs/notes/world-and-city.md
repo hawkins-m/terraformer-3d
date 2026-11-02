@@ -442,3 +442,18 @@ World and city mode: greybox and passes, concept frames and their control settin
   `castle-gate-av` (which now ends at the gatehouse), else the widest road ending at the hub, squared to a
   grid city. Curtain walls go in <= 24 m segments, each on its own ground, so they step down a slope. The
   node's tight shot looks at the castle (it replaced the monument the shot used to look up).
+- Landmarks (`city_extended.Ground` keeps new structures off roads and water, squares, parks, the civic
+  cores' kit pieces and each other; `frontage` finds sites beside a road, facing it):
+  - church: just outside each market, town and paved district square, its front to the square (nave, apse
+    under a half dome, west tower with a spire or a low roof, sometimes a transept). Background villages'
+    halls become small churches (`Background.churches`, slots `bg-church-*`).
+  - medical center: on an avenue / arterial just past downtown (1 / 2 / 3 by size, >= 1.5 km apart).
+  - airport (large / metro): 300 m grid x 15 deg search over the tile for a site >= 500 m from any
+    building or block, on land, runway rise <= 25 m, nearest the centre; runway and taxiway as 40 m slabs
+    (`Frame.slab`: from the lowest ground to above the highest, or a slope buries them), an
+    `airport-road` arterial to the nearest highway / arterial.
+  - power grid: a substation on a road near `industrial_centre`, two pylon lines at +-30 deg off the
+    way out from the centre until two pylons stand > 300 m from any building (or the tile's edge), a
+    substation at each end; wires in four stepped pieces per span. None without an industrial zone.
+  - Scratch large classic (seed 3): 4 churches, 2 medical, 1 airport, 2 lines + 3 substations; plan
+    10.5 s -> 14 s.

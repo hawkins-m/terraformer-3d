@@ -52,7 +52,8 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             "river": "terrain", "tower": "building", "industrial": "building", "bastion": "structure",
             "mall": "building", "boulevard": "terrain", "pad": "structure",
             # extended building types (city_extended.CATEGORY)
-            "castle": "building"}
+            "castle": "building", "church": "building", "medical": "building", "airport": "structure",
+            "power": "structure"}
 DEFAULT_KIT = Kit(id="default")
 
 

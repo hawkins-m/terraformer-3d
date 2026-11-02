@@ -109,7 +109,8 @@ def test_viewer_rows_carry_the_type_and_shape(castles, tmp_path, monkeypatch):
     rows = [r for r in d["buildings"] if r[7] == ti]
     assert len(rows) == len(P.extended[0].parts)
     assert {d["shapes"][r[9]] for r in rows if len(r) > 9} == {"cyl", "cone", "gable"}
-    assert all(len(r) == 9 for r in d["buildings"] if r[7] != ti)
+    ext = {d["types"].index(t) for t in city_extended.DEFAULTS if t in d["types"]}
+    assert all(len(r) == 9 for r in d["buildings"] if r[7] not in ext)      # the plain buildings keep their rows
 
 
 def test_new_projects_and_rolls_turn_it_on_existing_projects_keep_it_off(tmp_path, monkeypatch):
@@ -147,3 +148,100 @@ def test_the_building_types_editor_lists_them_and_keeps_edits_apart_from_the_cat
     assert client.put("/api/projects/p/catalog/typologies", json=client.get("/api/projects/p/catalog").json()["typologies"]
                       ).status_code == 200
     assert [t.id for t in sw_site.load_layout(store).city.extended_looks] == ["castle"]   # the edit stays
+
+
+@pytest.fixture(scope="module")
+def large_classic(tmp_path_factory):
+    """A classic large city with its background region (smaller height grid), extended types on."""
+    from asset_pipeline import city_size
+    import os
+    root = tmp_path_factory.mktemp("root")
+    old = os.environ.get("AP_ROOT")
+    os.environ["AP_ROOT"] = str(root)
+    try:
+        store = ProjectStore.create("big", start="city")
+        L = layout_presets.apply(sw_site.starter_city(), "classic")
+        L.city.seed = 3
+        L = city_size.sized(L, "large")
+        L.terrain = L.terrain.model_copy(update={"resolution": 1025})
+        L.city.extended_types, L.city.background = True, True
+        sw_site.save_layout(store, L)
+        h = sw_site.plan_terrain(store, L)
+        P = city.plan(L, h)
+        yield store, L, h, P
+    finally:
+        if old is None:
+            os.environ.pop("AP_ROOT", None)
+        else:
+            os.environ["AP_ROOT"] = old
+
+
+def _of(P, t):
+    return [s for s in P.extended if s.type == t]
+
+
+def _clear_of_roads(P, st, tol=2.0):
+    """No road or water runs through the structure's footprint (its own access excepted)."""
+    for w in P.ways:
+        if w.id == "airport-road":
+            continue
+        assert w.line.buffer(w.width / 2).intersection(st.foot).area < tol * max(st.foot.length, 1), (st.type, w.id)
+
+
+def test_landmarks_in_a_large_classic_city(large_classic):
+    store, L, h, P = large_classic
+    from asset_pipeline.city import main_centre
+    C = main_centre(P.layout.city)
+    ch, med, port, power = (_of(P, t) for t in ("church", "medical", "airport", "power"))
+    assert len(ch) >= 2 and len(med) == 2 and len(port) == 1 and len(power) >= 3
+    for st in ch + med + port:
+        _clear_of_roads(P, st)
+        assert not any(st.foot.contains(Point(b.x, b.y)) for b in P.buildings)
+    for st in ch:                      # nave, apse, tower and a spire or roof
+        assert {"nave", "apse", "tower"} <= {p.role for p in st.parts} and {"spire", "tower-roof"} & {p.role for p in st.parts}
+    for st in med:                     # beside an avenue, near downtown, a helipad on the bed tower
+        assert 300 < math.dist((st.x, st.y), C) < 3000
+        assert {"podium", "bed-tower", "helipad"} <= {p.role for p in st.parts}
+    a = port[0]
+    rw = [p for p in a.parts if p.role == "runway"]
+    assert len(rw) * 40 >= 2500 and max(p.z for p in rw) - min(p.z for p in rw) <= 25.5
+    from scipy.spatial import cKDTree
+    t = cKDTree([(b.x, b.y) for b in P.buildings])
+    assert t.query([(p.x, p.y) for p in rw])[0].min() > 400           # outside the city's edge
+    assert any(w.id == "airport-road" for w in P.ways)
+    subs = [s for s in power if any(p.role == "yard" for p in s.parts)]
+    lines = [s for s in power if any(p.role == "pylon-mast" for p in s.parts)]
+    assert subs and lines and all(sum(p.role == "wire" for p in ln.parts) >= 8 for ln in lines)
+    stats = P.stats["extended"]
+    assert stats["airport"] == 1 and stats["medical"] == 2
+
+
+def test_no_airport_in_a_standard_city():
+    L = extended(layout_presets.apply(small_city(), "classic"))
+    P = city.plan(L, heights(L))
+    assert not _of(P, "airport") and _of(P, "church") is not None
+
+
+def test_village_halls_become_churches(large_classic):
+    from asset_pipeline import city_background
+    store, L, h, P = large_classic
+    bg = city_background.plan(P.layout, P, h)
+    assert bg.churches and all(st.type == "church" for st in bg.churches)
+    off = L.model_copy(deep=True)
+    off.city.extended_types = False
+    P0 = city.plan(off, h)
+    assert city_background.plan(P0.layout, P0, h).churches == []
+
+
+def test_large_slots_and_viewer_rows_for_the_landmarks(large_classic):
+    store, L, h, P = large_classic
+    spec = greybox.build_spec(L, sw_site.plan_terrain(store, L))
+    types = {s["type"] for s in spec["slots"]}
+    assert {"church", "medical", "airport", "power"} <= types
+    assert any(s["id"].startswith("bg-church-") for s in spec["slots"])
+    kinds = {p["prim"]["kind"] for s in spec["slots"] if s["type"] in ("church", "medical", "airport", "power")
+             for p in s["pieces"]}
+    assert kinds <= {"box", "gable", "cylinder", "cone", "dome", "vault"}
+    d = city_view.scene(store, P, h)
+    names = {d["types"][r[7]] for r in d["buildings"]}
+    assert {"church", "medical", "airport", "power"} <= names
