@@ -480,3 +480,18 @@ World and city mode: greybox and passes, concept frames and their control settin
   off 179 s (472 assets, import 117 s, HLODs 22 s), on 200 s (493 assets, import 130 s, HLODs 24 s): +12 %.
   The first build after the change caches the new meshes (cone, the types' first uses): measure warm, or
   the build that ran first pays the cache (an unfair first pair read 10.8 vs 6.3 min).
+
+## Described terrains (2026-11-02)
+- `schema.TerrainCompose` (base island / coast / inland / valley / plateau, the sea's `side`, ground, up to 12
+  `TerrainFeature`s with place, size, height, steepness, crater, count, and `TerrainCityHint`s) is kept on
+  `TerrainSettings.compose`, left out of the JSON while None: every preset and older project is byte for byte.
+- `terrain_compose.compose` maps the base onto the generator's own settings (coast all / side / none, island
+  radius, a base plateau's table, no beach under cliffs); `spec_fields` sets the TerrainSpec's `sea_dir`, bay and
+  headland (`with_settings` applies them), so the city's shoreline, waterfront and promenade read it like any
+  coast. `make()` adds the landforms (`overlay`, faded out at the shore, own stream) before the coast step;
+  `terrain_lines()` adds its rivers (a delta: a stem and `count` channels fanning from 0.45 x half-tile inland
+  of the shore) and lakes (flat water lines: they reach the plan as `river` ways, like a preset's river).
+  Sizes are relative to the tile (R0 = 7.5 % of its extent), so a described terrain grows with the city size.
+- City hints are weights (`terrain_compose.weight`); `city_shape.fit_nodes` reads them: with hints, every
+  district (largest first) takes the highest-weight 60 m grid spot where it fits (`_by_weight`).
+  `city_roll.set_terrain` also runs it after a preset's shape recipe when the spec has hints.

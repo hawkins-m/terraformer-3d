@@ -288,6 +288,8 @@ def set_terrain(store: ProjectStore, settings, log=print, shots: bool = True, re
             L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))
     else:
         L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))
+    if s.compose is not None and s.compose.city and city_shape.has_recipe(L.city.preset.name):
+        L = city_shape.fit_nodes(L, sw_site.plan_ground(store, L))      # a described terrain's city hints place the districts
     L.city.preset, L.city.layout_seed = layout.city.preset.model_copy(deep=True), layout.city.layout_seed   # exactly as it was
     stats = _plan(store, L, log)
     if shots:

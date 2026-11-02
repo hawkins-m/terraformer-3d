@@ -111,9 +111,11 @@ def river_line(t: TerrainSpec) -> LineString | None:
 def terrain_lines(t: TerrainSpec) -> list[WaterLine]:
     s = t.settings
     ln = river_line(t)
-    if ln is None:
-        return []
-    return [WaterLine(ln, s.river_w_m, s.river_depth_m, "down", s.canyon_m, s.canyon_w_m)]
+    out = [WaterLine(ln, s.river_w_m, s.river_depth_m, "down", s.canyon_m, s.canyon_w_m)] if ln is not None else []
+    if s is not None and s.compose is not None:      # a described terrain's rivers and lakes (terrain_compose)
+        from . import terrain_compose
+        out += terrain_compose.lines(t)
+    return out
 
 
 def make(t: TerrainSpec) -> np.ndarray:
@@ -158,6 +160,10 @@ def make(t: TerrainSpec) -> np.ndarray:
             frac = lift * k - np.floor(lift * k)
             lift = stepped + _smooth(0.82, 1.0, frac) / k
         h = h + s.plateau_m * lift * (1 - np.exp(-np.maximum(inland, 0) / 150))
+    if s.compose is not None:   # a described terrain's landforms (terrain_compose), faded out at the shore
+        from . import terrain_compose
+        land_w = 1.0 if s.coast == "none" else 1 - np.exp(-np.maximum(inland, 0) / 150)
+        h = terrain_compose.overlay(t, x, y, h, inland, land_w)
     if s.coast != "none":       # a beach along the shore, then the sea shelving away
         if s.beach_m:
             w = 1 - _smooth(0, s.beach_m, inland)
@@ -285,6 +291,9 @@ def z_range_for(h: np.ndarray) -> tuple[float, float]:
 def with_settings(t: TerrainSpec, s: TerrainSettings) -> TerrainSpec:
     """The spec with these settings: generated (no heightmap or far build), its z range fitted."""
     t2 = t.model_copy(update={"settings": s, "heightmap": None, "far": None, "city_radius_m": 0.0})
+    if s.compose is not None:            # a described terrain: the sea's side, its bay and headland (terrain_compose)
+        from . import terrain_compose
+        t2 = t2.model_copy(update=terrain_compose.spec_fields(t2, s))
     t2 = t2.model_copy(update={"z_range": z_range_for(make(t2))})
     return t2
 

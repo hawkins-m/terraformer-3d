@@ -409,6 +409,42 @@ class VegZone(BaseModel):
     density_per_100m2: float = 1.0
 
 
+Compass = Literal["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
+TerrainPlace = Literal["centre", "north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west",
+                       "coast", "inland", "everywhere"]
+
+
+class TerrainFeature(BaseModel):
+    """One landform of a described terrain (terrain_compose.py): where it is relative to the city's centre
+    (a compass direction, the coast, inland, or everywhere), its size, height (None: the type's own; a
+    valley's or lake's depth) and steepness."""
+    type: Literal["peak", "volcano", "ridge", "hills", "plateau", "cliffs", "lake", "river", "bay", "headland", "valley"]
+    at: TerrainPlace = "centre"
+    size: Literal["small", "medium", "large"] = "medium"
+    height_m: float | None = Field(default=None, ge=0, le=2500)
+    steepness: Literal["gentle", "moderate", "steep"] = "moderate"
+    crater: bool = False                  # a volcano's summit crater
+    count: int = Field(default=1, ge=1, le=8)   # hills, ridges, river channels (a delta)
+
+
+class TerrainCityHint(BaseModel):
+    """Where the city goes on a described terrain: in a ring round a feature (its lower slopes), along the
+    coast, in the valley, along the river, on the plateau. Districts are placed by these weights."""
+    kind: Literal["ring", "coast", "valley", "river", "plateau"]
+    feature: int | None = Field(default=None, ge=0)    # ring: the feature it rings (None: the first peak, volcano, lake or plateau)
+
+
+class TerrainCompose(BaseModel):
+    """A terrain described as a base and landforms (Layout tab's Describe the terrain; terrain_compose.py
+    builds it). base: island (the sea all round), coast (the sea on `side`), inland (no sea), valley (two
+    ridges either side of a valley running to the sea on `side`), plateau (a raised table, inland)."""
+    base: Literal["island", "coast", "inland", "valley", "plateau"] = "coast"
+    side: Compass = "south"               # coast / valley: where the sea is
+    ground: Literal["flat", "rolling", "rugged"] = "rolling"
+    features: list[TerrainFeature] = Field(default_factory=list, max_length=12)
+    city: list[TerrainCityHint] = Field(default_factory=list, max_length=4)
+
+
 class TerrainSettings(BaseModel):
     """A generated terrain's shape, apart from the city layout (terrain_gen.py). Set on a
     TerrainSpec it replaces the legacy coastal generator; None (every project before it) keeps
@@ -449,6 +485,9 @@ class TerrainSettings(BaseModel):
     plateau_m: float = Field(default=0.0, ge=0)
     plateau_r_m: float = Field(default=1000.0, gt=50)
     terraces: int = Field(default=0, ge=0, le=10)
+    # a described terrain (terrain_compose.py): its base and landforms, built over the settings above. Left
+    # out of the JSON while None, so every preset and every project made before it stays byte for byte
+    compose: TerrainCompose | None = Field(default=None, exclude_if=lambda v: v is None)
 
 
 class TerrainSpec(BaseModel):

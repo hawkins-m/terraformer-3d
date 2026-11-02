@@ -443,6 +443,10 @@ def fit_nodes(layout: SiteLayout, ground: np.ndarray) -> SiteLayout:
     moved = False
     nodes = list(c.nodes)
     rng = np.random.default_rng([STREAM, c.seed, 1])
+    from . import terrain_compose
+    weight = terrain_compose.weight(layout.terrain, np.zeros(1), np.zeros(1)) is not None   # a described terrain's city hints
+    if weight:                 # every district goes where the hints weigh most, the main one first, each clear of the others
+        return _by_weight(layout, f, ok, rng)
     for i, nd in enumerate(nodes):
         others = nodes[:i] + nodes[i + 1:]
         if ok(np.array(nd.center), nd.radius, others):
@@ -455,4 +459,30 @@ def fit_nodes(layout: SiteLayout, ground: np.ndarray) -> SiteLayout:
         return layout
     L = layout.model_copy(deep=True)
     L.city.nodes = nodes
+    return SiteLayout.model_validate(L.model_dump(mode="json"))
+
+
+def _by_weight(layout: SiteLayout, f, ok, rng) -> SiteLayout:
+    """The districts placed on a described terrain's city hints (terrain_compose.weight): on a 60 m grid over
+    the bounds, each district (largest first) takes the highest-weight spot where it fits, clear of those
+    placed; one that fits nowhere keeps its place."""
+    from . import terrain_compose
+    c = layout.city
+    x0, y0, x1, y1 = c.bounds
+    gx, gy = np.meshgrid(np.arange(x0, x1, 60.0), np.arange(y0, y1, 60.0))
+    pts = np.column_stack([gx.ravel(), gy.ravel()])
+    w = terrain_compose.weight(layout.terrain, pts[:, 0], pts[:, 1]) + 0.02 * rng.random(len(pts))
+    order = np.argsort(-w)
+    placed: list = []
+    out = {}
+    for nd in sorted(c.nodes, key=lambda n: -n.radius):
+        for k in order[:4000]:
+            if w[k] < 0.15:
+                break
+            if ok(pts[k], nd.radius, placed):
+                out[nd.id] = nd.model_copy(update={"center": (round(float(pts[k][0]), 1), round(float(pts[k][1]), 1))})
+                break
+        placed.append(out.get(nd.id, nd))
+    L = layout.model_copy(deep=True)
+    L.city.nodes = [out.get(n.id, n) for n in c.nodes]
     return SiteLayout.model_validate(L.model_dump(mode="json"))
