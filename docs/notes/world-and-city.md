@@ -476,3 +476,7 @@ World and city mode: greybox and passes, concept frames and their control settin
   took its own tower out, and condos took out the rowhouses touching them.
 - Scratch large classic (seed 3, background on): 4,724 houses, 417 condos, 23 penthouses, 4 chateaux;
   greybox 1,094 -> 1,193 slots, build 42 s -> 47 s.
+- Unreal cost, scratch large classic (seed 3, background on, fresh UE project, warm DDC; `ap ue build`):
+  off 179 s (472 assets, import 117 s, HLODs 22 s), on 200 s (493 assets, import 130 s, HLODs 24 s): +12 %.
+  The first build after the change caches the new meshes (cone, the types' first uses): measure warm, or
+  the build that ran first pays the cache (an unfair first pair read 10.8 vs 6.3 min).
