@@ -515,3 +515,12 @@ World and city mode: greybox and passes, concept frames and their control settin
   The prompt now gives typical heights, what each base already includes, the depth meaning, one example on an
   unrelated landscape; `terrain_compose.MAX_HEIGHT` clamps per landform. Then all five validated first try and
   matched the text (one earlier answer needed the retry).
+- Described-terrain fixes (2026-11-02). The volcano's "spikes": parks and paving are drawn from their outline
+  points only — the viewer triangulates the ring (`c3dPolys`), the greybox caps a `poly` draped every 15 m round
+  its edge, and Unreal gets that mesh — so a park spanning a slope or a carved bank is flat triangles cutting
+  through or hanging over the ground. On the cone they hung over a gorge: classic metro carved its own river
+  (`city_metro.rivers`) down through the cone. Now, on a described terrain only: the metro invents no river (the
+  description's rivers are the ones); `terrain_compose.steep_ground` (slope grid > the city's `max_slope`, 30 m
+  cells, closed, specks dropped) is cut out of the plan's region and every non-water way (`off_steep`); one
+  serpentine `lookout` road climbs the first peak or volcano at 9 % to its rim (steeper stretches become stairs);
+  parks are cut off steep ground into 60 m tiles (`terrain_compose.tiles`) so each flat piece follows the ground.

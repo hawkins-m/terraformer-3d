@@ -20,7 +20,7 @@ terrain grows with the city size like a preset. A preset never has a spec: its h
 import math
 
 import numpy as np
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Polygon
 
 from .schema import TerrainCompose, TerrainFeature, TerrainSettings, TerrainSpec
 
@@ -378,3 +378,120 @@ def line(spec: TerrainCompose) -> str:
         else:
             parts.append(HINT_WORDS[h.kind])
     return " · ".join(parts)
+
+
+# --- the plan on a described terrain (city.plan) --------------------------------------------------
+
+STEEP_CELL_M = 30.0        # the steep-ground mask's cell
+PARK_TILE_M = 60.0         # parks cut this small, so each flat piece follows the slope (viewer, greybox, Unreal)
+LOOKOUT_GRADE = 0.09       # the lookout road climbs this steeply, winding round the cone
+WATER_TYPES = ("river", "canal")
+
+
+def described(t: TerrainSpec) -> bool:
+    return t.settings is not None and t.settings.compose is not None
+
+
+def steep_ground(f, limit: float):
+    """Ground steeper than `limit` (rise / run, the city's max_slope), as polygons on a STEEP_CELL_M grid:
+    no streets, blocks or parks go there. Specks under three cells are dropped, small gaps filled."""
+    from scipy import ndimage
+    from shapely.geometry import box
+    from shapely.ops import unary_union
+    g = f.slope_grid
+    n = g.shape[0]
+    e = f.t.extent_m
+    k = max(1, int(round(STEEP_CELL_M / (e / (n - 1)))))
+    m = (n // k) * k
+    coarse = g[:m, :m].reshape(m // k, k, m // k, k).max(axis=(1, 3))
+    mask = ndimage.binary_closing(coarse > limit, iterations=1)
+    lab, nlab = ndimage.label(mask)
+    sizes = ndimage.sum(mask, lab, range(1, nlab + 1))
+    keep = np.isin(lab, np.nonzero(sizes >= 3)[0] + 1)
+    cell = e / (n - 1) * k
+    ii, jj = np.nonzero(keep)
+    x0, y1 = -e / 2, e / 2
+    boxes = [box(x0 + j * cell, y1 - (i + 1) * cell, x0 + (j + 1) * cell, y1 - i * cell) for i, j in zip(ii, jj)]
+    return unary_union(boxes).buffer(0.5 * cell).buffer(-0.5 * cell).simplify(0.3 * cell) if boxes else Polygon()
+
+
+def off_steep(ways: list, steep) -> list:
+    """The ways with their stretches over steep ground cut out (water stays; it carves its own bed)."""
+    from .city import Way, _polys_lines
+    from shapely.prepared import prep
+    ps = prep(steep)
+    out = []
+    for w in ways:
+        if w.kind in WATER_TYPES or not ps.intersects(w.line):
+            out.append(w)
+            continue
+        parts = [g for g in _polys_lines(w.line.difference(steep)) if g.length > 30]
+        for i, g in enumerate(parts):
+            out.append(Way(w.id if len(parts) == 1 else f"{w.id}~s{i}", w.kind, g, w.width, w.district))
+    return out
+
+
+def lookout(L, f, steep) -> list:
+    """At most one winding road up the first peak or volcano that stands on steep ground: from the foot of
+    its slope nearest the city's centre, round and up the cone at LOOKOUT_GRADE to its rim (a crater's) or
+    summit. Its steeper stretches become stairs (city.split_by_grade)."""
+    from .city import main_centre, nearest_node, split_by_grade
+    t = L.terrain
+    s = t.settings
+    cone = next((ft for ft in s.compose.features if ft.type in ("volcano", "peak")), None)
+    if cone is None or steep.is_empty:
+        return []
+    P = _place(t, s, cone)
+    R = radius(t, cone)
+    from shapely.geometry import Point as SPoint
+    part = min(getattr(steep, "geoms", [steep]), key=lambda g: g.distance(SPoint(*P)))
+    if part.distance(SPoint(*P)) > 0.3 * R:
+        return []
+    from shapely.ops import nearest_points
+    C = main_centre(L.city)
+    start = np.array(nearest_points(part.exterior, SPoint(*C))[0].coords[0])
+    stop_r = (0.24 if cone.crater else 0.08) * R
+    pts, p, side = [start], start.copy(), 1.0
+    for _ in range(600):
+        e = 6.0
+        gx = (float(f.z(p[0] + e, p[1])) - float(f.z(p[0] - e, p[1]))) / (2 * e)
+        gy = (float(f.z(p[0], p[1] + e)) - float(f.z(p[0], p[1] - e))) / (2 * e)
+        gm = math.hypot(gx, gy)
+        to = P - p
+        if math.hypot(*to) < stop_r:
+            break
+        if gm < LOOKOUT_GRADE:                     # gentle: straight on to the top
+            d = to / max(math.hypot(*to), 1e-9)
+        else:
+            up = np.array([gx, gy]) / gm
+            tan = side * np.array([-up[1], up[0]])
+            th = math.asin(min(0.95, LOOKOUT_GRADE / gm))
+            d = math.cos(th) * tan + math.sin(th) * up
+        q = p + 20.0 * d
+        if not bool(f.land(*q)):
+            break
+        p = q
+        pts.append(p.copy())
+    if len(pts) < 5 or math.hypot(*(P - pts[-1])) > 0.5 * R:
+        return []
+    ln = LineString(pts).simplify(2.0)
+    return split_by_grade(f, ln, "lookout", "lane", L.city.street_w, nearest_node(L.city, *P))
+
+
+def tiles(parks: list, steep) -> list:
+    """Parks off steep ground, cut on a PARK_TILE_M grid (each piece flat, draped at its corners: small
+    enough to follow the ground)."""
+    from shapely.geometry import box
+    from .city import _polys
+    out = []
+    for p in parks:
+        q = p.difference(steep) if steep is not None and not steep.is_empty else p
+        for a in _polys(q):
+            x0, y0, x1, y1 = a.bounds
+            if x1 - x0 <= PARK_TILE_M and y1 - y0 <= PARK_TILE_M and not a.interiors:
+                out.append(a)
+                continue
+            for gx in np.arange(math.floor(x0 / PARK_TILE_M) * PARK_TILE_M, x1, PARK_TILE_M):
+                for gy in np.arange(math.floor(y0 / PARK_TILE_M) * PARK_TILE_M, y1, PARK_TILE_M):
+                    out += [r for r in _polys(a.intersection(box(gx, gy, gx + PARK_TILE_M, gy + PARK_TILE_M))) if r.area > 50]
+    return out

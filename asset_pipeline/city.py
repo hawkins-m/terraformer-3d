@@ -2304,6 +2304,12 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
             if inner is not None:
                 P.ways = inner[3]
     P.interchanges = interchanges(c, P.ways)
+    steep = None
+    from . import terrain_compose
+    if terrain_compose.described(layout.terrain):   # a described terrain: nothing on ground steeper than max_slope
+        steep = terrain_compose.steep_ground(f, c.max_slope)
+        if not steep.is_empty:
+            P.ways = terrain_compose.off_steep(P.ways, steep) + terrain_compose.lookout(L, f, steep)
 
     # superblocks: faces between the ways, on land, minus the ways and the civic cores
     region = _land_region(L, f, 30 + c.promenade_w)
@@ -2316,6 +2322,8 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     if f.outline is not None:      # the preset's outline (towns are their own)
         region = region.intersection(unary_union([f.outline.polygon(f.t.extent_m)]
                                                  + [Point(tw.center).buffer(tw.radius, quad_segs=32) for tw in c.towns]))
+    if steep is not None and not steep.is_empty:
+        region = region.difference(steep)
     lines = [w.line for w in P.ways] + [region.boundary]
     faces = [g for g in polygonize(unary_union(lines)) if region.contains(g.representative_point())]
     cut = unary_union([w.line.buffer(w.width / 2, cap_style="flat") for w in P.ways]
@@ -2512,6 +2520,8 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
         from . import city_metro
         city_metro.trim_stubs(P)
 
+    if steep is not None:      # a described terrain's parks: off steep ground, in small tiles that follow it
+        P.parks = terrain_compose.tiles(P.parks, steep)
     if c.trees:
         P.trees = trees(P, f, rng) + forum_trees
     if c.extended_types:       # the extended building types, on their own streams (city_extended)

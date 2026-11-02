@@ -154,6 +154,8 @@ def rivers(c: CitySpec, t: TerrainSpec) -> list:
     from . import terrain_gen
     if not c.nodes:
         return []
+    if t.settings is not None and t.settings.compose is not None:     # a described terrain has the rivers it was given
+        return []
     rng = city.layout_rng(c, "metro-river")
     side = int(rng.choice([-1, 1]))
     C = np.array(city.main_centre(c), float)
@@ -326,8 +328,10 @@ def peak(c: CitySpec, t: TerrainSpec) -> np.ndarray:
         pts = np.array(own.coords)
         wet = np.nonzero(terrain_gen.inland_of(t, pts[:, 0], pts[:, 1]) <= 0)[0] if t.settings is not None else []
         mouth = pts[wet[0]] if len(wet) else pts[-1]
-    else:
-        mouth = np.array(next(ln for wid, ln, _ in rivers(c, t) if wid == "river").coords[-1])
+    else:                                     # its own river's mouth; a described terrain's: its river nearest downtown
+        main = next((ln for wid, ln, _ in rivers(c, t) if wid == "river"), None)
+        main = main or min((ln for ln, _ in lines), key=lambda ln: ln.distance(Point(C)))
+        mouth = np.array(main.coords[-1])
     return C + 0.55 * (mouth - C)
 
 

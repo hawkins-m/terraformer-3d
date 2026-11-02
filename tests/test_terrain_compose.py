@@ -124,6 +124,18 @@ def test_apply_a_described_terrain_plans_builds_and_draws_like_a_preset(tmp_path
         C = L2.terrain.settings.centre
         ds = [math.dist(n.center, C) for n in L2.city.nodes]
         assert sum(0.6 * R < d_ < 1.7 * R for d_ in ds) >= len(ds) - 1
+        f = city.Fields(P.layout, h)
+        steep = TC.steep_ground(f, P.layout.city.max_slope)
+        assert steep.area > 0.5 * math.pi * (0.6 * R) ** 2                   # the cone is steep ground
+        assert not any(b.intersection(steep).area > 50 for b in P.blocks)    # bare rock: no blocks, parks
+        assert sum(p.intersection(steep).area for p in P.parks) < 1.0
+        assert all(max(p.bounds[2] - p.bounds[0], p.bounds[3] - p.bounds[1]) <= TC.PARK_TILE_M + 1e-6 for p in P.parks)
+        roads = [w for w in P.ways if w.kind not in ("river", "canal") and not w.id.startswith("lookout")]
+        assert all(w.line.intersection(steep.buffer(-2)).length < 1 for w in roads)       # streets stop at its foot
+        look = [w for w in P.ways if w.id.startswith("lookout")]
+        assert look and sum(w.line.length for w in look) > 1000 and not any(w.kind == "river" for w in P.ways)
+        top = min(look, key=lambda w: min(math.dist(q, C) for q in w.line.coords))
+        assert min(math.dist(q, C) for q in top.line.coords) < 0.5 * R                    # it reaches the top
         a = [math.degrees(math.atan2(b.y - C[1], b.x - C[0])) for b in P.buildings]
         assert (np.histogram(a, bins=12, range=(-180, 180))[0] > 20).sum() >= 9        # built all round the cone
 
