@@ -539,3 +539,19 @@ World and city mode: greybox and passes, concept frames and their control settin
   had squashed a 70 m cliff to ~40 m at 120 m inland); on a coast base, cliffs on the sea's side run the whole
   coast and open only round a bay (0.7 x its width) so the harbour stays low. Hills default 140 m, each 0.5 R
   wide. Renders: `/mnt/storage/ap-scratch/describe-fix/compare-*.png` (scratch only).
+- Base and placement (2026-11-02). With no base word the parser fell back to a coast, so plains + "add mountains
+  and hills" became "Coast (sea …)" and classic moved the city to the shore; unplaced landforms sat at the centre,
+  under the city. Now `terrain_describe.current()` maps the Terrain dropdown's pick as shown (the page sends
+  `current` / `current_compose`; Apply's own `describe` and the CLI use the active terrain) to a base: coast "all"
+  → island, "none" → inland (plateau_m > 0: plateau), river + mountains → valley, other coasts → coast on the
+  layout's sea_dir; ground from settings.base. The text keeps it unless it names island / coast / valley /
+  plateau / inland; sea words (`SEA`: sea, shore, beach, bay, harbour, ocean, port, delta, …; not cliffs) make a
+  coast only when the current base has no sea. `settle()` places what the text gave no place: ridges, peaks,
+  volcanoes, a lone `hill`, lakes, a non-base plateau and inland cliffs go `beyond` (past `city_r_m`, set to
+  `CITY_R` = 0.3125 x the tile for described terrains, by 0.6 R) away from the sea, alternating two neighbouring
+  sides; hills go to `edges` (a ring there, none on the sea side); a ring hint's landform, coastal cliffs, rivers
+  and valleys keep the centre. "On a hill" puts one broad `hill` (80 m, 1.8 R: under 7 % slope) at the centre.
+  The model path gets "The terrain now: …" in its prompt and `kept()` applies the same rules to its answer. The
+  line names the kept base first: "Inland (from flat plain), flat · mountains (north, large, 450 m) · hills (edges,
+  medium)". Presets and their plans byte-identical (hashed against the previous commit). Renders:
+  `/mnt/storage/ap-scratch/describe-base/{before,after}-*.png` (scratch only).

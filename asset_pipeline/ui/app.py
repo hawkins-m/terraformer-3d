@@ -350,6 +350,8 @@ class DescribeReq(BaseModel):
     text: str = Field(default="", max_length=600)
     preset: str | None = None          # (ignored: kept for older pages)
     compose: dict | None = None        # a spec typed or edited by hand (Edit): checked and shown as a line, no text needed
+    current: str | None = None         # the Terrain dropdown as shown (a preset, "" own, "described"): its base is kept
+    current_compose: dict | None = None    # current "described": the spec it shows
 
 
 class MergeGroundReq(BaseModel):
@@ -1664,7 +1666,7 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             elif spec is not None or (req.describe or "").strip():
                 sp = spec
                 if sp is None:
-                    pick = terrain_describe.describe(req.describe)
+                    pick = terrain_describe.describe(req.describe, current=city_roll.describe_current(store))
                     sp = pick["spec"]
                 ext = city_roll._layout_or_starter(store).terrain.extent_m
                 settings = terrain_describe.settings(sp, seed, ext)
@@ -1682,9 +1684,9 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
     def site_terrain_describe(slug: str, req: DescribeReq):
         """What a description means as a terrain spec (or a spec typed by hand, checked), without applying it: the
         local model's text mode when its server is running, else the keyword parser. Apply terrain builds it."""
-        from .. import terrain_compose, terrain_describe
+        from .. import city_roll, terrain_compose, terrain_describe
         from ..schema import TerrainCompose
-        _store(slug)
+        store = _store(slug)
         if req.compose is not None:
             try:
                 spec = TerrainCompose.model_validate(req.compose)
@@ -1693,7 +1695,8 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             return {"compose": spec.model_dump(mode="json"), "line": terrain_compose.line(spec), "source": "spec",
                     "understood": [], "ignored": [], "matched": True, "tries": 0, "try": list(terrain_describe.TRY)}
         try:
-            pick = terrain_describe.describe(req.text)
+            cur = city_roll.describe_current(store, req.current, req.current_compose)
+            pick = terrain_describe.describe(req.text, current=cur)
         except ValueError as e:
             raise HTTPException(400, str(e))
         return {k: pick[k] for k in ("line", "source", "understood", "ignored", "matched", "tries", "try")} | {

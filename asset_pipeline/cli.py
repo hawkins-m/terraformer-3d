@@ -1551,7 +1551,7 @@ def cmd_terrain_roll(a) -> None:
     seed = a.seed if a.seed is not None else int(np.random.default_rng().integers(1, 2**31 - 1))
     if getattr(a, "describe", None):
         from . import city_roll as cr, terrain_describe
-        pick = terrain_describe.describe(a.describe)
+        pick = terrain_describe.describe(a.describe, current=cr.describe_current(store))
         print(f"described ({pick['source']}): {pick['line']}" + (f"; ignored: {', '.join(pick['ignored'])}" if pick["ignored"] else ""))
         settings = terrain_describe.settings(pick["spec"], seed, cr._layout_or_starter(store).terrain.extent_m)
     elif a.preset:

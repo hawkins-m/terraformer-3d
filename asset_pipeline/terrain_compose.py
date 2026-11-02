@@ -29,9 +29,9 @@ DIRS = {"east": 0.0, "north-east": 45.0, "north": 90.0, "north-west": 135.0, "we
         "south-west": 225.0, "south": 270.0, "south-east": 315.0}
 SIZE = {"small": 0.55, "medium": 1.0, "large": 1.7}
 SPREAD = {"gentle": 1.35, "moderate": 1.0, "steep": 0.75}          # a gentler landform spreads wider
-HEIGHT = {"peak": 420.0, "volcano": 650.0, "ridge": 260.0, "hills": 140.0, "plateau": 160.0, "cliffs": 120.0,
+HEIGHT = {"peak": 420.0, "volcano": 650.0, "ridge": 260.0, "hill": 80.0, "hills": 140.0, "plateau": 160.0, "cliffs": 120.0,
           "headland": 12.0, "valley": 70.0, "lake": 6.0, "bay": 0.0, "river": 0.0}
-SHAPE = {"peak": 1.0, "volcano": 1.6, "ridge": 1.0, "hills": 1.0, "plateau": 1.6, "cliffs": 1.0, "headland": 1.0,
+SHAPE = {"peak": 1.0, "volcano": 1.6, "ridge": 1.0, "hill": 1.8, "hills": 1.0, "plateau": 1.6, "cliffs": 1.0, "headland": 1.0,
          "valley": 0.8, "lake": 0.8, "bay": 1.0, "river": 1.0}
 BASE = {   # the generator's settings for each base (TerrainSettings fields)
     "island": dict(coast="all", relief_m=12.0, rise=0.012, beach_m=60.0),
@@ -40,7 +40,10 @@ BASE = {   # the generator's settings for each base (TerrainSettings fields)
     "valley": dict(coast="side", relief_m=14.0, rise=0.01, beach_m=40.0),
     "plateau": dict(coast="none", relief_m=8.0, rise=0.0),
 }
-RING_TYPES = ("volcano", "peak", "lake", "plateau")
+RING_TYPES = ("volcano", "peak", "hill", "lake", "plateau")
+CITY_R = 0.3125            # a described terrain's city_r_m (x the tile): the standard city's half width, what "beyond" clears
+BEYOND_PAD = 0.6           # a landform beyond the city: its centre this many of its radii past city_r_m
+EDGE_HILLS = 6             # hills round the city's edges, unless a count is given
 VALLEY_RIDGE_M = 420.0     # a valley base's two ridges: their height, distance off the axis (x half the tile), width (x the tile)
 VALLEY_RIDGE_OFF = 0.33
 VALLEY_RIDGE_W = 0.075
@@ -64,7 +67,7 @@ def radius(t: TerrainSpec, f: TerrainFeature) -> float:
 
 
 # the most a landform may rise (a lake's or valley's depth), whatever a description or the model says
-MAX_HEIGHT = {"peak": 1400.0, "volcano": 1600.0, "ridge": 900.0, "hills": 250.0, "plateau": 600.0, "cliffs": 200.0,
+MAX_HEIGHT = {"peak": 1400.0, "volcano": 1600.0, "ridge": 900.0, "hill": 250.0, "hills": 250.0, "plateau": 600.0, "cliffs": 200.0,
               "headland": 40.0, "valley": 300.0, "lake": 30.0, "bay": 0.0, "river": 0.0}
 
 
@@ -80,6 +83,7 @@ def compose(spec: TerrainCompose, seed: int = 0, extent_m: float = 8000.0) -> Te
     base plateau's table, no beach under cliffs; the spec kept in `compose`."""
     s = dict(BASE[spec.base])
     s["base"] = spec.ground
+    s["city_r_m"] = round(CITY_R * extent_m, 1)
     if spec.ground == "flat":
         s["relief_m"], s["rise"] = 2.5, min(s.get("rise", 0.01), 0.002)
     elif spec.ground == "rugged":
@@ -95,15 +99,30 @@ def compose(spec: TerrainCompose, seed: int = 0, extent_m: float = 8000.0) -> Te
     return TerrainSettings.model_validate(s | {"name": "described", "seed": int(seed), "compose": spec.model_dump()})
 
 
+def edge_r(t: TerrainSpec, s: TerrainSettings, f: TerrainFeature) -> float:
+    """How far out a landform beyond the city (or round its edges) stands: past city_r_m by BEYOND_PAD of its
+    radius, inside the tile (on an island, inside its coast)."""
+    d = s.city_r_m + BEYOND_PAD * radius(t, f)
+    return min(d, 0.75 * s.island_r_m) if s.compose.base == "island" else min(d, 0.8 * t.extent_m / 2)
+
+
+def behind(spec: TerrainCompose) -> str:
+    """The compass side away from the sea (inland bases: away from the default side)."""
+    return min(DIRS, key=lambda k: abs(((DIRS[k] - DIRS[spec.side] - 180) + 180) % 360 - 180))
+
+
 def _place(t: TerrainSpec, s: TerrainSettings, f: TerrainFeature, k: int = 0) -> np.ndarray:
-    """A feature's centre: the city's centre, out along a compass direction, on the coast, or inland."""
+    """A feature's centre: the city's centre, out along a compass direction (beyond: past the city's edge), on
+    the coast, inland, or round the city's edges (one point on that ring: behind the city)."""
     from .greybox import sea_axes, shore_at
     C = np.array(s.centre, float)
     spec = s.compose
     u, v = sea_axes(t)
     half = t.extent_m / 2
+    if f.at == "edges":
+        return C + edge_r(t, s, f) * _unit(DIRS[behind(spec)])
     if f.at in DIRS:
-        d = 0.55 * s.island_r_m if spec.base == "island" else 0.3 * half
+        d = edge_r(t, s, f) if f.beyond else 0.55 * s.island_r_m if spec.base == "island" else 0.3 * half
         return C + d * _unit(DIRS[f.at])
     if f.at == "coast":
         if spec.base == "island":
@@ -194,6 +213,21 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
                 along = (x - q[0]) * e[0] + (y - q[1]) * e[1]
                 perp = -(x - q[0]) * e[1] + (y - q[1]) * e[0]
                 add += H * np.exp(-(perp / (0.45 * R)) ** 2) * (1 - _smooth(1.2 * R, 2.2 * R, np.abs(along))) * (0.85 + 0.15 * soft)
+        elif f.type == "hill":            # one broad rounded hill (a city on a hill: gentle enough to build on)
+            add += H * np.exp(-(d / R) ** 2) * (0.92 + 0.08 * soft)
+        elif f.type == "hills" and f.at == "edges":       # round the city, not under it; none out at sea
+            m = f.count if f.count > 1 else EDGE_HILLS
+            C, er = np.array(s.centre, float), edge_r(t, s, f)
+            sea = DIRS[spec.side] if spec.base in ("coast", "valley") else None
+            a0 = rng.uniform(0, 2 * math.pi)
+            for j in range(m):
+                a = a0 + 2 * math.pi * (j + rng.uniform(-0.25, 0.25)) / m
+                if sea is not None and abs(((math.degrees(a) - sea) + 180) % 360 - 180) < 60:
+                    a += math.radians(120) * (1 if ((math.degrees(a) - sea) % 360) < 180 else -1)
+                rr = er + rng.uniform(-0.25, 0.25) * R
+                hx, hy = C[0] + rr * math.cos(a), C[1] + rr * math.sin(a)
+                hr = 0.5 * R * rng.uniform(0.7, 1.3)
+                add += H * rng.uniform(0.6, 1.2) * np.exp(-((x - hx) ** 2 + (y - hy) ** 2) / hr ** 2)
         elif f.type == "hills":
             m = f.count if f.count > 1 else 5
             for _ in range(m):        # each hill broad enough to read at the tile's scale
@@ -438,11 +472,15 @@ HINT_WORDS = {"coast": "city along the coast", "valley": "city in the valley", "
               "plateau": "city on the plateau"}
 
 
-def line(spec: TerrainCompose) -> str:
-    """The spec as a short line: "Island · volcano (centre, large, crater) · city rings the lower slopes"."""
+def line(spec: TerrainCompose, inherited: str | None = None) -> str:
+    """The spec as a short line: "Island · volcano (centre, large, crater) · city rings the lower slopes"; the base
+    first, with the terrain it was kept from when the description named none ("Inland (from flat plain)")."""
     head = BASE_WORDS[spec.base]
-    if spec.base in ("coast", "valley"):
-        head += f" (sea {spec.side})"
+    bits = [f"sea {spec.side}"] if spec.base in ("coast", "valley") else []
+    if inherited:
+        bits.append(f"from {inherited}")
+    if bits:
+        head += f" ({', '.join(bits)})"
     if spec.ground != "rolling":
         head += f", {spec.ground}"
     parts = [head]
@@ -455,6 +493,8 @@ def line(spec: TerrainCompose) -> str:
         if f.crater:
             bits.append("crater")
         name = f.type.replace("river", "river channels" if f.count > 1 else "river")
+        if f.type == "ridge" and height(f) >= 400:
+            name = "mountains"
         parts.append(f"{f'{f.count} ' if f.count > 1 else ''}{name} ({', '.join(bits)})")
     for h in spec.city:
         if h.kind == "ring":

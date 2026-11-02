@@ -258,7 +258,8 @@ Added from 2026-10-27, mostly in the Layout tab's roll box and `ap ue build`:
 - **Terrain presets**: 8 generated terrains (flat plain, coastal plain, river valley, hill city, mountain bowl,
   plateau, island, canyon) with their own seed; rivers, canals and docks are lowered into the ground; the plan
   avoids water and steep ground; `ap terrain roll --preset`.
-- **Describe the terrain**: text to a preset plus tweaks with the local vision model, else keywords;
+- **Describe the terrain**: text to landforms on the picked terrain's base (it adds a sea only when asked;
+  unplaced mountains and hills go round the city) with the local vision model, else keywords;
   `ap terrain roll --describe`.
 - **Unreal Landscape**: a generated terrain becomes `AP_Landscape` with the auto material, made headless by the
   repo's APLandscape editor plugin; heightmap projects keep their own Landscape.

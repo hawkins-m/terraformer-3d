@@ -159,7 +159,7 @@ def test_describe_api_shows_the_spec_and_apply_builds_exactly_it(client, capsys)
     from asset_pipeline import cli
     cli.main(["terrain", "roll", "t", "--describe", "flat delta with many river channels", "--seed", "4"])
     out = capsys.readouterr().out
-    assert "described (keywords): Coast (sea south), flat · 5 river channels" in out
+    assert "described (keywords): Island, flat · 5 river channels" in out     # the active island kept: it has a sea
     assert sw_site.load_layout(s).terrain.settings.compose.features[0].count == 5
 
 
@@ -188,3 +188,113 @@ def test_edit_shows_the_spec_json_and_checks_it():
     assert 'id="city-terrain-spec-check"' in html and "hidden" in html[html.index('id="city-terrain-spec-box"') - 5:][:60]
     js = (STATIC / "city.js").read_text()
     assert "function paintSpecEditor" in js and "{compose}" in js and "Not valid JSON" in js
+
+
+# --- the base kept from the Terrain pick, landforms round the city (not under it) ------------------
+
+def _current(name):
+    from asset_pipeline import terrain_gen
+    return TD.current(terrain_gen.get(name), sea_dir=-90.0)
+
+
+def _built(spec, seed=5):
+    from asset_pipeline import terrain_gen
+    t = sw_site.starter_city().terrain.model_copy(update={"resolution": 257})
+    t = terrain_gen.with_settings(t, TD.settings(spec, seed, t.extent_m))
+    return t, terrain_gen.make(t)
+
+
+def _core(t, h, half=(1500.0, 900.0)):
+    """The heights over the city's core (the starter city's middle, round the terrain's centre)."""
+    n = t.resolution
+    xs = (np.arange(n) / (n - 1) - 0.5) * t.extent_m
+    ys = (0.5 - np.arange(n) / (n - 1)) * t.extent_m
+    C = t.settings.centre
+    jj = np.abs(xs - C[0]) < half[0]
+    ii = np.abs(ys - C[1]) < half[1]
+    return h[np.ix_(ii, jj)]
+
+
+import numpy as np  # noqa: E402
+
+
+def test_plains_with_mountains_and_hills_stay_inland_with_a_flat_core():
+    cur = _current("flat-plain")
+    assert (cur["base"], cur["ground"]) == ("inland", "flat")
+    r = TD.describe("add mountains and hills", use_vlm=False, current=cur)
+    spec = r["spec"]
+    assert spec.base == "inland" and spec.ground == "flat" and r["matched"]
+    assert r["line"].startswith("Inland (from flat plain), flat · ")              # the base first, where it came from
+    by = {f.type: f for f in spec.features}
+    assert set(by) == {"ridge", "hills"} and by["ridge"].at == "north" and by["ridge"].beyond
+    assert by["hills"].at == "edges" and not any(f.at == "centre" for f in spec.features)
+    t, h = _built(spec)
+    assert t.settings.coast == "none" and (h > 0).all()                           # no sea anywhere
+    core = _core(t, h)
+    assert core.max() - core.min() < 40                                          # nothing standing on the city's core
+    assert h.max() > 300                                                         # the mountains are there, out beyond
+
+
+def test_an_island_stays_an_island():
+    r = TD.describe("add hills", use_vlm=False, current=_current("island"))
+    assert r["spec"].base == "island" and r["line"].startswith("Island (from island) · hills (edges")
+    assert TD.describe("add hills", use_vlm=False, current=_current("coastal-plain"))["line"].startswith(
+        "Coast (sea south, from coastal plain) · hills (edges")
+
+
+def test_a_sea_only_when_the_words_ask_for_one():
+    cur = _current("flat-plain")
+    for text in ("a lake", "cliffs on the west", "two ridges", "a volcano"):
+        assert TD.describe(text, use_vlm=False, current=cur)["spec"].base == "inland", text
+    for text in ("a beach", "hills by the sea", "a harbour", "an ocean to the east", "a lake shore"):
+        assert TD.describe(text, use_vlm=False, current=cur)["spec"].base == "coast", text
+    assert TD.describe("an ocean to the east", use_vlm=False, current=cur)["spec"].side == "east"
+    assert TD.describe("a beach", use_vlm=False, current=_current("island"))["spec"].base == "island"
+
+
+def test_a_city_on_a_hill_by_the_sea_has_its_hill_in_the_centre():
+    for cur in (None, _current("flat-plain")):
+        spec = TD.describe("a city on a hill by the sea", use_vlm=False, current=cur)["spec"]
+        assert spec.base == "coast" and [(f.type, f.at) for f in spec.features] == [("hill", "centre")]
+    t, h = _built(spec)
+    from asset_pipeline import city
+    core = _core(t, h, (600.0, 400.0))
+    assert core.mean() > _core(t, h, (2400.0, 1400.0)).mean() + 15               # the core stands up
+    L = sw_site.starter_city()
+    L.terrain = t
+    f = city.Fields(L, h)
+    assert float(np.percentile(f.slope_grid, 99)) < L.city.max_slope              # gentle enough to build on
+
+
+def test_a_landform_put_in_the_centre_stays_there():
+    spec = TD.describe("a volcano in the centre", use_vlm=False, current=_current("flat-plain"))["spec"]
+    assert (spec.base, spec.features[0].at, spec.features[0].beyond) == ("inland", "centre", False)
+
+
+def test_the_model_keeps_the_current_base_and_moves_what_it_put_under_the_city():
+    prompts = []
+    answer = {"spec": {"base": "coast", "side": "south", "features": [{"type": "ridge", "at": "centre", "size": "large"},
+                                                                      {"type": "hills", "at": "centre"}]}}
+
+    def ask(system, prompt):
+        prompts.append(prompt)
+        return json.dumps(answer)
+    r = TD.describe("add mountains and hills", ask=ask, current=_current("flat-plain"))
+    assert "The terrain now: base inland, ground flat." in prompts[0] and "keep the terrain's base" in prompts[0]
+    spec = r["spec"]
+    assert r["source"] == "vlm" and (spec.base, spec.ground) == ("inland", "flat")
+    assert [(f.type, f.at, f.beyond) for f in spec.features] == [("ridge", "north", True), ("hills", "edges", False)]
+    assert r["line"].startswith("Inland (from flat plain), flat · ")
+
+
+def test_describe_api_keeps_the_terrain_dropdowns_base(client):
+    c, s = client
+    r = c.post("/api/projects/t/site/terrain/describe", json={"text": "add mountains and hills", "current": "flat-plain"}).json()
+    assert r["compose"]["base"] == "inland" and r["line"].startswith("Inland (from flat plain), flat")
+    r = c.post("/api/projects/t/site/terrain/describe", json={"text": "add hills", "current": "described",
+                                                              "current_compose": {"base": "island"}}).json()
+    assert r["compose"]["base"] == "island"
+    r = c.post("/api/projects/t/site/terrain/describe", json={"text": "add hills", "current": ""}).json()
+    assert r["line"].startswith("Coast (sea south, from the project's coast)")
+    js = (__import__("test_ui_layout").STATIC / "city.js").read_text()
+    assert "current: sel.options.length ? sel.value : null" in js and "current_compose" in js

@@ -411,15 +411,18 @@ class VegZone(BaseModel):
 
 Compass = Literal["north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west"]
 TerrainPlace = Literal["centre", "north", "north-east", "east", "south-east", "south", "south-west", "west", "north-west",
-                       "coast", "inland", "everywhere"]
+                       "coast", "inland", "everywhere", "edges"]
 
 
 class TerrainFeature(BaseModel):
     """One landform of a described terrain (terrain_compose.py): where it is relative to the city's centre
-    (a compass direction, the coast, inland, or everywhere), its size, height (None: the type's own; a
-    valley's or lake's depth) and steepness."""
-    type: Literal["peak", "volcano", "ridge", "hills", "plateau", "cliffs", "lake", "river", "bay", "headland", "valley"]
+    (a compass direction, the coast, inland, everywhere, or round the city's edges), its size, height (None:
+    the type's own; a valley's or lake's depth) and steepness. beyond: out past the city's edge that way
+    (a landform the description gave no place), not 0.3 x half the tile out."""
+    type: Literal["peak", "volcano", "ridge", "hill", "hills", "plateau", "cliffs", "lake", "river", "bay", "headland",
+                  "valley"]
     at: TerrainPlace = "centre"
+    beyond: bool = False
     size: Literal["small", "medium", "large"] = "medium"
     height_m: float | None = Field(default=None, ge=0, le=2500)
     steepness: Literal["gentle", "moderate", "steep"] = "moderate"

@@ -509,7 +509,9 @@ async function describeTerrain() {
   if (!text) { out.textContent = "Describe the terrain in a few words first."; return; }
   out.textContent = "Reading the description…";
   try {
-    const r = await api(`/api/projects/${slug}/site/terrain/describe`, {text});
+    const sel = $("#city-terrain-preset"), cur = sel.value === "described" ? describedSpec() : null;
+    const r = await api(`/api/projects/${slug}/site/terrain/describe`,      // the base of the Terrain pick as shown is kept
+                        {text, current: sel.options.length ? sel.value : null, ...(cur ? {current_compose: cur.compose} : {})});
     if (!r.matched) {                    // the parser found nothing it knows: say so, leave the picker as it is
       terrainPick = null;
       out.textContent = `Couldn't read a landscape in this. Try words like: ${r.try.join(", ")}.`;

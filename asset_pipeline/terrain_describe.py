@@ -7,6 +7,11 @@ started for this, and no paid provider is ever asked): its answer is validated a
 doesn't validate, asked once more with the error. Otherwise, or after a second bad answer, a keyword and phrase
 parser does it, combining every landform it finds. describe() says which ran ("vlm" or "keywords"), what it
 understood (the spec, as a readable line) and what it ignored.
+
+Both keep the base of the terrain picked now (current(): plains stay inland and flat, an island an island, a
+coast its side) unless the words name another or ask for a sea it hasn't; and a landform given no place goes
+round the city, not under it (settle(): mountains, peaks and lakes beyond its edge on one or two sides away
+from the sea, hills round its edges), so the city's core stays flat unless the words put something there.
 """
 import json
 import re
@@ -24,7 +29,8 @@ FEATURES = [
     (r"\bmountain ranges?\b|\bmountains\b|\branges?\b|\bsierra\b", "ridge", {"size": "large", "height_m": 450.0}),
     (r"\bpeaks?\b|\bmountain\b|\bmount\b|\bsummit\b|\bpinnacle\b", "peak", {}),
     (r"\bridges?\b|\bescarpments?\b", "ridge", {}),
-    (r"\bhills?\b|\bhilly\b|\bknolls?\b|\bhillocks?\b|\bdowns\b", "hills", {}),
+    (r"\bhills\b|\bhilly\b|\bknolls\b|\bhillocks\b|\bdowns\b", "hills", {}),
+    (r"\bhill(?: ?tops?)?\b|\bknoll\b|\bhillock\b|\bmound\b", "hill", {}),
     (r"\bplateaus?\b|\bmesas?\b|\btablelands?\b|\btable mountain\b", "plateau", {}),
     (r"\bcliffs?\b|\bbluffs?\b|\bsea ?walls?\b", "cliffs", {"steepness": "steep"}),
     (r"\blakes?\b|\blagoons?\b|\bponds?\b|\breservoirs?\b|\btarns?\b|\bcrater lake\b", "lake", {}),
@@ -37,6 +43,13 @@ FEATURES = [
 ISLAND = r"\bisland\w*|\bisles?\b|\batolls?\b|\barchipelago\b"
 COAST = (r"\bcoast\w*|\bseaside\b|\bsea\b|\bocean\b|\bshores?\b|\bbeach\w*|\bbays?\b|\bharbou?rs?\b|\bports?\b"
          r"|\bcliffs?\b|\bdeltas?\b|\bestuar\w*|\bwaterfront\b")
+# words that ask for the sea (cliffs alone don't: they stand inland too); coast and sea name the coast base
+SEA = (r"\bcoast\w*|\bseaside\b|\bsea\b|\bocean\b|\bshores?\b|\bbeach\w*|\bbays?\b|\bcoves?\b|\bgulfs?\b"
+       r"|\binlets?\b|\bfjords?\b|\bharbou?rs?\b|\bports?\b|\bdeltas?\b|\bestuar\w*|\bwaterfront\b")
+COAST_BASE = r"\bcoast(?:line)?s?\b"
+ON_HILL = (r"\b(?:on|atop|upon|on top of) (?:a |the |one )?(?:\w+ )?(?:hill|knoll|hillock|mound|rise)s?\b"
+           r"|\bhill ?tops?\b")
+CENTRE_WORDS = r"\b(?:centre|center|middle|heart|central)\b"
 INLAND = r"\binland\b(?! *(?:hills?|ridges?|mountains?|peaks?))|\blandlocked\b|\bfar from the sea\b"
 PLACES = [
     (r"\b(?:in|at) the (?:very )?(?:centre|center|middle|heart)\b|\bcentral\b|\bin the middle\b|\bat its heart\b", "centre"),
@@ -97,9 +110,12 @@ def _count(text: str, start: int) -> int | None:
     return None
 
 
-def keywords(text: str) -> dict:
-    """{spec (TerrainCompose), understood [words], ignored [clauses], matched}: every landform the text names, each
-    with the place, size, steepness and count its own clause gives; the base, the sea's side and the city hints."""
+def keywords(text: str, current: dict | None = None) -> dict:
+    """{spec (TerrainCompose), understood [words], ignored [clauses], matched, inherited}: every landform the text
+    names, each with the place, size, steepness and count its own clause gives; the base (current()'s when the
+    text names none: inherited is where it came from), the sea's side and the city hints; settle() places what
+    the text gave no place."""
+    cur = current or CURRENT
     t = " " + re.sub(r"\s+", " ", text.lower()) + " "
     negated = " ".join(m.group(1) for m in _NEG.finditer(t))
     t = _NEG.sub(" , ", t)
@@ -121,6 +137,7 @@ def keywords(text: str) -> dict:
         in_hint = [m.span() for pat, _ in HINTS for m in re.finditer(pat, cl)]
         size, steep = _first(SIZES, cl), _first(STEEP, cl)
         height = re.search(r"(\d{2,4})\s*(?:m|metres|meters)\b", cl)
+        on_hill = re.search(ON_HILL, cl)                  # "a city on a hill (by the sea)": the hill is under it
         taken = []
         for pat, typ, dflt in FEATURES:
             for m in re.finditer(pat, cl):
@@ -132,6 +149,8 @@ def keywords(text: str) -> dict:
                 f = {"type": typ, **dflt}
                 if place:
                     f["at"] = place
+                if on_hill and typ in ("hill", "hills"):
+                    f["at"] = "centre"
                 if size:
                     f["size"] = size
                 if steep:
@@ -165,19 +184,8 @@ def keywords(text: str) -> dict:
         if not hit and any(w and w not in _FILLER and not re.fullmatch(CITY_WORDS, f" {w} ".strip()) for w in words):
             ignored.append(" ".join(w for w in cl.split()))
     whole = t
-    # the base
-    if re.search(ISLAND, whole):
-        base = "island"
-    elif re.search(r"\bvalleys?\b", whole) and not re.search(r"\b(?:no|without) valley", text.lower()):
-        base = "valley"
-    elif re.search(r"\b(?:plateau|mesa|tableland)s?\b", whole) and not re.search(COAST, whole):
-        base = "plateau"
-    elif re.search(INLAND, whole) and not re.search(COAST, whole):
-        base = "inland"
-    elif re.search(COAST, whole):
-        base = "coast"
-    else:
-        base = "coast"
+    base, named = _base(whole, text, cur)
+    side = side or (cur["side"] if not named or base == cur["base"] else None)
     # the base absorbs what it already is: a valley's own valley and two ridges, a plateau base's own table
     out = []
     for f in feats:
@@ -187,12 +195,10 @@ def keywords(text: str) -> dict:
             continue
         if base == "plateau" and f["type"] == "plateau":
             f["at"] = "centre"
-        if f["type"] == "cliffs" and "at" not in f and side:
+        if f["type"] == "cliffs" and "at" not in f and side and base != "inland" and base != "plateau":
             f["at"] = side
         if f["type"] in ("bay", "headland") and "at" not in f:
             f["at"] = "coast"
-        if f["type"] == "hills" and "at" not in f:
-            f["at"] = "centre"
         same = next((o for o in out if o["type"] == f["type"] and o.get("at") == f.get("at")), None)
         if same is not None:                              # the same landform named twice: one, the larger count
             if f.get("count", 1) > same.get("count", 1):
@@ -212,7 +218,7 @@ def keywords(text: str) -> dict:
                 h["feature"] = idx
     if "plateau" in [h["kind"] for h in hints] and base != "plateau" and not any(f["type"] == "plateau" for f in out):
         hints = [h for h in hints if h["kind"] != "plateau"]
-    ground = _first(GROUND, whole, "rolling")
+    ground = _first(GROUND, whole, "rolling" if named else cur["ground"])
     if base == "plateau" and re.search(r"\bhigh\b", whole):
         for f in out:
             if f["type"] == "plateau" and "height_m" not in f:
@@ -222,15 +228,90 @@ def keywords(text: str) -> dict:
             for h in hints:
                 if h.get("feature") is not None:
                     h["feature"] += 1
+    out, hints = settle(out[:12], hints[:4], base, side or "south", text)
     spec = TerrainCompose.model_validate({"base": base, "side": side or "south", "ground": ground,
-                                         "features": out[:12], "city": hints[:4]})
+                                         "features": out, "city": hints})
     seen, words = set(), []
     for w in got:
         if w not in seen:
             seen.add(w)
             words.append(w)
-    return {"spec": spec, "understood": words, "ignored": ignored, "matched": bool(out or hints or base != "coast"
-                                                                                   or re.search(COAST, whole))}
+    return {"spec": spec, "understood": words, "ignored": ignored, "matched": bool(out or hints or named),
+            "inherited": None if named else cur.get("from")}
+
+
+# --- the base kept, and landforms placed round the city -------------------------------------------
+
+def _base(whole: str, text: str, cur: dict) -> tuple[str, bool]:
+    """(base, named): the base the words name, else the current one (named False); a sea is added only when
+    the words ask for one."""
+    if re.search(ISLAND, whole):
+        return "island", True
+    if re.search(r"\bvalleys?\b", whole) and not re.search(r"\b(?:no|without) valley", text.lower()):
+        return "valley", True
+    if re.search(r"\b(?:plateau|mesa|tableland)s?\b", whole) and not re.search(COAST, whole):
+        return "plateau", True
+    if re.search(INLAND, whole) and not re.search(COAST, whole):
+        return "inland", True
+    if re.search(COAST_BASE, whole):
+        return "coast", True
+    if re.search(SEA, whole):                             # a sea asked for: the current one's, else a coast
+        return (cur["base"] if cur["base"] in ("island", "coast", "valley") else "coast"), True
+    return cur["base"], False
+
+
+CURRENT = {"base": "coast", "side": "south", "ground": "rolling", "from": None}    # no terrain picked: a coast
+MOVABLE = ("ridge", "peak", "volcano", "hill", "plateau", "lake", "cliffs")      # beyond the city when not placed
+
+
+def current(settings=None, sea_dir: float = -90.0, name: str | None = None) -> dict:
+    """{base, side, ground, from} of a terrain (TerrainSettings; None: the project's own coast) as a
+    described base: an island's island, an inland one's inland (a high one: plateau), a valley's valley, any
+    other coast its side (sea_dir: the layout's); a described one its own spec's."""
+    from .terrain_compose import DIRS
+    side = min(DIRS, key=lambda k: abs(((DIRS[k] - sea_dir) + 180) % 360 - 180))
+    label = (name or (settings.name if settings is not None else "the project's coast")).replace("-", " ")
+    if settings is None:
+        return {"base": "coast", "side": side, "ground": "rolling", "from": label}
+    if settings.compose is not None:
+        c = settings.compose
+        return {"base": c.base, "side": c.side, "ground": c.ground, "from": "the described terrain"}
+    ground = settings.base if settings.base in ("flat", "rugged") else "rolling"
+    if settings.coast == "all":
+        base = "island"
+    elif settings.coast == "none":
+        base = "plateau" if settings.plateau_m > 0 else "inland"
+    elif settings.river and settings.mountains_m > 0:
+        base = "valley"
+    else:
+        base = "coast"
+    return {"base": base, "side": side, "ground": ground, "from": label}
+
+
+def settle(feats: list[dict], hints: list[dict], base: str, side: str, text: str):
+    """Places for the landforms the text gave none (no "at"): mountains, peaks, volcanoes, lakes, a lone hill,
+    a plateau (not the base's own) and inland cliffs go beyond the city's edge, away from the sea, alternating
+    over two neighbouring sides; hills go round its edges; a landform the city rings, cliffs on a coast and the
+    rest (rivers, valleys) keep the centre. The city's core stays flat unless the text puts something there."""
+    from .terrain_compose import DIRS, RING_TYPES, behind
+    back = behind(TerrainCompose(side=side))
+    sides = [back, min(DIRS, key=lambda k: abs(((DIRS[k] - DIRS[back] - 45) + 180) % 360 - 180))]
+    ring = next((i for i, f in enumerate(feats) if f["type"] in RING_TYPES), None) \
+        if any(h["kind"] == "ring" for h in hints) else None
+    held = {i for i, f in enumerate(feats) if f["type"] == "plateau" and any(h["kind"] == "plateau" for h in hints)}
+    k = 0
+    for i, f in enumerate(feats):
+        if "at" in f:
+            continue
+        if i == ring or i in held or f["type"] not in MOVABLE + ("hills",) or \
+                (f["type"] == "cliffs" and base not in ("inland", "plateau")):
+            f["at"] = "centre"
+        elif f["type"] == "hills":
+            f["at"] = "edges"
+        else:
+            f["at"], f["beyond"] = sides[k % 2], True
+            k += 1
+    return feats, hints
 
 
 # --- the local model ------------------------------------------------------------------------------
@@ -249,13 +330,23 @@ EXAMPLE = ("a rocky coast to the north with two small peaks inland and the town 
             "city": [{"kind": "coast"}]})
 
 
-def _prompt(text: str, error: str | None = None) -> str:
+def _prompt(text: str, error: str | None = None, current: dict | None = None) -> str:
     schema = json.dumps(TerrainCompose.model_json_schema())
     ex_text, ex_spec = EXAMPLE
+    cur = current or CURRENT
+    now = f"base {cur['base']}" + (f", sea {cur['side']}" if cur["base"] in ("coast", "valley") else "") + \
+        f", ground {cur['ground']}"
     out = (f"Spec schema (JSON Schema): {schema}\n\n"
+           f"The terrain now: {now}.\n\n"
            "Rules:\n"
-           "- base: coast unless the description says island, inland (no sea), valley or plateau. A delta, a bay, a "
-           "harbour or cliffs are on a coast; side is where the sea is (default south).\n"
+           "- base: keep the terrain's base, side and ground as they are now unless the description names another "
+           "base (island, coast, sea, inland, valley, plateau). Add a sea only when it asks for one (sea, coast, "
+           "shore, beach, island, bay, harbour, ocean): then base coast (an island or valley keeps its own sea); "
+           "side is where the sea is.\n"
+           "- Landforms the description gives no place go round the city, not under it: mountains, ridges, peaks, "
+           "volcanoes and lakes at one or two compass sides away from the sea with beyond true; hills at edges. "
+           "Use centre only when the description puts it there (in the centre, a city on a hill: one hill at the "
+           "centre). Keep the city's centre flat otherwise.\n"
            "- A valley base already has its valley and the two ridges either side; don't list them (but a river valley "
            "still lists its river). A plateau base "
            "already is the raised table; list a plateau feature only to give its size or height.\n"
@@ -278,7 +369,7 @@ ANSWER = {"type": "object", "properties": {"spec": {"type": "object"},
           "required": ["spec"]}
 
 
-def vlm_spec(text: str, ask=None) -> dict | None:
+def vlm_spec(text: str, ask=None, current: dict | None = None) -> dict | None:
     """The running local model's spec ({spec, ignored, tries}), asked once more if its first answer doesn't
     validate; None when no server is running, it fails, or neither answer validates. ask(system, prompt): the
     model call (tests pass a fake)."""
@@ -295,7 +386,7 @@ def vlm_spec(text: str, ask=None) -> dict | None:
     error = None
     for k in range(2):
         try:
-            got = json.loads(ask(SYSTEM, _prompt(text, error)))
+            got = json.loads(ask(SYSTEM, _prompt(text, error, current)))
             spec = TerrainCompose.model_validate(got.get("spec") if isinstance(got, dict) else None)
             lost = [str(x).strip() for x in (got.get("ignored") or []) if str(x).strip()][:6]
             return {"spec": spec, "ignored": lost, "tries": k + 1}
@@ -308,16 +399,39 @@ def vlm_spec(text: str, ask=None) -> dict | None:
 
 # --- both -----------------------------------------------------------------------------------------
 
-def describe(text: str, use_vlm: bool = True, ask=None) -> dict:
-    """{spec (TerrainCompose), line (readable), source: vlm | keywords, understood, ignored, matched, tries}."""
+def kept(spec: TerrainCompose, text: str, current: dict | None = None) -> tuple[TerrainCompose, str | None]:
+    """The model's spec held to the same rules as the keywords: the current base, side and ground when the text
+    names no base; landforms it put at the centre without the text saying so placed round the city (settle).
+    Returns (spec, inherited)."""
+    cur = current or CURRENT
+    whole = " " + re.sub(r"\s+", " ", text.lower()) + " "
+    _, named = _base(whole, text, cur)
+    d = spec.model_dump(mode="json")
+    if not named:
+        d |= {"base": cur["base"], "side": cur["side"]}
+        if not _first(GROUND, whole):
+            d["ground"] = cur["ground"]
+    if not re.search(CENTRE_WORDS, whole) and not re.search(ON_HILL, whole):
+        for f in d["features"]:
+            if f["at"] == "centre" and f["type"] in MOVABLE + ("hills",) and \
+                    not (d["base"] == "plateau" and f["type"] == "plateau"):
+                del f["at"]
+        d["features"], d["city"] = settle(d["features"], d["city"], d["base"], d["side"], text)
+    return TerrainCompose.model_validate(d), None if named else cur.get("from")
+
+
+def describe(text: str, use_vlm: bool = True, ask=None, current: dict | None = None) -> dict:
+    """{spec (TerrainCompose), line (readable), source: vlm | keywords, understood, ignored, matched, tries};
+    current: the terrain picked now (current()), whose base a description that names none keeps."""
     if not (text or "").strip():
         raise ValueError("describe the terrain in a few words")
-    got = vlm_spec(text, ask) if use_vlm else None
+    got = vlm_spec(text, ask, current) if use_vlm else None
     if got is not None:
-        return {"spec": got["spec"], "line": terrain_compose.line(got["spec"]), "source": "vlm", "understood": [],
+        spec, inherited = kept(got["spec"], text, current)
+        return {"spec": spec, "line": terrain_compose.line(spec, inherited), "source": "vlm", "understood": [],
                 "ignored": got["ignored"], "matched": True, "tries": got["tries"], "try": list(TRY)}
-    kw = keywords(text)
-    return {"spec": kw["spec"], "line": terrain_compose.line(kw["spec"]), "source": "keywords",
+    kw = keywords(text, current)
+    return {"spec": kw["spec"], "line": terrain_compose.line(kw["spec"], kw["inherited"]), "source": "keywords",
             "understood": kw["understood"], "ignored": kw["ignored"], "matched": kw["matched"], "tries": 0,
             "try": list(TRY)}
 

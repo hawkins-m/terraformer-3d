@@ -309,6 +309,22 @@ def described(store: ProjectStore, terrain: dict | None = None) -> dict | None:
     return None
 
 
+def describe_current(store: ProjectStore, pick: str | None = None, compose: dict | None = None) -> dict:
+    """The base a description keeps when it names none (terrain_describe.current): the Terrain dropdown's pick
+    as shown (a preset, "" the project's own, "described" with its spec), else the active terrain."""
+    from . import terrain_describe, terrain_gen
+    from .schema import TerrainCompose, TerrainSettings
+    t = _layout_or_starter(store).terrain
+    if pick is None:
+        s = t.settings
+    elif pick == "described":
+        spec = compose if compose is not None else (described(store) or {}).get("compose")
+        s = TerrainSettings(name="described", compose=TerrainCompose.model_validate(spec)) if spec else t.settings
+    else:
+        s = terrain_gen.get(pick) if pick in terrain_gen.PRESETS else None
+    return terrain_describe.current(s, t.sea_dir)
+
+
 def _own_path(store: ProjectStore):
     from .stages import sw_site
     return sw_site.site_dir(store) / "terrain_own.json"
