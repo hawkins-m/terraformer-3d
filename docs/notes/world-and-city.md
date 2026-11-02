@@ -531,3 +531,7 @@ World and city mode: greybox and passes, concept frames and their control settin
   `water_mask` includes it; the plan keeps it off like steep ground and draws it as a flat `lake` slot
   (`lake-water` piece, water in the greybox and the Unreal export), flat water in the viewer (`lakes`) and on the
   plan image. Described rivers are water lines in the mask as before; bays are below the sea.
+- Valley ridges were broad 300 m swells (barely there from the viewer's angle) with "ridged" noise
+  (1 - |noise|) on them, whose creases shade as dark streaks along the crests. The landforms now vary with a
+  smooth noise; a valley base's ridges are 420 m, 0.075 x the tile wide, 0.33 x half the tile off the axis
+  (`VALLEY_RIDGE_*`). Their flanks pass max_slope, so they stay bare and the city keeps to the floor.

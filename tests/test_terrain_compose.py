@@ -63,8 +63,11 @@ def test_a_valley_has_ridges_either_side_and_a_river_to_the_sea():
     assert t.sea_dir == 270.0
     lines = terrain_gen.terrain_lines(t)
     assert len(lines) == 1 and lines[0].flow == "down"
-    off = 0.3 * t.extent_m / 2
-    assert at(t, h, -off, 600) > at(t, h, 0, 600) + 150 < at(t, h, off, 600) + 300
+    off = TC.VALLEY_RIDGE_OFF * t.extent_m / 2
+    for side in (-1, 1):                     # two clear ridges either side of the floor
+        assert at(t, h, side * off, 600) > at(t, h, 0, 600) + 300
+    crest = np.array([at(t, h, off, y) for y in np.arange(-500, 2500, 50.0)])
+    assert np.abs(np.diff(crest, 2)).max() < 6                          # a smooth crest: no creases along its top
 
 
 def test_cliffs_a_bay_on_the_west_coast_and_hills_inland():

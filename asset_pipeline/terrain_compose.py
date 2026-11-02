@@ -41,6 +41,9 @@ BASE = {   # the generator's settings for each base (TerrainSettings fields)
     "plateau": dict(coast="none", relief_m=8.0, rise=0.0),
 }
 RING_TYPES = ("volcano", "peak", "lake", "plateau")
+VALLEY_RIDGE_M = 420.0     # a valley base's two ridges: their height, distance off the axis (x half the tile), width (x the tile)
+VALLEY_RIDGE_OFF = 0.33
+VALLEY_RIDGE_W = 0.075
 
 
 def _unit(deg: float) -> np.ndarray:
@@ -153,17 +156,18 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
     spec = s.compose
     from .terrain_gen import _noise
     n = t.resolution
-    ridged = 1 - np.abs(_noise(n, np.random.default_rng([STREAM, s.seed, 99]), ((7, 0.6), (17, 0.4))))
+    # a smooth variation in [-1, 1] along the landforms (not ridged noise: its creases shade as dark streaks)
+    soft = _noise(n, np.random.default_rng([STREAM, s.seed, 99]), ((4, 0.65), (9, 0.35)))
     add = np.zeros_like(h, dtype=np.float64)
     if spec.base == "valley":              # two ridges either side of the axis running to the sea
         from .greybox import sea_axes
         u, v = sea_axes(t)
         C = np.array(s.centre, float)
         lat = (x - C[0]) * v[0] + (y - C[1]) * v[1]
-        off, wd = 0.3 * t.extent_m / 2, 0.11 * t.extent_m
-        hr = 300.0 * (1.3 if spec.ground == "rugged" else 1.0)
-        for side in (-1, 1):
-            add += hr * np.exp(-((lat - side * off) / wd) ** 2) * (0.75 + 0.25 * ridged)
+        off, wd = VALLEY_RIDGE_OFF * t.extent_m / 2, VALLEY_RIDGE_W * t.extent_m
+        hr = VALLEY_RIDGE_M * (1.2 if spec.ground == "rugged" else 1.0)
+        for side in (-1, 1):            # a smooth rounded crest, rising and falling a little along its length
+            add += hr * np.exp(-((lat - side * off) / wd) ** 2) * (0.85 + 0.15 * soft)
         add -= 25.0 * np.exp(-(lat / (0.6 * off)) ** 2)
     for i, f in enumerate(spec.features):
         rng = np.random.default_rng([STREAM, s.seed, i])
@@ -173,14 +177,14 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
         d = np.hypot(dx, dy)
         if f.type == "volcano":
             k = {"gentle": 1.7, "moderate": 1.3, "steep": 1.0}[f.steepness]
-            cone = H * np.clip(1 - d / R, 0, 1) ** k * (0.92 + 0.08 * ridged)
+            cone = H * np.clip(1 - d / R, 0, 1) ** k * (0.95 + 0.05 * soft)
             if f.crater:                          # the cone cut off at the rim, a bowl sunk in it
                 rc = 0.17 * R
                 rim = H * (1 - rc / R) ** k
                 cone = np.minimum(cone, rim) - 0.3 * H * np.clip(1 - (d / rc) ** 2, 0, 1)
             add += cone
         elif f.type == "peak":
-            add += H * np.exp(-2.2 * (d / R) ** 2) * (0.8 + 0.2 * ridged)
+            add += H * np.exp(-2.2 * (d / R) ** 2) * (0.9 + 0.1 * soft)
         elif f.type == "ridge":
             for j in range(f.count):
                 a = DIRS.get(f.at, rng.uniform(0, 180)) + 90 + rng.uniform(-15, 15)   # across the way out
@@ -188,7 +192,7 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
                 q = P + (j - (f.count - 1) / 2) * 1.2 * R * _unit(a + 90)
                 along = (x - q[0]) * e[0] + (y - q[1]) * e[1]
                 perp = -(x - q[0]) * e[1] + (y - q[1]) * e[0]
-                add += H * np.exp(-(perp / (0.45 * R)) ** 2) * (1 - _smooth(1.2 * R, 2.2 * R, np.abs(along))) * (0.7 + 0.3 * ridged)
+                add += H * np.exp(-(perp / (0.45 * R)) ** 2) * (1 - _smooth(1.2 * R, 2.2 * R, np.abs(along))) * (0.85 + 0.15 * soft)
         elif f.type == "hills":
             m = f.count if f.count > 1 else 5
             for _ in range(m):
