@@ -20,7 +20,8 @@ from .project import ProjectStore, read_json, write_json
 VERSION = 1
 TYPES = ["tower", "midrise", "rowhouse", "house", "industry", "landmark", "other",
          # extended building types (city_extended; their rows carry a shape in column 9 unless a box)
-         "castle", "church", "medical", "airport", "power", "factory", "warehouse", "depot", "refinery"]
+         "castle", "church", "medical", "airport", "power", "factory", "warehouse", "depot", "refinery",
+         "cottage", "condo", "penthouse", "chateau"]
 TERRAIN_N = 257
 WATER = ("river", "canal")
 STEP_M = 20.0

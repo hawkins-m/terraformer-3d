@@ -54,7 +54,8 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             # extended building types (city_extended.CATEGORY)
             "castle": "building", "church": "building", "medical": "building", "airport": "structure",
             "power": "structure", "factory": "building", "warehouse": "building", "depot": "building",
-            "refinery": "structure"}
+            "refinery": "structure", "house": "building", "cottage": "building", "condo": "building",
+            "penthouse": "building", "chateau": "building"}
 DEFAULT_KIT = Kit(id="default")
 
 

@@ -95,6 +95,41 @@ DEFAULTS: dict[str, Typology] = {t.id: t for t in [
            "and a control block.",
       roofs=["shallow domed tank roofs"],
       facades=["white and silver painted steel", "pipe racks", "concrete bund walls"]),
+    T(id="house", name="Single-family home", family="housing", form="pavilion", storeys=(1, 2), width=(8, 16),
+      depth=(7, 12),
+      prompt="detached single-family homes with pitched roofs in leafy gardens",
+      desc="A detached single-family home of one or two storeys: rendered walls, a pitched tiled roof along the "
+           "long side, a brick chimney on some, a small front garden and a driveway.",
+      roofs=["pitched clay or concrete tile roof", "brick chimney"],
+      facades=["painted render or brick", "white window frames", "a porch over the front door"]),
+    T(id="cottage", name="Cottage", family="housing", form="pavilion", storeys=(1, 2), width=(7, 13), depth=(6, 10),
+      prompt="small stone cottages with steep roofs along a village street",
+      desc="A village cottage: thick rubble-stone walls, one or two storeys, a steep pitched roof of slate or "
+           "thatch, a stone chimney at one gable, small windows with shutters.",
+      roofs=["steep slate or thatch roof", "stone chimney"],
+      facades=["rubble stone or limewash", "small shuttered windows"]),
+    T(id="condo", name="Condominium", family="housing", form="bar", storeys=(5, 12), width=(20, 60), depth=(14, 24),
+      prompt="mid-rise condominium blocks with continuous balconies",
+      desc="A condominium block of five to twelve storeys: a slab with continuous balconies every other floor, "
+           "glass balustrades, a stair and lift core on the roof.",
+      roofs=["flat roof with a lift core and plant"],
+      facades=["light render with continuous balcony slabs", "glass balustrades", "floor-to-ceiling windows"]),
+    T(id="penthouse", name="Penthouse", family="housing", form="tower", storeys=(1, 1), width=(10, 40),
+      depth=(10, 40),
+      prompt="glass penthouses set back on the tops of the tallest towers, roof terraces",
+      desc="A penthouse: a set-back, fully glazed top storey on a tall tower, ringed by a roof terrace behind a "
+           "glass balustrade, a thin projecting roof plate.",
+      roofs=["thin flat roof plate", "roof terrace with planters"],
+      facades=["floor-to-ceiling glazing", "glass balustrade"]),
+    T(id="chateau", name="Chateau", family="housing", form="courtyard", storeys=(2, 3), width=(60, 110),
+      depth=(60, 110),
+      prompt="a walled villa estate on the hillside: a stately house with a tiled hip roof, a round tower, "
+             "gardens behind a stone wall",
+      desc="A chateau: a large villa of two or three storeys under a hipped tile roof, a lower side wing, "
+           "sometimes a round corner tower with a conical roof, a terrace in front, formal gardens and a stone "
+           "garden wall with a gate round the plot.",
+      roofs=["hipped terracotta tile roof", "conical tower roof"],
+      facades=["pale stone or ochre render", "tall shuttered windows", "stone garden wall"]),
 ]}
 del T
 
@@ -366,7 +401,8 @@ def place(P, f) -> None:
     for st in refi:                         # the industry it stands on goes
         out = [s for s in out if s.type not in ("factory", "warehouse", "depot") or not st.foot.contains(Point(s.x, s.y))]
     out += refi
-    clear_under(P, [st.foot for st in out] + [w.line.buffer(w.width / 2 + 2) for w in roads])
+    out += homes(P, f, G)                   # after everything else: what's left of the houses and blocks
+    clear_under(P, [st.foot for st in out if st.type not in ON_OWN_BOX] + [w.line.buffer(w.width / 2 + 2) for w in roads])
     P.extended = out
 
 
@@ -399,6 +435,8 @@ def clear_under(P, feet: list) -> None:
     P.markets = markets
 
 
+# types built on (in place of, or on top of) a plan box: they clear nothing round them
+ON_OWN_BOX = ("house", "cottage", "condo", "penthouse", "factory", "warehouse", "depot")
 HOUSING = ("house", "cottage", "condo", "chateau")      # count as housing in the plan's footprint shares
 INDUSTRIAL = ("factory", "warehouse", "depot")
 
@@ -998,6 +1036,149 @@ def refineries(P, f, G) -> list[Structure]:
     return []
 
 
+# --- homes ----------------------------------------------------------------------------------------
+
+def house(b, r: np.random.Generator, kind: str = "house") -> Structure:
+    """A detached house (or a cottage: smaller, a steeper roof) on its box: the box as planned (on its pad,
+    if any), a pitched roof along its long side, sometimes a chimney."""
+    w, d, rot = b.w, b.d, b.rot
+    if d > w:                                            # the ridge along the long side
+        w, d, rot = d, w, rot + 90
+    steep = 0.75 if kind == "cottage" else 0.5
+    u = np.array([math.cos(math.radians(rot)), math.sin(math.radians(rot))])
+    parts = [Piece("box", "walls", round(b.x, 3), round(b.y, 3), round(b.z, 3), round(rot % 360, 3), round(w, 3),
+                   round(d, 3), round(b.h, 3)),
+             Piece("gable", "roof", round(b.x, 3), round(b.y, 3), round(b.z + b.h, 3), round((rot + 90) % 360, 3),
+                   round(d + 0.6, 3), round(w + 0.6, 3), round(steep * d, 3))]
+    if r.random() < 0.5:
+        q = np.array([b.x, b.y]) + 0.3 * w * u
+        parts.append(Piece("box", "chimney", round(float(q[0]), 3), round(float(q[1]), 3), round(b.z + b.h, 3),
+                           round(rot % 360, 3), 0.9, 0.9, round(steep * d * 0.8 + 1.0, 3)))
+    return Structure(kind, b.x, b.y, rot, b.district, rect(b.x, b.y, w, d, rot), parts)
+
+
+def condo(f, b, r: np.random.Generator, storey_m: float) -> Structure:
+    """A condominium block on its box: the slab, balcony bands every other storey (a little proud of the
+    walls) and a roof structure."""
+    parts = [Piece("box", "slab", round(b.x, 3), round(b.y, 3), round(b.z, 3), round(b.rot % 360, 3), round(b.w, 3),
+                   round(b.d, 3), round(b.h, 3))]
+    ground = b.z + max(b.h - round(b.h / storey_m) * storey_m, 0.3)
+    n = int(round(b.h / storey_m))
+    for k in range(2, n, 2):
+        parts.append(Piece("box", "balconies", round(b.x, 3), round(b.y, 3), round(ground + k * storey_m - 0.25, 3),
+                           round(b.rot % 360, 3), round(b.w + 2.4, 3), round(b.d + 2.4, 3), 0.3))
+    parts.append(Piece("box", "roof-core", round(b.x, 3), round(b.y, 3), round(b.z + b.h, 3), round(b.rot % 360, 3),
+                       round(min(b.w, 9.0), 3), round(min(b.d, 7.0), 3), 3.2))
+    return Structure("condo", b.x, b.y, b.rot, b.district, rect(b.x, b.y, b.w, b.d, b.rot), parts)
+
+
+def penthouse(b, storey_m: float) -> Structure:
+    """A set-back top storey on a tower: a glazed box 60 % of the roof, a terrace slab round it."""
+    z = b.z + b.h
+    parts = [Piece("box", "terrace", round(b.x, 3), round(b.y, 3), round(z, 3), round(b.rot % 360, 3),
+                   round(b.w * 0.92, 3), round(b.d * 0.92, 3), 1.1),
+             Piece("box", "penthouse", round(b.x, 3), round(b.y, 3), round(z, 3), round(b.rot % 360, 3),
+                   round(b.w * 0.6, 3), round(b.d * 0.6, 3), round(1.4 * storey_m, 3))]
+    return Structure("penthouse", b.x, b.y, b.rot, b.district, rect(b.x, b.y, b.w * 0.6, b.d * 0.6, b.rot), parts)
+
+
+def chateau(f, x: float, y: float, rot: float, side: float, r: np.random.Generator, district=None) -> Structure:
+    """A walled villa estate: a garden wall round a square plot (a gate in the front), the main house under a
+    hipped-looking roof, a side wing, sometimes a round corner tower under a cone, a terrace in front."""
+    F = Frame(f, x, y, rot)
+    s = side / 2
+    F.wall("garden-wall", -s, -s, -s, s, 0.8, 3.2, seg_m=18)
+    for sv in (-1, 1):
+        F.wall("garden-wall", -s, sv * s, s, sv * s, 0.8, 3.2, seg_m=18)
+        F.wall("garden-wall", s, sv * 5, s, sv * s, 0.8, 3.2, seg_m=18)
+    hw, hd = float(r.uniform(26, 36)), float(r.uniform(14, 18))
+    hu = -s * 0.25
+    F.hall("main-house", hu, 0, hd, hw, float(r.uniform(8, 11)), 0.45 * hd)
+    F.hall("wing", hu - hd / 2 + 6, hw / 2 + 6, 12, 14, 6.5, 4.0)
+    if r.random() < 0.5:
+        F.tower("tower", hu + hd / 2, -hw / 2, 4.0, 14.0, 6.0)
+    F.add("box", "terrace", hu + hd / 2 + 6, 0, 10, hw * 0.8, 0.8)
+    return Structure("chateau", x, y, rot, district, rect(x, y, side + 2, side + 2, rot), F.parts)
+
+
+CHATEAU_LAYOUTS = {"utopia", "hill-town", "cliff-town", "island-city", "harbour-port", "linear", "river-town", "organic"}
+PENTHOUSE_SHARE = 0.25        # of the towers over 20 storeys, the tallest
+CONDO_SHARE = 0.35
+
+
+def homes(P, f, G) -> list[Structure]:
+    """Houses get roofs (cottages in towns), mid-rise blocks of the middle ring become condominiums, the
+    tallest downtown towers get penthouses, and a few walled villa estates take outer blocks on slopes and
+    by the shore (mostly in mediterranean and coastal layouts). Replaced boxes leave the plan."""
+    from .city import main_centre, nearest_node, outline_r
+    from . import city_size
+    c = P.layout.city
+    sm = c.storey_m
+    C = main_centre(c)
+    R = outline_r(c) if c.preset.outline != "coastal" else 0.5 * max(c.bounds[2] - c.bounds[0], c.bounds[3] - c.bounds[1])
+    towns = [(tw.center, tw.radius) for tw in c.towns]
+    out, keep = [], []
+    towers = sorted((b for b in P.buildings if b.kind == "tower" and b.h > 20 * sm), key=lambda b: -b.h)
+    tall = {id(b) for b in towers[:max(1, int(len(towers) * PENTHOUSE_SHARE))]} if towers else set()
+    mid0, mid1 = max(c.preset.downtown_m, 0.2 * R), max(c.preset.downtown_m * 2.2, 0.6 * R)
+    for b in P.buildings:
+        r = rng(c, "home", round(b.x, 1), round(b.y, 1))
+        if b.kind == "houses":
+            in_town = any(math.dist((b.x, b.y), t) < rad for t, rad in towns)
+            out.append(house(b, r, "cottage" if in_town else "house"))
+            continue
+        if id(b) in tall:
+            out.append(penthouse(b, sm))
+        elif (b.kind in ("housing", "tower") and 4.6 * sm < b.h < 12.5 * sm and mid0 < math.dist((b.x, b.y), C) < mid1
+              and r.random() < CONDO_SHARE):
+            out.append(condo(f, b, r, sm))
+            continue
+        keep.append(b)
+    P.buildings = keep
+    # walled villa estates on outer blocks: on a slope or near the shore
+    want = (8 if c.preset.name in CHATEAU_LAYOUTS else 2) * int(round(city_size.factor(c)))
+    cands = []
+    for i, blk in enumerate(P.blocks):
+        cx, cy = blk.centroid.coords[0]
+        d = math.dist((cx, cy), C)
+        if d < 0.55 * R or blk.area < 5000:
+            continue
+        slope = float(f.slope(cx, cy))
+        shore = float(f.inland(cx, cy)) if hasattr(f, "inland") else 1e9
+        if not (0.06 < slope < 0.3 or shore < 350):
+            continue
+        cands.append((-(slope * 10 + (1 if shore < 350 else 0)) + rng(c, "chateau", i).random(), i, blk))
+    cands.sort(key=lambda t: t[0])
+    from shapely.ops import polylabel
+    for _, i, blk in cands:
+        if sum(st.type == "chateau" for st in out) >= want:
+            break
+        inner = blk.buffer(-4)
+        if inner.is_empty or inner.geom_type != "Polygon":
+            continue
+        p = polylabel(inner, tolerance=2.0)
+        rr = inner.exterior.distance(p)
+        side = min(2 * rr / 1.42, 110.0)
+        if side < 60:
+            continue
+        from .city import _long_axis
+        rot = _long_axis(blk)[0]
+        g = rect(p.x, p.y, side + 2, side + 2, rot)
+        if not inner.contains(g) or not G.free(g, max_slope=0.4, parks=True):
+            continue
+        st = chateau(f, p.x, p.y, rot, side, rng(c, "chateau", i), nearest_node(c, p.x, p.y))
+        G.take(st.foot)
+        clear_structures(out, st.foot)
+        out.append(st)
+    return out
+
+
+def clear_structures(out: list, foot) -> None:
+    """Drop homes (houses, condos, penthouses) standing in a new footprint."""
+    out[:] = [s for s in out if s.type not in ("house", "cottage", "condo", "penthouse")
+              or not foot.contains(Point(s.x, s.y))]
+
+
 # --- greybox slots and the viewer -----------------------------------------------------------------
 
 def unit(prim: str) -> dict:
@@ -1036,10 +1217,13 @@ def emit(structures: list, new, hs, tile_m: float, prefix: str = "", district=No
 
 CATEGORY = {"castle": "building", "church": "building", "medical": "building", "airport": "structure",
             "power": "structure", "factory": "building", "warehouse": "building", "depot": "building",
-            "refinery": "structure"}
+            "refinery": "structure", "house": "building", "cottage": "building", "condo": "building",
+            "penthouse": "building", "chateau": "building"}
 PLAN_COLORS = {"castle": (138, 127, 106), "church": (226, 214, 180), "medical": (236, 236, 240),
                "airport": (150, 150, 156), "power": (90, 96, 110), "factory": (140, 96, 80),
-               "warehouse": (128, 136, 148), "depot": (112, 118, 112), "refinery": (200, 200, 196)}
+               "warehouse": (128, 136, 148), "depot": (112, 118, 112), "refinery": (200, 200, 196),
+               "house": (196, 160, 128), "cottage": (180, 150, 120), "condo": (176, 150, 120),
+               "penthouse": (120, 150, 170), "chateau": (214, 190, 140)}
 
 
 def view_rows(P, type_index, district_index, structures=None) -> list[tuple[list, str]]:

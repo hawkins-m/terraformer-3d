@@ -58,7 +58,9 @@ COLORS = {"terrain": (0.32, 0.30, 0.24), "sea": (0.06, 0.16, 0.24), "avenue": (0
           # extended building types (city_extended)
           "castle": (0.58, 0.55, 0.48), "church": (0.80, 0.76, 0.64), "medical": (0.88, 0.88, 0.90),
           "airport": (0.45, 0.45, 0.47), "power": (0.30, 0.32, 0.36), "factory": (0.55, 0.38, 0.31),
-          "warehouse": (0.50, 0.53, 0.58), "depot": (0.44, 0.46, 0.44), "refinery": (0.78, 0.78, 0.77)}
+          "warehouse": (0.50, 0.53, 0.58), "depot": (0.44, 0.46, 0.44), "refinery": (0.78, 0.78, 0.77),
+          "house": (0.76, 0.64, 0.52), "cottage": (0.70, 0.60, 0.48), "condo": (0.68, 0.60, 0.50),
+          "penthouse": (0.48, 0.58, 0.66), "chateau": (0.84, 0.75, 0.56)}
 WATER = {"pool-water", "court-pool", "canal"}
 MERGED = {"ribbon", "poly"}       # unique per piece: merged into one mesh per slot
 

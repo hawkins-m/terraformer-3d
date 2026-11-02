@@ -268,3 +268,48 @@ def test_no_refinery_inland_without_a_river():
     L.terrain = L.terrain.model_copy(update={"shore_m": 5000})        # the sea far off the tile: inland
     P = city.plan(L, heights(L))
     assert not _of(P, "refinery")
+
+
+def test_homes_roofs_condos_penthouses_and_chateaux(large_classic):
+    store, L, h, P = large_classic
+    c = P.layout.city
+    assert not any(b.kind == "houses" for b in P.buildings)             # every detached house has a roof now
+    houses = _of(P, "house")
+    assert len(houses) > 500
+    for s in houses[:200]:
+        walls = next(p for p in s.parts if p.role == "walls")
+        roof = next(p for p in s.parts if p.role == "roof")
+        assert roof.prim == "gable" and abs(roof.z - (walls.z + walls.h)) < 0.01 and walls.w >= walls.d
+    condos = _of(P, "condo")
+    assert condos and all(sum(p.role == "balconies" for p in s.parts) >= 1 for s in condos)
+    pent = _of(P, "penthouse")
+    towers = [b for b in P.buildings if b.kind == "tower" and b.h > 20 * c.storey_m]
+    assert pent and len(pent) <= len(towers)
+    tops = {(round(b.x, 1), round(b.y, 1)): b.z + b.h for b in towers}
+    for s in pent:                     # on the roof of one of the tallest towers, set back
+        top = tops[(round(s.x, 1), round(s.y, 1))]
+        ph = next(p for p in s.parts if p.role == "penthouse")
+        assert abs(ph.z - top) < 0.01
+    hs = {(round(b.x, 1), round(b.y, 1)): b.h for b in towers}        # the tallest by height get them
+    shortest = min(hs[(round(s.x, 1), round(s.y, 1))] for s in pent)
+    assert sum(1 for t in hs.values() if t > shortest + 0.01) <= len(pent)
+    ch = _of(P, "chateau")
+    assert 1 <= len(ch) <= 4
+    for s in ch:
+        assert {"garden-wall", "main-house"} <= {p.role for p in s.parts}
+        assert not any(o.type in ("house", "condo") and s.foot.contains(Point(o.x, o.y)) for o in P.extended)
+        _clear_of_roads(P, s)
+    assert P.stats["footprint_share"]["housing"] >= 0.6 and not P.stats["warnings"]
+
+
+def test_mediterranean_layouts_get_more_chateaux_and_towns_cottages():
+    L = extended(small_city(), "hill-town")
+    P = city.plan(L, heights(L))
+    assert len(_of(P, "chateau")) <= 8
+    from asset_pipeline.schema import Town
+    L = extended(small_city())                             # a town's houses are cottages
+    L.city.towns = [Town(id="t", center=(700, -400), radius=260, density=0.3)]
+    P = city.plan(L, heights(L))
+    cot = _of(P, "cottage")
+    assert cot and all(math.dist((s.x, s.y), (700, -400)) < 260 for s in cot)
+    assert not any(b.kind == "houses" for b in P.buildings)

@@ -466,3 +466,13 @@ World and city mode: greybox and passes, concept frames and their control settin
   so a roll's housing-share check still sees them.
 - `clear_under` takes every footprint at once (one STRtree query per kind): per structure it cost 36 s on
   the large city. Prior structures are obstacles via `Ground.fix` (an STRtree, not the linear `taken`).
+- Homes (`city_extended.homes`, last): every detached-house box gets a pitched roof along its long side
+  (type `house`; `cottage`, steeper, inside a town); a mid-ring block of 4.6-12.5 storeys becomes a
+  condominium (balcony bands every other storey, roof core) 35 % of the time; the tallest quarter of the
+  towers over 20 storeys get a set-back glass penthouse with a terrace (the tower box stays); walled villa
+  estates (`chateau`) on outer blocks on a slope or within 350 m of the shore, up to 8 in the
+  mediterranean / coastal layouts (`CHATEAU_LAYOUTS`) and 2 elsewhere, x the size factor.
+- Types built in place of (or on) a plan box (`ON_OWN_BOX`) never clear round them: a penthouse's footprint
+  took its own tower out, and condos took out the rowhouses touching them.
+- Scratch large classic (seed 3, background on): 4,724 houses, 417 condos, 23 penthouses, 4 chateaux;
+  greybox 1,094 -> 1,193 slots, build 42 s -> 47 s.
