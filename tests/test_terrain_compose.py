@@ -76,6 +76,14 @@ def test_cliffs_a_bay_on_the_west_coast_and_hills_inland():
     from asset_pipeline.greybox import shore_at
     assert shore_at(t, 0.0) < shore_at(t, 2000.0) - 300                                # the bay pulls the shore in
     assert at(t, h, -t.shore_m - 300, 2500) < 0 < at(t, h, -t.shore_m + 300, 2500)
+    for y in (2500.0, -2500.0):              # away from the bay: a cliff, 100 m+ within 120 m of the shore
+        sh = shore_at(t, y)                  # (sea_dir 180: the lateral axis runs south, the shore is at x = -sh)
+        assert at(t, h, -sh + 120, -y) > at(t, h, -sh - 20, -y) + 100
+    sb = shore_at(t, t.bay_lateral_m)
+    assert at(t, h, -sb + 120, -t.bay_lateral_m) < 60                 # the bay's harbour stays low
+    hills = TC._place(t, t.settings, t.settings.compose.features[2])
+    zs = [at(t, h, hills[0] + dx, hills[1] + dy) for dx in range(-900, 901, 150) for dy in range(-900, 901, 150)]
+    assert max(zs) - np.percentile(zs, 20) > 100                       # the inland hills stand out
 
 
 def test_a_plateau_with_a_lake_and_a_delta_of_channels():

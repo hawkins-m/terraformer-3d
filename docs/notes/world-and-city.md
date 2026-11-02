@@ -535,3 +535,7 @@ World and city mode: greybox and passes, concept frames and their control settin
   (1 - |noise|) on them, whose creases shade as dark streaks along the crests. The landforms now vary with a
   smooth noise; a valley base's ridges are 420 m, 0.075 x the tile wide, 0.33 x half the tile off the axis
   (`VALLEY_RIDGE_*`). Their flanks pass max_slope, so they stay bare and the city keeps to the floor.
+- Coast: cliffs default 120 m over a 40-90 m face, added after the shore fade (that fade, 1 - exp(-inland / 150),
+  had squashed a 70 m cliff to ~40 m at 120 m inland); on a coast base, cliffs on the sea's side run the whole
+  coast and open only round a bay (0.7 x its width) so the harbour stays low. Hills default 140 m, each 0.5 R
+  wide. Renders: `/mnt/storage/ap-scratch/describe-fix/compare-*.png` (scratch only).

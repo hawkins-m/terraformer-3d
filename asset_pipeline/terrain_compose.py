@@ -29,7 +29,7 @@ DIRS = {"east": 0.0, "north-east": 45.0, "north": 90.0, "north-west": 135.0, "we
         "south-west": 225.0, "south": 270.0, "south-east": 315.0}
 SIZE = {"small": 0.55, "medium": 1.0, "large": 1.7}
 SPREAD = {"gentle": 1.35, "moderate": 1.0, "steep": 0.75}          # a gentler landform spreads wider
-HEIGHT = {"peak": 420.0, "volcano": 650.0, "ridge": 260.0, "hills": 70.0, "plateau": 160.0, "cliffs": 70.0,
+HEIGHT = {"peak": 420.0, "volcano": 650.0, "ridge": 260.0, "hills": 140.0, "plateau": 160.0, "cliffs": 120.0,
           "headland": 12.0, "valley": 70.0, "lake": 6.0, "bay": 0.0, "river": 0.0}
 SHAPE = {"peak": 1.0, "volcano": 1.6, "ridge": 1.0, "hills": 1.0, "plateau": 1.6, "cliffs": 1.0, "headland": 1.0,
          "valley": 0.8, "lake": 0.8, "bay": 1.0, "river": 1.0}
@@ -159,6 +159,7 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
     # a smooth variation in [-1, 1] along the landforms (not ridged noise: its creases shade as dark streaks)
     soft = _noise(n, np.random.default_rng([STREAM, s.seed, 99]), ((4, 0.65), (9, 0.35)))
     add = np.zeros_like(h, dtype=np.float64)
+    cliff = np.zeros_like(h, dtype=np.float64)      # cliffs rise from the shore itself: not faded out at it
     if spec.base == "valley":              # two ridges either side of the axis running to the sea
         from .greybox import sea_axes
         u, v = sea_axes(t)
@@ -195,21 +196,26 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
                 add += H * np.exp(-(perp / (0.45 * R)) ** 2) * (1 - _smooth(1.2 * R, 2.2 * R, np.abs(along))) * (0.85 + 0.15 * soft)
         elif f.type == "hills":
             m = f.count if f.count > 1 else 5
-            for _ in range(m):
+            for _ in range(m):        # each hill broad enough to read at the tile's scale
                 a, rr = rng.uniform(0, 2 * math.pi), 1.8 * R * math.sqrt(rng.uniform(0, 1))
                 hx, hy = P[0] + rr * math.cos(a), P[1] + rr * math.sin(a)
-                hr = 0.35 * R * rng.uniform(0.7, 1.3)
+                hr = 0.5 * R * rng.uniform(0.7, 1.3)
                 add += H * rng.uniform(0.6, 1.2) * np.exp(-((x - hx) ** 2 + (y - hy) ** 2) / hr ** 2)
         elif f.type == "plateau" and not (spec.base == "plateau" and f.at == "centre"):
             e = {"gentle": 0.35, "moderate": 0.18, "steep": 0.07}[f.steepness] * R
             add += H * (1 - _smooth(R - e, R + e, d))
         elif f.type == "cliffs":
-            wd = {"gentle": 220.0, "moderate": 110.0, "steep": 50.0}[f.steepness]
+            wd = {"gentle": 200.0, "moderate": 90.0, "steep": 40.0}[f.steepness]
             w = 1.0
-            if f.at in DIRS:
+            if f.at in DIRS and not (s.coast == "side" and f.at == spec.side):   # on the sea's side: the whole coast
                 b = np.degrees(np.arctan2(y - s.centre[1], x - s.centre[0]))
                 w = np.exp(-((((b - DIRS[f.at]) + 180) % 360 - 180) / 55.0) ** 2)
-            add += H * _smooth(0, wd, inland) * w
+            if s.coast == "side" and t.bay_m > 0:     # a bay's harbour stays low: the cliffs open round it
+                from .greybox import sea_axes
+                _, v = sea_axes(t)
+                lat = x * v[0] + y * v[1]
+                w = w * (1 - 0.95 * np.exp(-((lat - t.bay_lateral_m) / (0.7 * t.bay_width_m)) ** 2))
+            cliff += H * _smooth(0, wd, inland) * w
         elif f.type == "valley":
             from .greybox import sea_axes
             u, _ = sea_axes(t)
@@ -217,7 +223,7 @@ def overlay(t: TerrainSpec, x, y, h, inland, land_w) -> np.ndarray:
             along = dx * e[0] + dy * e[1]
             perp = -dx * e[1] + dy * e[0]
             add -= H * np.exp(-(perp / (0.6 * R)) ** 2) * (1 - _smooth(2.5 * R, 4.0 * R, np.abs(along)))
-    out = h + add * land_w
+    out = h + add * land_w + cliff
     if spec.base == "island":              # an island's bay or headland past its own coast (spec_fields can't)
         for f in spec.features:
             if f.type in ("bay", "headland"):
