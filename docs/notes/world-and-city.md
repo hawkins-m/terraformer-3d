@@ -495,3 +495,14 @@ World and city mode: greybox and passes, concept frames and their control settin
 - City hints are weights (`terrain_compose.weight`); `city_shape.fit_nodes` reads them: with hints, every
   district (largest first) takes the highest-weight 60 m grid spot where it fits (`_by_weight`).
   `city_roll.set_terrain` also runs it after a preset's shape recipe when the spec has hints.
+- Text -> spec (`terrain_describe`): the running local model (never started for it) gets the JSON Schema of
+  `TerrainCompose` and answers {spec, ignored}; an answer that doesn't validate is asked once more with the
+  error, then the keyword parser decides. The parser splits clauses (commas, and / with / but...), and in each
+  takes every landform word with that clause's place (a compass word beats "coastal"), size, steepness, count
+  and height; a compass word next to a coast word sets the sea's side; city-hint phrases ("circling",
+  "along the river", "harbour") become hints and their own nouns don't add landforms; the same type at the same
+  place merges (delta + "river channels" = one delta, the larger count); a valley base absorbs its valley and
+  two ridges. Negated words drop their landforms. Clauses with nothing it knows are listed as ignored.
+- Describe never changes the layout; Apply terrain sends the spec (`compose`) and the server composes it with
+  the terrain seed and the layout's extent. The Terrain picker's "described" entry shows the spec's line and
+  re-applies it with a new terrain seed.

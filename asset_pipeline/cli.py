@@ -1550,10 +1550,10 @@ def cmd_terrain_roll(a) -> None:
     store = ProjectStore.open(a.project)
     seed = a.seed if a.seed is not None else int(np.random.default_rng().integers(1, 2**31 - 1))
     if getattr(a, "describe", None):
-        from . import terrain_describe
-        pick = terrain_describe.describe(a.describe, prefer=a.preset)
-        print(f"described as {pick['preset']} ({pick['source']}): {pick['summary']}")
-        settings = pick["settings"].model_copy(update={"seed": seed})
+        from . import city_roll as cr, terrain_describe
+        pick = terrain_describe.describe(a.describe)
+        print(f"described ({pick['source']}): {pick['line']}" + (f"; ignored: {', '.join(pick['ignored'])}" if pick["ignored"] else ""))
+        settings = terrain_describe.settings(pick["spec"], seed, cr._layout_or_starter(store).terrain.extent_m)
     elif a.preset:
         settings = terrain_gen.get(a.preset, seed)
     else:
@@ -2329,7 +2329,7 @@ def main(argv: list[str] | None = None) -> None:
     p.add_argument("project", nargs="?")
     p.add_argument("--preset", help="roll: the terrain preset (ap terrain presets)")
     p.add_argument("--seed", type=int, help="roll: the terrain's own seed (default: a random one)")
-    p.add_argument("--describe", help="roll: describe the terrain in words; mapped to a preset and its settings")
+    p.add_argument("--describe", help="roll: describe the terrain in words; made into a terrain spec (base, landforms, city hints) and built")
     p.add_argument("--replace-heightmap", action="store_true", help="roll: replace a heightmap terrain with the generated one")
     p.set_defaults(fn=cmd_terrain)
 

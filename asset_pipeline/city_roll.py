@@ -200,6 +200,9 @@ def summary(store: ProjectStore) -> dict:
                     "across_m": round(city_size.across(lay.city.bounds)), "terrain_m": lay.terrain.extent_m}
         ts = lay.terrain.settings
         terrain = {"name": ts.name if ts else None, "seed": ts.seed if ts else None, "heightmap": lay.terrain.heightmap}
+        if ts is not None and ts.compose is not None:       # a described terrain: its spec, as a line
+            from . import terrain_compose
+            terrain |= {"line": terrain_compose.line(ts.compose), "compose": ts.compose.model_dump(mode="json")}
     except FileNotFoundError:
         pass
     terrain["presets"] = terrain_gen.summary()

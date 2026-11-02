@@ -1,155 +1,181 @@
-"""Describe the terrain (terrain_describe.py): words to a terrain preset and tweaks, by the running
-local model's text mode or by keywords when it isn't running; the API, the text box and the CLI."""
+"""Describe the terrain (terrain_describe.py): words to a TerrainCompose spec, by the running local model's text
+mode (validated, asked once more if it doesn't validate) or a keyword and phrase parser that combines every
+landform it finds; the API shows the spec as a line and Apply terrain builds exactly it."""
 import json
-import time
-from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 
-from asset_pipeline import terrain_describe as td
-from asset_pipeline import vlm
-from asset_pipeline.jobs import JobQueue
-from asset_pipeline.project import ProjectStore, write_json
-from asset_pipeline.stages import sw_site
-from asset_pipeline.ui import app as ui_app
+from asset_pipeline import terrain_describe as TD
+from asset_pipeline.schema import TerrainCompose
 
-STATIC = Path(ui_app.STATIC)
-
-
-@pytest.fixture(autouse=True)
-def no_model(monkeypatch):
-    monkeypatch.setattr(vlm, "state", lambda: None)          # never a real server in these tests
-
-
-@pytest.mark.parametrize("text,preset,tweaks", [
-    ("a river valley between rugged mountains", "river-valley", {"base": "rugged", "mountains_m": 320.0}),
-    ("an island with sandy beaches", "island", {"beach_m": 150.0}),
-    ("a city in a deep canyon", "canyon", {"canyon_m": 90.0}),
-    ("a flat landlocked prairie", "flat-plain", {}),
-    ("seven hills above the coast", "hill-city", {}),
-    ("a terraced plateau", "plateau", {"terraces": 4}),
-    ("a city ringed by high mountains with a river", "mountain-bowl", {"mountains_m": 520.0, "river": True}),
-])
-def test_keywords_pick_a_preset_and_tweaks(text, preset, tweaks):
-    r = td.describe(text)
-    assert r["source"] == "keywords" and r["preset"] == preset
-    assert {k: v for k, v in r["tweaks"].items() if k in tweaks} == tweaks
-    for k, v in tweaks.items():
-        assert getattr(r["settings"], k) == v
-    assert r["settings"].name == preset and preset in r["summary"]
+FIVE = {
+    "island city with a volcano in the centre and cities circling it":
+        "Island · volcano (centre, large, crater) · city rings the lower slopes",
+    "a river valley between two ridges with the city along the river":
+        "Valley (sea south) · river (centre, medium) · city along the river",
+    "coastal cliffs on the west, a bay with a harbour, hills inland":
+        "Coast (sea west) · cliffs (west, medium, steep) · bay (coast, medium) · hills (inland, medium) · city along the coast",
+    "a high plateau with a lake in the middle": "Plateau · plateau (centre, large) · lake (centre, medium)",
+    "flat delta with many river channels": "Coast (sea south), flat · 5 river channels (centre, medium)",
+}
 
 
-@pytest.mark.parametrize("text,preset,want", [
-    ("flat plain with no river", "flat-plain", {"river": False}),
-    ("a plain without a wide river", "flat-plain", {"river": False, "river_w_m": 70.0}),
-    ("a river valley with no river", "river-valley", {"river": False}),
-    ("a valley, no mountains", "river-valley", {"mountains_m": 0.0}),
-    ("an alpine bowl without mountains or hills", "mountain-bowl", {"mountains_m": 0.0, "hills": 0}),
-    ("rolling hills, no coast", "hill-city", {"coast": "none"}),
-    ("a plain with no sea and no beach", "flat-plain", {"coast": "none"}),
-    ("a coastal plain with no beach", "coastal-plain", {"beach_m": 0.0, "coast": "side"}),
-    ("a plateau with no lake", "plateau", {"river": False}),
-    ("a flat plain by a river with no lake", "flat-plain", {"river": True}),
-    ("a mesa without terraces", "plateau", {"terraces": 0}),
-    ("not far from the sea, no hills", "coastal-plain", {"hills": 0, "coast": "side"}),
-])
-def test_negation_wins_over_the_keyword(text, preset, want):
-    r = td.describe(text)
-    assert r["source"] == "keywords" and r["preset"] == preset, r
-    for k, v in want.items():
-        assert getattr(r["settings"], k) == v, (k, r)
+@pytest.mark.parametrize("text,line", list(FIVE.items()))
+def test_keywords_combine_every_landform_they_find(text, line):
+    r = TD.describe(text, use_vlm=False)
+    assert r["source"] == "keywords" and r["line"] == line and r["matched"] and r["ignored"] == []
 
 
-def test_no_matching_word_falls_back_to_the_pickers_preset():
-    assert td.describe("somewhere nice", prefer="plateau")["preset"] == "plateau"
-    assert td.describe("somewhere nice")["preset"] == "coastal-plain"
+def test_the_volcano_island_is_one_spec_with_a_ring_round_the_cone():
+    spec = TD.keywords("island city with a volcano in the centre and cities circling it")["spec"]
+    assert spec.base == "island" and [f.type for f in spec.features] == ["volcano"]
+    v = spec.features[0]
+    assert v.at == "centre" and v.crater and v.size == "large"
+    assert [(h.kind, h.feature) for h in spec.city] == [("ring", 0)]
+
+
+def test_places_sizes_counts_heights_and_negation():
+    spec = TD.keywords("three steep hills in the north-east, a small lake to the west, a 600 m peak and no river")["spec"]
+    by = {f.type: f for f in spec.features}
+    assert set(by) == {"hills", "lake", "peak"}
+    assert by["hills"].at == "north-east" and by["hills"].count == 3 and by["hills"].steepness == "steep"
+    assert by["lake"].at == "west" and by["lake"].size == "small" and by["peak"].height_m == 600
+    assert not TD.keywords("a coast without cliffs")["spec"].features
+
+
+def test_what_it_cant_show_is_listed_and_nothing_known_is_not_matched():
+    r = TD.describe("three hills, a snowy desert", use_vlm=False)
+    assert r["ignored"] == ["a snowy desert"] and r["matched"]
+    r = TD.describe("purple unicorns", use_vlm=False)
+    assert not r["matched"] and r["ignored"] == ["purple unicorns"]
     with pytest.raises(ValueError):
-        td.describe("   ")
+        TD.describe("  ")
 
 
-def test_the_running_local_model_decides_when_it_answers_well(monkeypatch):
+GOOD = {"spec": {"base": "island", "features": [{"type": "volcano", "at": "centre", "size": "large", "crater": True}],
+                 "city": [{"kind": "ring", "feature": 0}]}, "ignored": ["sunset"]}
+
+
+def test_the_model_decides_when_its_answer_validates():
     calls = []
 
-    class Fake:
-        def json_text(self, system, prompt, images, schema):
-            calls.append((prompt, images, schema))
-            return json.dumps({"preset": "mountain-bowl", "tweaks": {"river": True, "hills": 3, "nonsense": 1},
-                               "reason": "bowl of peaks with a stream"})
-    monkeypatch.setattr(vlm, "state", lambda: {"url": "http://x", "pid": 1})
-    monkeypatch.setattr(vlm, "client", lambda st: Fake())
-    r = td.describe("a city in a bowl of peaks with a stream")
-    assert r["source"] == "vlm" and r["preset"] == "mountain-bowl"
-    assert r["tweaks"] == {"river": True, "hills": 3} and r["settings"].river and r["settings"].hills == 3
-    prompt, images, schema = calls[0]
-    assert images == [] and "mountain-bowl" in prompt and schema["properties"]["preset"]["enum"][0] == "flat-plain"
+    def ask(system, prompt):
+        calls.append(prompt)
+        return json.dumps(GOOD)
+    r = TD.describe("an island with a volcano", ask=ask)
+    assert r["source"] == "vlm" and r["tries"] == 1 and r["ignored"] == ["sunset"] and len(calls) == 1
+    assert r["line"].startswith("Island · volcano (centre, large, crater)")
+    assert '"TerrainFeature"' in calls[0] or "TerrainFeature" in calls[0]          # the schema is in the prompt
 
 
-@pytest.mark.parametrize("answer", ["not json", json.dumps({"preset": "volcano", "tweaks": {}}),
-                                    json.dumps({"preset": "island", "tweaks": {"base": "lumpy"}})])
-def test_a_bad_answer_falls_back_to_keywords(monkeypatch, answer):
-    monkeypatch.setattr(vlm, "state", lambda: {"url": "http://x", "pid": 1})
-    monkeypatch.setattr(vlm, "client", lambda st: type("F", (), {"json_text": lambda self, *a: answer})())
-    r = td.describe("an island")
-    assert r["source"] == "keywords" and r["preset"] == "island"
+def test_an_invalid_answer_is_asked_once_more_with_the_error():
+    answers = [json.dumps({"spec": {"base": "moon", "features": []}}), json.dumps(GOOD)]
+    prompts = []
+
+    def ask(system, prompt):
+        prompts.append(prompt)
+        return answers.pop(0)
+    r = TD.describe("an island with a volcano", ask=ask)
+    assert r["source"] == "vlm" and r["tries"] == 2 and "didn't validate" in prompts[1]
 
 
-def test_the_model_is_never_started_for_it(monkeypatch):
-    monkeypatch.setattr(vlm, "up", lambda *a, **k: pytest.fail("started the model"))
-    assert td.describe("a canyon")["source"] == "keywords"
+@pytest.mark.parametrize("bad", ["not json", json.dumps({"spec": {"base": "moon"}}), json.dumps(["x"])])
+def test_two_bad_answers_fall_back_to_keywords(bad):
+    r = TD.describe("a high plateau with a lake in the middle", ask=lambda s, p: bad)
+    assert r["source"] == "keywords" and r["line"] == FIVE["a high plateau with a lake in the middle"]
+
+
+def test_a_server_failure_falls_back_to_keywords_and_the_model_is_never_started(monkeypatch):
+    from asset_pipeline import vlm
+
+    def boom(s, p):
+        raise ConnectionError("down")
+    assert TD.describe("an island", ask=boom)["source"] == "keywords"
+    monkeypatch.setattr(vlm, "state", lambda: None)
+    monkeypatch.setattr(vlm, "up", lambda *a, **k: pytest.fail("started the model"), raising=False)
+    assert TD.describe("an island")["source"] == "keywords"
+
+
+def test_every_spec_the_parser_makes_builds(tmp_path):
+    from asset_pipeline import terrain_gen
+    from asset_pipeline.stages import sw_site
+    t = sw_site.starter_city().terrain.model_copy(update={"resolution": 257})
+    for text in FIVE:
+        spec = TD.describe(text, use_vlm=False)["spec"]
+        s = TD.settings(spec, 3, t.extent_m)
+        assert TerrainCompose.model_validate(s.compose.model_dump()) == spec
+        terrain_gen.make(terrain_gen.with_settings(t, s))
+
+
+import time  # noqa: E402
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from asset_pipeline.jobs import JobQueue  # noqa: E402
+from asset_pipeline.project import ProjectStore, write_json  # noqa: E402
+from asset_pipeline.stages import sw_site  # noqa: E402
+from asset_pipeline.ui import app as ui_app  # noqa: E402
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("AP_ROOT", str(tmp_path))
     s = ProjectStore.create("t", name="T", start="city")
-    write_json(sw_site.site_dir(s) / "layout.json", sw_site.starter_city().model_dump(mode="json"))
+    L = sw_site.starter_city()
+    L.terrain = L.terrain.model_copy(update={"resolution": 257})
+    write_json(sw_site.site_dir(s) / "layout.json", L.model_dump(mode="json"))
     monkeypatch.setattr(sw_site, "plan_city", lambda store: {"buildings": 100, "warnings": []})
     monkeypatch.setattr(sw_site, "set_city_shots", lambda store, only=None: [])
+    from asset_pipeline import vlm
+    monkeypatch.setattr(vlm, "state", lambda: None)
     return TestClient(ui_app.create_app(JobQueue())), s
 
 
-def test_describe_api_shows_the_choice_and_apply_makes_exactly_it(client, capsys):
-    c, s = client
-    r = c.post("/api/projects/t/site/terrain/describe", json={"text": "a rugged island with cliffs"}).json()
-    assert r["preset"] == "island" and r["source"] == "keywords" and r["settings"]["base"] == "rugged"
-    assert r["settings"]["beach_m"] == 0.0 and "rugged" in r["summary"]
-    assert r["matched"] and r["understood"][0] == "rugged" and r["not_understood"] == []
-    j = c.post("/api/projects/t/site/terrain", json={"settings": r["settings"], "seed": 8}).json()
-    for _ in range(300):
+def _wait(c, j):
+    for _ in range(400):
         st = c.get(f"/api/jobs/{j['id']}").json()
         if st["status"] in ("done", "error"):
-            break
+            return st
         time.sleep(0.05)
-    assert st["status"] == "done", st
+    return st
+
+
+def test_describe_api_shows_the_spec_and_apply_builds_exactly_it(client, capsys):
+    c, s = client
+    before = (sw_site.site_dir(s) / "layout.json").read_text()
+    text = "island city with a volcano in the centre and cities circling it"
+    r = c.post("/api/projects/t/site/terrain/describe", json={"text": text}).json()
+    assert r["source"] == "keywords" and r["line"] == FIVE[text] and r["ignored"] == [] and r["matched"]
+    assert r["compose"]["base"] == "island" and r["compose"]["features"][0]["type"] == "volcano"
+    assert (sw_site.site_dir(s) / "layout.json").read_text() == before            # Describe alone changes nothing
+    st = _wait(c, c.post("/api/projects/t/site/terrain", json={"compose": r["compose"], "seed": 8}).json())
+    assert st["status"] == "done", st.get("error")
+    assert st["result"]["described"] == {"source": "spec", "line": FIVE[text]}
     t = sw_site.load_layout(s).terrain.settings
-    assert (t.name, t.base, t.beach_m, t.seed, t.coast) == ("island", "rugged", 0.0, 8, "all")
+    assert (t.name, t.seed, t.coast) == ("described", 8, "all") and t.compose.model_dump() == r["compose"]
+    from asset_pipeline import city_roll
+    assert city_roll.summary(s)["terrain"]["line"] == FIVE[text]
     assert c.post("/api/projects/t/site/terrain/describe", json={"text": " "}).status_code == 400
     from asset_pipeline import cli
-    cli.main(["terrain", "roll", "t", "--describe", "a flat plain with a wide river", "--seed", "4"])
+    cli.main(["terrain", "roll", "t", "--describe", "flat delta with many river channels", "--seed", "4"])
     out = capsys.readouterr().out
-    assert "described as flat-plain (keywords)" in out and "river_w_m=130.0" in out
-    t = sw_site.load_layout(s).terrain.settings
-    assert t.river and t.river_w_m == 130.0 and t.seed == 4
+    assert "described (keywords): Coast (sea south), flat · 5 river channels" in out
+    assert sw_site.load_layout(s).terrain.settings.compose.features[0].count == 5
 
 
-def test_the_text_box_sits_with_the_terrain_picker():
+def test_a_spec_typed_by_hand_is_checked_and_shown(client):
+    c, _ = client
+    good = {"base": "plateau", "features": [{"type": "lake", "at": "centre"}]}
+    r = c.post("/api/projects/t/site/terrain/describe", json={"compose": good}).json()
+    assert r["source"] == "spec" and r["line"] == "Plateau · lake (centre, medium)"
+    bad = c.post("/api/projects/t/site/terrain/describe", json={"compose": {"base": "moon"}})
+    assert bad.status_code == 400 and "terrain spec" in bad.json()["detail"]
+
+
+def test_the_layout_tab_shows_the_line_and_applies_the_spec():
+    from test_ui_layout import STATIC
     html = (STATIC / "index.html").read_text()
-    assert html.index('id="city-terrain-preset"') < html.index('id="city-terrain-describe"') < html.index('id="city-roll-keep-shape"')
-    assert "Describe the terrain" in html and 'id="city-terrain-chosen"' in html
+    assert html.index('id="city-terrain-preset"') < html.index('id="city-terrain-describe"') < html.index('id="city-terrain-chosen"')
     js = (STATIC / "city.js").read_text()
-    assert "site/terrain/describe" in js and "Keyword matching" in js
-
-
-def test_describe_says_what_it_understood_and_what_it_didnt():
-    r = td.describe("island, hills, volcano, cities circling it", use_vlm=False)
-    assert r["matched"] and r["understood"] == ["island", "hills"]
-    assert r["not_understood"] == ["volcano", "cities circling it"]
-    r = td.describe("an island with no mountains", use_vlm=False)
-    assert r["understood"] == ["island", "no mountains"] and r["not_understood"] == []
-
-
-def test_describe_flags_a_description_nothing_matched():
-    r = td.describe("somewhere nice", use_vlm=False)
-    assert not r["matched"] and r["understood"] == [] and "island" in r["try"]
-    assert r["preset"] == "coastal-plain"                      # what the CLI and Apply always did
+    assert "site/terrain/describe" in js and 'value="described"' in js and "body.compose = spec.compose" in js
+    assert "Ignored:" in js and "local vision model" in js and "keywords (the local model isn't running)" in js

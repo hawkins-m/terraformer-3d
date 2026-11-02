@@ -327,14 +327,16 @@ class RollReq(BaseModel):
 class TerrainReq(BaseModel):
     preset: str | None = None          # a terrain preset (terrain_gen.PRESETS); with describe: the fallback
     seed: int | None = Field(default=None, ge=0, le=2**31 - 1)   # None: a random one
-    describe: str | None = Field(default=None, max_length=600)    # words, mapped to a preset and settings
-    settings: dict | None = None       # exactly these TerrainSettings (what Describe showed); wins over preset / describe
+    describe: str | None = Field(default=None, max_length=600)    # words, made into a terrain spec (terrain_describe)
+    compose: dict | None = None        # exactly this terrain spec (schema.TerrainCompose: what Describe showed); wins over describe
+    settings: dict | None = None       # exactly these TerrainSettings; wins over preset / describe / compose
     replace_heightmap: bool = False
 
 
 class DescribeReq(BaseModel):
-    text: str = Field(max_length=600)
-    preset: str | None = None          # the picker's preset: the keywords' fallback when no word matches
+    text: str = Field(default="", max_length=600)
+    preset: str | None = None          # (ignored: kept for older pages)
+    compose: dict | None = None        # a spec typed or edited by hand (Edit): checked and shown as a line, no text needed
 
 
 class MergeGroundReq(BaseModel):
@@ -1587,11 +1589,12 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
         _roll_check(store)
         if req.preset is not None and req.preset not in terrain_gen.PRESETS:
             raise HTTPException(400, f"unknown terrain preset {req.preset!r} (presets: {', '.join(terrain_gen.PRESETS)})")
-        if not req.preset and not (req.describe or "").strip() and not req.settings:
+        if not req.preset and not (req.describe or "").strip() and not req.settings and not req.compose:
             raise HTTPException(400, "give a terrain preset or a description")
-        from ..schema import TerrainSettings
+        from ..schema import TerrainCompose, TerrainSettings
         try:
             exact = TerrainSettings.model_validate(req.settings) if req.settings else None
+            spec = TerrainCompose.model_validate(req.compose) if req.compose and exact is None else None
         except ValueError as e:
             raise HTTPException(400, f"terrain settings: {e}")
         try:
@@ -1606,31 +1609,46 @@ def create_app(jobs: JobQueue | None = None, comfy_gate: comfy_service.Gate | No
             from ..jobs import current_job
             job = current_job()
             log = (lambda m: setattr(job, "note", str(m)[:200])) if job else print
+            from .. import terrain_compose, terrain_describe
+            pick = None
             if exact is not None:
-                pick, settings = None, exact
-            elif (req.describe or "").strip():
-                from .. import terrain_describe
-                pick = terrain_describe.describe(req.describe, prefer=req.preset)
-                settings = pick["settings"]
+                settings = exact
+            elif spec is not None or (req.describe or "").strip():
+                sp = spec
+                if sp is None:
+                    pick = terrain_describe.describe(req.describe)
+                    sp = pick["spec"]
+                ext = city_roll._layout_or_starter(store).terrain.extent_m
+                settings = terrain_describe.settings(sp, seed, ext)
+                pick = {"source": pick["source"] if pick else "spec", "line": terrain_compose.line(sp)}
             else:
-                pick, settings = None, terrain_gen.get(req.preset)
+                settings = terrain_gen.get(req.preset)
             st = city_roll.set_terrain(store, settings.model_copy(update={"seed": seed}), log=log,
                                        replace_heightmap=req.replace_heightmap)
             return {"terrain": settings.name, "seed": seed, "buildings": st["buildings"], "warnings": st["warnings"],
-                    **({"described": {k: pick[k] for k in ("preset", "source", "summary", "tweaks")}} if pick else {})}
+                    **({"described": pick} if pick else {})}
         return jobs.submit("site.plan", slug, run, lane="cpu", tag={"roll": True, "terrain": True}).public()
 
     @app.post("/api/projects/{slug}/site/terrain/describe")
     def site_terrain_describe(slug: str, req: DescribeReq):
-        """What a description maps to (a preset and tweaks), without applying it: the local model's text
-        mode when its server is running, else keyword matching."""
-        from .. import terrain_describe
+        """What a description means as a terrain spec (or a spec typed by hand, checked), without applying it: the
+        local model's text mode when its server is running, else the keyword parser. Apply terrain builds it."""
+        from .. import terrain_compose, terrain_describe
+        from ..schema import TerrainCompose
         _store(slug)
+        if req.compose is not None:
+            try:
+                spec = TerrainCompose.model_validate(req.compose)
+            except ValueError as e:
+                raise HTTPException(400, f"terrain spec: {e}")
+            return {"compose": spec.model_dump(mode="json"), "line": terrain_compose.line(spec), "source": "spec",
+                    "understood": [], "ignored": [], "matched": True, "tries": 0, "try": list(terrain_describe.TRY)}
         try:
-            pick = terrain_describe.describe(req.text, prefer=req.preset)
+            pick = terrain_describe.describe(req.text)
         except ValueError as e:
             raise HTTPException(400, str(e))
-        return {k: pick[k] for k in ("preset", "tweaks", "source", "summary", "matched", "understood", "not_understood", "try")} | {"settings": pick["settings"].model_dump()}
+        return {k: pick[k] for k in ("line", "source", "understood", "ignored", "matched", "tries", "try")} | {
+            "compose": pick["spec"].model_dump(mode="json")}
 
     @app.post("/api/projects/{slug}/site/roll/step")
     def site_roll_step(slug: str, req: StepReq):
