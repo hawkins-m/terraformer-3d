@@ -78,9 +78,15 @@ def test_cliffs_a_bay_on_the_west_coast_and_hills_inland():
 def test_a_plateau_with_a_lake_and_a_delta_of_channels():
     t, h = built("plateau")
     assert t.settings.coast == "none" and t.settings.plateau_m == 300
-    lake = [w for w in terrain_gen.terrain_lines(t) if w.flow == "flat"]
-    assert len(lake) == 1 and terrain_gen.water_mask(t, lake)[t.resolution // 2, t.resolution // 2]
-    assert at(t, h, 0, 0) < at(t, h, 600, 600) - 1                                          # carved into the top
+    lakes = TC.lakes(t)
+    assert len(lakes) == 1 and not terrain_gen.terrain_lines(t)                             # a basin, not a water line
+    q, depth = lakes[0]
+    assert len(q.exterior.coords) > 60 and q.area / q.convex_hull.area > 0.9                 # organic, not a rectangle
+    lr = q.minimum_rotated_rectangle
+    assert q.area < 0.92 * lr.area
+    assert terrain_gen.water_mask(t, [])[t.resolution // 2, t.resolution // 2]              # in the water mask
+    level = TC.lake_level(t, h, q)
+    assert at(t, h, 0, 0) < level - 1 < at(t, h, 1600, 1600)                                 # carved, under its shore
     t, h = built("delta")
     lines = terrain_gen.terrain_lines(t)
     assert len(lines) == 6 and np.ptp(h[h > 0]) < 60                                         # a stem, five channels; flat
@@ -117,8 +123,22 @@ def test_apply_a_described_terrain_plans_builds_and_draws_like_a_preset(tmp_path
     assert spec["slots"] and spec["terrain"]
     d = city_view.scene(store, P, h)
     assert d["buildings"] and d["terrain"]["n"] > 0
-    if any(f["type"] in ("river", "lake") for f in SPECS[name]["features"]):
+    from shapely.geometry import Point
+    f = city.Fields(P.layout, h)
+    if any(f_["type"] == "river" for f_ in SPECS[name]["features"]):
         assert any(w.kind == "river" for w in P.ways)                    # the plan carries the water
+    assert not any(bool(f.water(b.x, b.y)) for b in P.buildings)          # nothing on a river or a lake
+    assert all(float(f.z(b.x, b.y)) > L2.sea_level for b in P.buildings)  # nor in a bay
+    for q, level in P.lakes:
+        assert not any(w.kind not in ("river", "canal") and w.line.intersects(q) for w in P.ways)
+        assert not any(b.intersection(q).area > 1 for b in P.blocks + P.parks)
+        assert not any(q.contains(Point(b.x, b.y)) for b in P.buildings)
+        lake = next(s_ for s_ in spec["slots"] if s_["type"] == "lake")
+        assert lake["pieces"][0]["piece"] == "lake-water" and lake["category"] == "terrain"
+        assert {round(v[2], 3) for v in lake["pieces"][0]["prim"]["pts"]} == {0.0}            # flat, at its level
+        assert d["lakes"] and abs(d["lakes"][0][1] - level) < 0.02
+    if name == "plateau":
+        assert P.lakes
     if name == "volcano":                          # the districts ring the cone's lower slopes
         R = TC.radius(L2.terrain, L2.terrain.settings.compose.features[0])
         C = L2.terrain.settings.centre

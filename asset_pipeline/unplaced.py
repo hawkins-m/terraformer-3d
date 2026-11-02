@@ -49,7 +49,7 @@ ONE_OFF_WORDS = ("temple", "rotunda", "campanile", "lighthouse", "theatre", "the
 FAMILY_GROUP = {"housing": "housing", "mixed": "housing", "civic": "civic",
                 "infrastructure": "infrastructure", "public_realm": "public_realm"}
 OPEN_TYPES = {"park", "plaza", "garden"}
-WATER_TYPES = {"sea", "canal", "lagoon", "river", "quay", "moat"}
+WATER_TYPES = {"sea", "canal", "lagoon", "river", "quay", "moat", "lake"}
 WATERFRONT_M = 80.0         # a place this close to water is on the waterfront
 EDGE_PCT = 75               # a place this far out (percentile of building slots) is on the edge
 TREE_NEAR = 25.0            # m: an open-ground spot's corners each have a park tree this close

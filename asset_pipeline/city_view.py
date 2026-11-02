@@ -163,6 +163,8 @@ def scene(store: ProjectStore, P=None, heights: np.ndarray | None = None, bg=Non
            "terrain": {"n": int(hd.shape[0]), "z": [_r(v) for v in hd.ravel()]},
            "buildings": rows, "ways": ways, "parks": parks, "paving": paving, "water": moat,
            "edited": moves is not None}
+    if P.lakes:                         # a described terrain's lakes: flat water at their level
+        out["lakes"] = [[rings(q), _r(level, 2)] for q, level in P.lakes]
     if c.size != "standard":
         out["size"] = c.size
     if bg is not None:

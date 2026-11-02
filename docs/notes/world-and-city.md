@@ -524,3 +524,10 @@ World and city mode: greybox and passes, concept frames and their control settin
   cells, closed, specks dropped) is cut out of the plan's region and every non-water way (`off_steep`); one
   serpentine `lookout` road climbs the first peak or volcano at 9 % to its rim (steeper stretches become stairs);
   parks are cut off steep ground into 60 m tiles (`terrain_compose.tiles`) so each flat piece follows the ground.
+- Lakes were a short wide `river` ribbon: a sharp rectangle, and not kept off by the plan (streets crossed). Now
+  `terrain_compose.lakes` gives each an organic outline (wobbling radius, stretched and turned by its seed);
+  `make()` carves its basin (`carve_lakes`: level = the lowest tenth of the ground on a ring 55 m past the shore,
+  which the basin leaves alone so the plan reads the same level; the shore shelves down over 45 m);
+  `water_mask` includes it; the plan keeps it off like steep ground and draws it as a flat `lake` slot
+  (`lake-water` piece, water in the greybox and the Unreal export), flat water in the viewer (`lakes`) and on the
+  plan image. Described rivers are water lines in the mask as before; bays are below the sea.

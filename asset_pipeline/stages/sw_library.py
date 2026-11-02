@@ -52,7 +52,7 @@ LIBRARY_DIR = "library"
 MIN_SHARE = 0.005            # an entry needs this share of some source frame to have a usable crop
 
 SURFACE_TYPES = {"terrain", "sea", "street", "avenue", "radial", "plaza", "ring", "lane", "stair", "park",
-                 "garden", "canal", "terrace", "pool", "lagoon", "highway", "interchange", "moat",
+                 "garden", "canal", "terrace", "pool", "lagoon", "highway", "interchange", "moat", "lake",
                  "culdesac", "river", "boulevard", "pad"}
 KIT_TYPES = {"temple", "stoa", "cloister", "colonnade", "rotunda", "portico", "forum_gate", "fountain", "villa"}
 SINGULAR_FORMS = {"hall", "drum", "cavea", "cube", "tower", "podium_tower", "pavilion", "arcade_line", "open"}

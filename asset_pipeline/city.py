@@ -131,6 +131,7 @@ class CityPlan:
     culdesacs: list[Polygon] = field(default_factory=list)  # turning circles at the end of dead-end streets
     pads: list[tuple] = field(default_factory=list)       # flat pads under buildings on slopes: x y w d rot z_lo z_top
     extended: list = field(default_factory=list)           # city_extended.Structure (the extended building types)
+    lakes: list = field(default_factory=list)              # (Polygon, water level): a described terrain's lakes
     dropped: int = 0                                       # buildings clear_overlaps took out
     stats: dict = field(default_factory=dict)
 
@@ -2195,7 +2196,7 @@ def _slot_footprints(P: CityPlan) -> list[tuple[str, Polygon, tuple]]:
 def _surfaces(P: CityPlan) -> list[Polygon]:
     """Roads, water and paving: ways (by their width), interchanges, turning circles, the moat."""
     return ([w.line.buffer(w.width / 2, cap_style="flat") for w in P.ways]
-            + list(P.interchanges) + list(P.culdesacs) + list(P.moat))
+            + list(P.interchanges) + list(P.culdesacs) + list(P.moat) + [q for q, _ in P.lakes])
 
 
 def fit_buildings(P: CityPlan, f: Fields) -> None:
@@ -2308,8 +2309,12 @@ def plan(layout: SiteLayout, heights: np.ndarray) -> CityPlan:
     from . import terrain_compose
     if terrain_compose.described(layout.terrain):   # a described terrain: nothing on ground steeper than max_slope
         steep = terrain_compose.steep_ground(f, c.max_slope)
+        look = terrain_compose.lookout(L, f, steep) if not steep.is_empty else []
+        P.lakes = [(q, terrain_compose.lake_level(layout.terrain, heights, q)) for q, _ in terrain_compose.lakes(layout.terrain)]
+        if P.lakes:            # and nothing on its lakes: water like the steep ground, kept off
+            steep = unary_union([steep] + [q.buffer(6) for q, _ in P.lakes])
         if not steep.is_empty:
-            P.ways = terrain_compose.off_steep(P.ways, steep) + terrain_compose.lookout(L, f, steep)
+            P.ways = terrain_compose.off_steep(P.ways, steep) + look
 
     # superblocks: faces between the ways, on land, minus the ways and the civic cores
     region = _land_region(L, f, 30 + c.promenade_w)
@@ -2811,6 +2816,12 @@ def add_slots(P: CityPlan, new, hs) -> None:
             o = pts[0]
             sb.add("moat-water" if name == "moat" else "paving",
                    poly([[p[0] - o[0], p[1] - o[1], p[2] - o[2]] for p in pts], 0.1), tuple(o))
+    for i, (q, level) in enumerate(P.lakes):    # a described terrain's lakes: flat water at their level
+        m = q.representative_point()
+        sb = new(f"lake-{i}", "lake", (m.x, m.y, level), district=nearest_node(c, m.x, m.y), category="terrain")
+        pts = list(q.simplify(1.0).exterior.coords)[:-1]
+        o = pts[0]
+        sb.add("lake-water", poly([[p[0] - o[0], p[1] - o[1], 0.0] for p in pts], 0.1), (o[0], o[1], level))
     if P.piers:
         b0 = P.piers[0]
         sb = new("quay", "quay", (b0.x, b0.y, b0.z), district=b0.district)
@@ -2951,6 +2962,8 @@ def plan_image(P: CityPlan, heights: np.ndarray, px: int = 2400, margin: float =
                 u, v = _dir(pt.rot) * pt.w / 2, _dir(pt.rot + 90) * pt.d / 2
                 pts = [np.array([pt.x, pt.y]) + a * u + e * v for a, e in ((-1, -1), (1, -1), (1, 1), (-1, 1))]
                 d.polygon([to(*p) for p in pts], fill=FAMILY_COLORS.get(b.family, PLAN_COLORS["housing"]))
+    for q, _ in P.lakes:
+        fill(q, PLAN_COLORS["sea"])
     for sq, stalls in P.markets:
         fill(sq, PLAN_COLORS["market"])
     for b in P.piers:

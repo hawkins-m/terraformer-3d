@@ -52,7 +52,7 @@ CATEGORY = {"temple": "building", "block": "building", "villa": "building", "rot
             "river": "terrain", "tower": "building", "industrial": "building", "bastion": "structure",
             "mall": "building", "boulevard": "terrain", "pad": "structure",
             # extended building types (city_extended.CATEGORY)
-            "castle": "building", "church": "building", "medical": "building", "airport": "structure",
+            "lake": "terrain", "castle": "building", "church": "building", "medical": "building", "airport": "structure",
             "power": "structure", "factory": "building", "warehouse": "building", "depot": "building",
             "refinery": "structure", "house": "building", "cottage": "building", "condo": "building",
             "penthouse": "building", "chateau": "building"}

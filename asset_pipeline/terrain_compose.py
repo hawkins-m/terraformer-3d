@@ -254,13 +254,7 @@ def lines(t: TerrainSpec) -> list:
     C = np.array(s.centre, float)
     for i, f in enumerate(spec.features):
         rng = np.random.default_rng([STREAM, s.seed, i, 1])
-        if f.type == "lake":
-            R = radius(t, f)
-            P = _place(t, s, f)
-            a = rng.uniform(0, 180)
-            ln = LineString(_line(P - 0.45 * R * _unit(a), P + 0.45 * R * _unit(a)))
-            out.append(WaterLine(ln, round(1.3 * R, 1), height(f), "flat"))
-        elif f.type == "river":
+        if f.type == "river":
             P = _place(t, s, f)
             w = 70.0 * SIZE[f.size]
             if spec.base == "island":             # from the island's heart down to its coast
@@ -290,6 +284,89 @@ def lines(t: TerrainSpec) -> list:
                 ch = _meander(_line(split, end), 70.0, rng)
                 out.append(WaterLine(LineString(_clip(ch, half)), round(max(w * 0.55, 22.0), 1), 3.0, "down"))
     return [w for w in out if len(w.line.coords) > 2]
+
+
+LAKE_SHORE_M = 45.0        # a lake's shore shelves down to its water over this width
+
+
+def lakes(t: TerrainSpec) -> list:
+    """The spec's lakes: (organic outline Polygon, depth m) — a wobbling, slightly stretched round shape."""
+    s = t.settings
+    out = []
+    for i, f in enumerate(s.compose.features if s is not None and s.compose is not None else []):
+        if f.type != "lake":
+            continue
+        rng = np.random.default_rng([STREAM, s.seed, i, 2])
+        R = 1.0 * radius(t, f)
+        P = _place(t, s, f)
+        a = np.linspace(0, 2 * math.pi, 97)[:-1]
+        r = np.ones_like(a)
+        for k in (2, 3, 4, 5, 7):
+            r += rng.uniform(0.03, 0.12) * np.cos(k * a + rng.uniform(0, 2 * math.pi)) / (1 + 0.15 * k)
+        stretch, turn = rng.uniform(1.0, 1.5), rng.uniform(0, math.pi)
+        x, y = R * r * np.cos(a) * stretch, R * r * np.sin(a)
+        pts = np.c_[P[0] + x * math.cos(turn) - y * math.sin(turn), P[1] + x * math.sin(turn) + y * math.cos(turn)]
+        out.append((Polygon(pts).buffer(0), height(f)))
+    return out
+
+
+def _lake_window(t: TerrainSpec, poly, pad: float):
+    from .greybox import grid_coords
+    x, y = grid_coords(t)
+    n = t.resolution
+    x0, y0, x1, y1 = poly.bounds
+    j0 = max(int((x0 - pad) / t.extent_m * (n - 1) + (n - 1) / 2), 0)
+    j1 = min(int((x1 + pad) / t.extent_m * (n - 1) + (n - 1) / 2) + 2, n)
+    i0 = max(int((0.5 - (y1 + pad) / t.extent_m) * (n - 1)), 0)
+    i1 = min(int((0.5 - (y0 - pad) / t.extent_m) * (n - 1)) + 2, n)
+    return (i0, i1, j0, j1), x[i0:i1, j0:j1], y[i0:i1, j0:j1]
+
+
+def carve_lakes(h: np.ndarray, t: TerrainSpec) -> np.ndarray:
+    """Each lake's basin: its water level just under the lowest tenth of its shore, the bed `depth` below,
+    the ground shelving down to the water over LAKE_SHORE_M outside its outline."""
+    import shapely
+    from scipy import ndimage
+    h = h.copy()
+    sp = t.extent_m / (t.resolution - 1)
+    for poly, depth in lakes(t):
+        (i0, i1, j0, j1), x, y = _lake_window(t, poly, LAKE_SHORE_M + 3 * sp)
+        if x.size == 0:
+            continue
+        inside = shapely.contains_xy(poly, x, y)
+        if not inside.any():
+            continue
+        sub = h[i0:i1, j0:j1]
+        level = lake_level(t, h, poly)
+        d_in = ndimage.distance_transform_edt(inside) * sp
+        d_out = ndimage.distance_transform_edt(~inside) * sp
+        bed = level - 0.6 - depth * _smooth(0, 3 * LAKE_SHORE_M, d_in)
+        shore = np.minimum(sub, level + 0.5 + (sub - level - 0.5) * _smooth(0, LAKE_SHORE_M, d_out))
+        h[i0:i1, j0:j1] = np.where(inside, np.minimum(sub, bed), np.where(d_out < LAKE_SHORE_M, shore, sub))
+    return h
+
+
+def lake_level(t: TerrainSpec, h: np.ndarray, poly) -> float:
+    """A lake's water level: the lowest tenth of the ground on a ring just past its shore (ground the basin
+    leaves alone, so the terrain build and the plan read the same level), less a little."""
+    n = t.resolution
+    ring = np.asarray(poly.buffer(LAKE_SHORE_M + 10).exterior.segmentize(t.extent_m / (n - 1)).coords)
+    j = np.clip(np.round((ring[:, 0] / t.extent_m + 0.5) * (n - 1)).astype(int), 0, n - 1)
+    i = np.clip(np.round((0.5 - ring[:, 1] / t.extent_m) * (n - 1)).astype(int), 0, n - 1)
+    return float(np.percentile(h[i, j], 10)) - 0.8
+
+
+def lake_mask(t: TerrainSpec) -> np.ndarray | None:
+    """Which height cells are a described lake's water (terrain_gen.water_mask adds them), or None."""
+    import shapely
+    ls = lakes(t)
+    if not ls:
+        return None
+    mask = np.zeros((t.resolution, t.resolution), bool)
+    for poly, _ in ls:
+        (i0, i1, j0, j1), x, y = _lake_window(t, poly, 0.0)
+        mask[i0:i1, j0:j1] |= shapely.contains_xy(poly, x, y)
+    return mask
 
 
 def _clip(pts: np.ndarray, half: float) -> np.ndarray:

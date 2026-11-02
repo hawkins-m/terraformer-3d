@@ -171,6 +171,9 @@ def make(t: TerrainSpec) -> np.ndarray:
         h = np.where(inland > 0, h, np.maximum(-0.08 * (-inland), -40.0) - 0.5)
     h = h.astype(np.float32)
     h, _ = carve(h, t, terrain_lines(t))
+    if s.compose is not None:   # a described terrain's lakes: organic basins with a shore (terrain_compose)
+        from . import terrain_compose
+        h = terrain_compose.carve_lakes(h, t).astype(np.float32)
     return h
 
 
@@ -268,9 +271,14 @@ def carve(h: np.ndarray, t: TerrainSpec, lines: list[WaterLine], sea_level: floa
 
 
 def water_mask(t: TerrainSpec, lines: list[WaterLine]) -> np.ndarray | None:
-    """Which cells of the height grid are lowered water (a river's or canal's width), or None."""
+    """Which cells of the height grid are lowered water (a river's or canal's width, a described terrain's
+    lakes), or None."""
+    lake = None
+    if t.settings is not None and t.settings.compose is not None:
+        from . import terrain_compose
+        lake = terrain_compose.lake_mask(t)
     if not lines:
-        return None
+        return lake
     mask = np.zeros((t.resolution, t.resolution), bool)
     for w in lines:
         key, tj, b, reach = _key(t, w)
@@ -279,7 +287,7 @@ def water_mask(t: TerrainSpec, lines: list[WaterLine]) -> np.ndarray | None:
             continue
         (i0, i1, j0, j1), dist, _ = got
         mask[i0:i1, j0:j1] |= dist < w.width / 2
-    return mask
+    return mask | lake if lake is not None else mask
 
 
 def z_range_for(h: np.ndarray) -> tuple[float, float]:

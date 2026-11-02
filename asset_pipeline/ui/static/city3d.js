@@ -215,6 +215,7 @@ function c3dBuild(d) {
   G.nature.add(c3dPolys(d, d.parks, C3D_PARK, 0.5));
   G.roads.add(c3dPolys(d, d.paving, C3D_PAVING, 0.45));
   G.water.add(c3dPolys(d, d.water, C3D_WATER, 0.3));
+  for (const [rings, level] of d.lakes || []) G.water.add(c3dPolys(d, [rings], C3D_WATER, 0, () => level));   // a described terrain's lakes: flat
   c3dBuildings(d);
   c3dToggles();
   if (first) c3dFrameCity(d);
