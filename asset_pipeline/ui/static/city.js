@@ -526,6 +526,34 @@ function showDescribed(r) {
   paintTerrain();
   if (typeof paintSpecEditor === "function") paintSpecEditor();
 }
+// Edit (advanced): the spec as JSON — Describe's latest, else the terrain's own, else a starting one
+const SPEC_START = {base: "coast", side: "south", ground: "rolling", features: [{type: "hills", at: "inland", size: "medium"}], city: []};
+function paintSpecEditor(force) {
+  const box = $("#city-terrain-spec-box"), ta = $("#city-terrain-spec");
+  if (box.hidden || (ta.dataset.dirty && !force)) return;
+  const spec = describedSpec();
+  ta.value = JSON.stringify(spec ? spec.compose : SPEC_START, null, 2);
+  delete ta.dataset.dirty;
+  $("#city-terrain-spec-msg").textContent = "";
+}
+$("#city-terrain-spec-edit").onclick = e => {
+  const box = $("#city-terrain-spec-box");
+  box.hidden = !box.hidden;
+  e.target.setAttribute("aria-expanded", String(!box.hidden));
+  paintSpecEditor(true);
+};
+$("#city-terrain-spec").oninput = e => { e.target.dataset.dirty = "1"; };
+$("#city-terrain-spec-check").onclick = async () => {
+  const ta = $("#city-terrain-spec"), msg = $("#city-terrain-spec-msg");
+  let compose;
+  try { compose = JSON.parse(ta.value); } catch (err) { msg.textContent = `Not valid JSON: ${err.message}`; return; }
+  try {
+    const r = await api(`/api/projects/${slug}/site/terrain/describe`, {compose});
+    delete ta.dataset.dirty;
+    msg.textContent = "Spec OK.";
+    showDescribed(r);
+  } catch (err) { msg.textContent = errorText(err); }
+};
 $("#city-terrain-describe-go").onclick = () => describeTerrain();
 $("#city-terrain-describe").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); describeTerrain(); } };
 async function applyTerrain(extra) {

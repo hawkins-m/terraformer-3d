@@ -179,3 +179,12 @@ def test_the_layout_tab_shows_the_line_and_applies_the_spec():
     js = (STATIC / "city.js").read_text()
     assert "site/terrain/describe" in js and 'value="described"' in js and "body.compose = spec.compose" in js
     assert "Ignored:" in js and "local vision model" in js and "keywords (the local model isn't running)" in js
+
+
+def test_edit_shows_the_spec_json_and_checks_it():
+    from test_ui_layout import STATIC
+    html = (STATIC / "index.html").read_text()
+    assert html.index('id="city-terrain-describe-go"') < html.index('id="city-terrain-spec-edit"') < html.index('id="city-terrain-spec"')
+    assert 'id="city-terrain-spec-check"' in html and "hidden" in html[html.index('id="city-terrain-spec-box"') - 5:][:60]
+    js = (STATIC / "city.js").read_text()
+    assert "function paintSpecEditor" in js and "{compose}" in js and "Not valid JSON" in js

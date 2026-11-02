@@ -188,6 +188,14 @@
           <div class="row">
             <label style="flex:1" title="A few words about the ground: mapped to a terrain preset and its settings (the local model when it's running, else keywords)">Describe the terrain: <input type="text" id="city-terrain-describe" maxlength="600" style="width:60%" placeholder="e.g. a river valley between rugged mountains"></label>
             <button type="button" id="city-terrain-describe-go" class="small" title="Show what the description maps to; Apply terrain then makes it">Describe</button>
+            <button type="button" id="city-terrain-spec-edit" class="small" aria-expanded="false" title="Advanced: the terrain spec Describe made, as JSON, to edit by hand; Check spec shows what it means, Apply terrain builds it">Edit</button>
+          </div>
+          <div id="city-terrain-spec-box" hidden style="margin:0 0 6px">
+            <textarea id="city-terrain-spec" rows="12" spellcheck="false" aria-label="Terrain spec (JSON)" style="width:100%;box-sizing:border-box;font-family:monospace;font-size:12px"></textarea>
+            <div class="row" style="margin-top:4px">
+              <button type="button" id="city-terrain-spec-check" class="small" title="Check the spec and show what it means; Apply terrain then builds it">Check spec</button>
+              <span class="hint" id="city-terrain-spec-msg" role="status" style="margin:0"></span>
+            </div>
           </div>
           <p class="hint" id="city-terrain-chosen" role="status" style="margin:0 0 6px"></p>
           <div class="row">
