@@ -479,46 +479,64 @@ function paintTerrain() {
   if (!d) return;
   if (!sel.options.length) {
     sel.innerHTML = `<option value="">${d.heightmap ? "the project's heightmap" : "the project's own"}</option>`
-      + d.presets.map(p => `<option value="${esc(p.name)}" title="${esc(p.description)}">${esc(p.name)}</option>`).join("");
+      + d.presets.map(p => `<option value="${esc(p.name)}" title="${esc(p.description)}">${esc(p.name)}</option>`).join("")
+      + `<option value="described" title="What Describe the terrain made of your words">described</option>`;
   }
-  if (document.activeElement !== sel && !sel.dataset.dirty) sel.value = d.name && d.presets.some(p => p.name === d.name) ? d.name : "";
+  if (document.activeElement !== sel && !sel.dataset.dirty)
+    sel.value = d.name === "described" ? "described" : d.name && d.presets.some(p => p.name === d.name) ? d.name : "";
   if (document.activeElement !== ls && !ls.dataset.dirty) ls.value = d.seed ?? "";
-  const p = d.presets.find(x => x.name === sel.value);
-  $("#city-terrain-desc").textContent = p ? p.description
+  const p = d.presets.find(x => x.name === sel.value), spec = describedSpec();
+  $("#city-terrain-desc").textContent = sel.value === "described"
+    ? (spec ? spec.line : "Describe the terrain below first, then Apply terrain.")
+    : p ? p.description
     : d.heightmap ? `The terrain is the heightmap ${d.heightmap}; a terrain preset replaces it (it asks first).` : "The project's own generated coast.";
-  $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length || !sel.value;
+  $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length || !sel.value || (sel.value === "described" && !spec);
 }
-// what Describe chose (its exact settings): Apply terrain makes that, until the picker is changed by hand
+// what Describe made (a terrain spec, terrain_compose): Apply terrain builds exactly that while "described" is picked
 let terrainPick = null;
+function describedSpec() {          // {compose, line}: Describe's latest, else the terrain's own (Apply again: a new terrain seed)
+  const d = rollData && rollData.terrain;
+  return terrainPick || (d && d.compose ? {compose: d.compose, line: d.line} : null);
+}
 async function describeTerrain() {
   const text = $("#city-terrain-describe").value.trim(), out = $("#city-terrain-chosen");
   if (!text) { out.textContent = "Describe the terrain in a few words first."; return; }
   out.textContent = "Reading the description…";
   try {
-    const r = await api(`/api/projects/${slug}/site/terrain/describe`, {text, preset: $("#city-terrain-preset").value || null});
-    if (!r.matched) {                    // keywords found nothing: say so, leave the picker as it is
+    const r = await api(`/api/projects/${slug}/site/terrain/describe`, {text});
+    if (!r.matched) {                    // the parser found nothing it knows: say so, leave the picker as it is
       terrainPick = null;
-      out.textContent = `Couldn't match this to a terrain. Try words like: ${r.try.join(", ")}.`;
+      out.textContent = `Couldn't read a landscape in this. Try words like: ${r.try.join(", ")}.`;
       return;
     }
-    terrainPick = r;
-    const sel = $("#city-terrain-preset");
-    sel.value = r.preset; sel.dataset.dirty = "1";
-    out.textContent = (r.source === "vlm" ? "Local vision model" : "Keyword matching (the local model isn't running)")
-      + (r.understood.length ? `. Understood: ${r.understood.join(", ")}` : "")
-      + (r.not_understood.length ? `. Not understood: ${r.not_understood.join(", ")}` : "")
-      + ". Apply terrain to make it.";
-    paintTerrain();
-    $("#city-terrain-apply").disabled = !!activeJobs("site.plan").length;
+    showDescribed(r);
   } catch (err) { out.textContent = errorText(err); }
+}
+// What Describe understood, as one line: the spec, which path ran, what it ignored; the picker on "described"
+function showDescribed(r) {
+  terrainPick = r;
+  const sel = $("#city-terrain-preset");
+  sel.value = "described"; sel.dataset.dirty = "1";
+  const how = {vlm: `local vision model${r.tries > 1 ? " (second try)" : ""}`, keywords: "keywords (the local model isn't running)",
+               spec: "your spec"}[r.source] || r.source;
+  const out = $("#city-terrain-chosen");
+  out.innerHTML = `<b>${esc(r.line)}</b><br>From ${esc(how)}`
+    + (r.ignored.length ? `. Ignored: ${esc(r.ignored.join("; "))}` : "")
+    + ". Apply terrain builds it.";
+  paintTerrain();
+  if (typeof paintSpecEditor === "function") paintSpecEditor();
 }
 $("#city-terrain-describe-go").onclick = () => describeTerrain();
 $("#city-terrain-describe").onkeydown = e => { if (e.key === "Enter") { e.preventDefault(); describeTerrain(); } };
 async function applyTerrain(extra) {
   rollSeedFor("terrain");
   const sel = $("#city-terrain-preset"), ls = $("#city-terrain-seed").value.trim(), d = (rollData && rollData.terrain) || {};
-  const body = {preset: sel.value || null, seed: ls === "" ? null : Number(ls), ...(extra || {})};
-  if (terrainPick && terrainPick.preset === sel.value) body.settings = terrainPick.settings;   // exactly what Describe showed
+  const body = {preset: sel.value && sel.value !== "described" ? sel.value : null, seed: ls === "" ? null : Number(ls), ...(extra || {})};
+  if (sel.value === "described") {           // exactly the spec Describe showed (or the terrain's own: a new terrain seed)
+    const spec = describedSpec();
+    if (!spec) return;
+    body.compose = spec.compose;
+  }
   if (d.heightmap) {
     const ok = await confirmDialog({title: "Replace the heightmap?", button: "Replace",
       body: `<p>The terrain is the heightmap <code>${esc(d.heightmap)}</code> (a terrain build). A generated terrain replaces it; the city's layout stays.</p>`});
@@ -528,7 +546,11 @@ async function applyTerrain(extra) {
   sel.dataset.dirty = "1";                       // the pick stays on show until the job is done (rollHold)
   holdPicks(await siteAction("site/terrain", body));
 }
-$("#city-terrain-preset").onchange = e => { e.target.dataset.dirty = "1"; terrainPick = null; $("#city-terrain-chosen").textContent = ""; paintTerrain(); };
+$("#city-terrain-preset").onchange = e => {
+  e.target.dataset.dirty = "1";
+  if (e.target.value !== "described") { terrainPick = null; $("#city-terrain-chosen").textContent = ""; }
+  paintTerrain();
+};
 $("#city-terrain-seed").oninput = e => { e.target.dataset.dirty = "1"; };
 $("#city-terrain-apply").onclick = () => applyTerrain();
 
