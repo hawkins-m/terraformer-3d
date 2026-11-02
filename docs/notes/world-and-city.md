@@ -457,3 +457,12 @@ World and city mode: greybox and passes, concept frames and their control settin
     substation at each end; wires in four stepped pieces per span. None without an industrial zone.
   - Scratch large classic (seed 3): 4 churches, 2 medical, 1 airport, 2 lines + 3 substations; plan
     10.5 s -> 14 s.
+- Industry: `city_extended.industry` turns every industrial shed box into a factory (sawtooth hall,
+  office, chimneys), warehouse (pitched hall, dock canopy) or depot (vaulted sheds over a yard) on the same
+  footprint, 40 / 40 / 20; a low housing block (>= 700 m2, < 7 storeys, off the downtown) within 70 m of a
+  river or canal or 450 m of the harbour node becomes a warehouse 30 % of the time. Refinery (coastal or
+  river cities): rings round the industrial zone (else the harbour) for a free 300 x 220 m pad; streets in
+  it are cut back. Houses, condos and industry count in the footprint shares (`city_extended.footprint`),
+  so a roll's housing-share check still sees them.
+- `clear_under` takes every footprint at once (one STRtree query per kind): per structure it cost 36 s on
+  the large city. Prior structures are obstacles via `Ground.fix` (an STRtree, not the linear `taken`).

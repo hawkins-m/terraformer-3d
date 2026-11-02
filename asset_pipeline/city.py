@@ -2580,6 +2580,11 @@ def stats(P: CityPlan) -> dict:
         key = "industrial" if b.kind == "industrial" else "housing"
         foot[key] = foot.get(key, 0.0) + a
         floor[key] = floor.get(key, 0.0) + a * max(1, round(b.h / P.layout.city.storey_m))
+    if P.extended:           # extended types that replaced plan boxes: houses, condos, industry
+        from . import city_extended
+        for key, (a, fl, _) in city_extended.footprint(P).items():
+            foot[key] = foot.get(key, 0.0) + a
+            floor[key] = floor.get(key, 0.0) + fl
     for b in P.typed:        # catalog buildings: housing and mixed use count as housing
         key = "housing" if b.family in ("housing", "mixed") else "civic"
         foot[key] += b.foot
@@ -2621,7 +2626,8 @@ def stats(P: CityPlan) -> dict:
         from . import city_types
         out_rep = city_types.report(P, P.typed)
         warn += out_rep["warnings"]
-    return {"buildings": len(allb), "housing_blocks": sum(1 for b in allb if getattr(b, "kind", "") == "housing"),
+    ext_n = sum(n for _, _, n in city_extended_footprint(P).values()) if P.extended else 0
+    return {"buildings": len(allb) + ext_n, "housing_blocks": sum(1 for b in allb if getattr(b, "kind", "") == "housing"),
             "houses": sum(1 for b in allb if getattr(b, "kind", "") == "houses"), "blocks": len(P.blocks),
             "repetition": out_rep,
             "streets": sum(1 for w in P.ways if w.kind == "street"),
@@ -2639,6 +2645,11 @@ def stats(P: CityPlan) -> dict:
             "height_m": {"median": round(float(np.median(hs)), 1), "p90": round(float(np.percentile(hs, 90)), 1)},
             "extent_m": [round(float(max(xs[2::4]) - min(xs[0::4]))), round(float(max(xs[3::4]) - min(xs[1::4])))] if xs else [0, 0],
             "warnings": warn}
+
+
+def city_extended_footprint(P: CityPlan) -> dict:
+    from . import city_extended
+    return city_extended.footprint(P)
 
 
 def city_extended_stats(P: CityPlan) -> dict:

@@ -245,3 +245,26 @@ def test_large_slots_and_viewer_rows_for_the_landmarks(large_classic):
     d = city_view.scene(store, P, h)
     names = {d["types"][r[7]] for r in d["buildings"]}
     assert {"church", "medical", "airport", "power"} <= names
+
+
+def test_industry_replaces_the_sheds_and_a_refinery_stands_by_it(large_classic):
+    store, L, h, P = large_classic
+    assert not any(b.kind == "industrial" for b in P.buildings)          # every shed became an industry type
+    ind = [s for s in P.extended if s.type in ("factory", "warehouse", "depot")]
+    assert {s.type for s in ind} == {"factory", "warehouse", "depot"}
+    for s in ind:
+        roles = {p.role for p in s.parts}
+        assert {"factory": {"hall", "sawtooth", "chimney"}, "warehouse": {"hall", "dock-canopy"},
+                "depot": {"yard", "shed", "shed-roof"}}[s.type] <= roles
+    ref = _of(P, "refinery")
+    assert len(ref) == 1
+    assert sum(p.role == "tank" for p in ref[0].parts) == 12 and any(p.role == "stack" for p in ref[0].parts)
+    _clear_of_roads(P, ref[0])
+    assert P.stats["footprint_m2"]["industrial"] > 0 and P.stats["footprint_share"]["housing"] >= 0.6
+
+
+def test_no_refinery_inland_without_a_river():
+    L = extended(layout_presets.apply(small_city(), "grid"))
+    L.terrain = L.terrain.model_copy(update={"shore_m": 5000})        # the sea far off the tile: inland
+    P = city.plan(L, heights(L))
+    assert not _of(P, "refinery")

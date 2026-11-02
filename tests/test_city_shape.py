@@ -76,8 +76,9 @@ def test_classic_has_no_wall_no_green_belt_no_forum(store):
     assert c.enclosure is None and not any(n.role == "forum" or n.monument for n in c.nodes)
     assert c.nodes[0].id == "downtown" and c.nodes[0].civic_ring == "none" and c.nodes[0].stoa_share == 0
     P = city.plan(L, sw_site.plan_terrain(store, L))
-    kinds = {b.kind for b in P.buildings}
-    assert {"tower", "housing", "houses", "industrial"} <= kinds and not P.walls
+    kinds = {b.kind for b in P.buildings} | {s.type for s in P.extended}    # a roll's extended types replace some boxes
+    assert {"tower", "housing"} <= kinds and {"houses", "house"} & kinds and not P.walls
+    assert {"industrial", "factory", "warehouse", "depot"} & kinds
     assert {w.id.split("-")[0] for w in P.ways if w.kind == "highway"} >= {"hw"} and P.interchanges
     assert slot_overlaps(P) == []
 

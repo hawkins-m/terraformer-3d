@@ -66,6 +66,35 @@ DEFAULTS: dict[str, Typology] = {t.id: t for t in [
            "industrial district out past the city's edge.",
       roofs=["flat roof on the control house"],
       facades=["galvanised steel lattice", "grey transformer tanks", "chain-link fence and gravel yard"]),
+    T(id="factory", name="Factory", family="infrastructure", form="hall", storeys=(2, 4), width=(40, 110),
+      depth=(30, 70),
+      prompt="brick factory halls with sawtooth north-light roofs and tall chimneys",
+      desc="A factory: a long production hall under a sawtooth roof of north-light glazing, a three-storey office "
+           "block at one end facing the street, one or two tall round brick chimneys.",
+      roofs=["sawtooth north-light roof", "flat roof on the office block"],
+      facades=["red-brown brick with steel windows", "loading doors", "concrete base course"]),
+    T(id="warehouse", name="Warehouse", family="infrastructure", form="hall", storeys=(2, 3), width=(40, 110),
+      depth=(30, 70),
+      prompt="long low warehouses with loading docks along the river and the harbour",
+      desc="A warehouse: a long low hall under a shallow pitched roof, a row of loading-dock doors under a "
+           "continuous canopy along one long side, a concrete apron for lorries.",
+      roofs=["shallow pitched metal roof", "flat dock canopy"],
+      facades=["profiled metal cladding over a concrete plinth", "roller-shutter dock doors"]),
+    T(id="depot", name="Depot", family="infrastructure", form="hall", storeys=(1, 2), width=(40, 110),
+      depth=(30, 70),
+      prompt="a bus and freight depot: parallel barrel-vaulted sheds over a paved yard",
+      desc="A depot: two to four parallel barrel-vaulted sheds open at the ends over a paved yard, a small "
+           "office with a pitched roof at the gate.",
+      roofs=["barrel-vaulted metal shed roofs", "pitched roof on the office"],
+      facades=["steel portal frames", "open gable ends", "asphalt yard"]),
+    T(id="refinery", name="Refinery", family="infrastructure", form="open", storeys=(1, 20), width=(300, 300),
+      depth=(220, 220), max_count=1,
+      prompt="an oil refinery by the harbour: white storage tanks, distillation columns, tall stacks and a flare",
+      desc="A refinery on a concrete pad: a tank farm of twelve squat round storage tanks with shallow domed "
+           "roofs, a row of slender distillation columns, three tall stacks, a flare stack, elevated pipe racks "
+           "and a control block.",
+      roofs=["shallow domed tank roofs"],
+      facades=["white and silver painted steel", "pipe racks", "concrete bund walls"]),
 ]}
 del T
 
@@ -321,36 +350,71 @@ def place(P, f) -> None:
     c = P.layout.city
     if not on(c):
         return
-    out: list[Structure] = []
+    out: list[Structure] = industry(P, f)       # replaces the sheds (and a share of waterfront blocks)
     nd = castle_node(c)
     if nd is not None:
         out.append(castle(f, c, nd, castle_facing(c, P, nd)))
     G = Ground(P, f)
-    for st in out:
-        G.take(st.foot)
+    G.fix(out)
     out += churches(P, f, G)
     out += medical_centers(P, f, G)
     port, roads = airports(P, f, G)
     out += port
-    for w in roads:
-        clear_under(P, w.line.buffer(w.width / 2 + 2))
     P.ways += roads
     out += power_grid(P, f, G)
-    for st in out:
-        clear_under(P, st.foot)
+    refi = refineries(P, f, G)              # last: it cuts its streets back
+    for st in refi:                         # the industry it stands on goes
+        out = [s for s in out if s.type not in ("factory", "warehouse", "depot") or not st.foot.contains(Point(s.x, s.y))]
+    out += refi
+    clear_under(P, [st.foot for st in out] + [w.line.buffer(w.width / 2 + 2) for w in roads])
     P.extended = out
 
 
-def clear_under(P, foot: Polygon) -> None:
-    """Take out the buildings, pads, trees and market stalls standing in a footprint."""
-    from shapely.prepared import prep
+def clear_under(P, feet: list) -> None:
+    """Take out the buildings, pads, trees and market stalls standing in any of the footprints."""
+    import shapely
+    from shapely.strtree import STRtree
     from .city import _rect
-    g = prep(foot)
-    P.buildings = [b for b in P.buildings if not g.intersects(_rect(b.x, b.y, b.w, b.d, b.rot))]
-    P.typed = [b for b in P.typed if not g.contains(Point(b.x, b.y))]
-    P.pads = [p for p in P.pads if not g.intersects(_rect(p[0], p[1], p[2], p[3], p[4]))]
-    P.trees = [t for t in P.trees if not g.contains(Point(t[0], t[1]))]
-    P.markets = [(sq, [b for b in st if not g.contains(Point(b.x, b.y))]) for sq, st in P.markets]
+    if not feet:
+        return
+    T = STRtree(feet)
+
+    def hit(geoms) -> set:
+        if not geoms:
+            return set()
+        a = T.query(np.array(geoms, dtype=object), predicate="intersects")
+        return set(a[0].tolist())
+    gone = hit([_rect(b.x, b.y, b.w, b.d, b.rot) for b in P.buildings])
+    P.buildings = [b for i, b in enumerate(P.buildings) if i not in gone]
+    gone = hit([Point(b.x, b.y) for b in P.typed])
+    P.typed = [b for i, b in enumerate(P.typed) if i not in gone]
+    gone = hit([_rect(p[0], p[1], p[2], p[3], p[4]) for p in P.pads])
+    P.pads = [p for i, p in enumerate(P.pads) if i not in gone]
+    gone = hit(list(shapely.points([(t[0], t[1]) for t in P.trees])) if P.trees else [])
+    P.trees = [t for i, t in enumerate(P.trees) if i not in gone]
+    markets = []
+    for sq, st in P.markets:
+        gone = hit([Point(b.x, b.y) for b in st])
+        markets.append((sq, [b for k, b in enumerate(st) if k not in gone]))
+    P.markets = markets
+
+
+HOUSING = ("house", "cottage", "condo", "chateau")      # count as housing in the plan's footprint shares
+INDUSTRIAL = ("factory", "warehouse", "depot")
+
+
+def footprint(P) -> dict:
+    """{housing | industrial: (footprint m2, floor m2, buildings)} of the structures that replaced plan boxes."""
+    out = {}
+    for st in P.extended:
+        key = "housing" if st.type in HOUSING else "industrial" if st.type in INDUSTRIAL else None
+        if key is None:
+            continue
+        a = st.foot.area
+        h = max((p.z + p.h for p in st.parts), default=0.0) - min((p.z for p in st.parts), default=0.0)
+        f0, f1, n = out.get(key, (0.0, 0.0, 0))
+        out[key] = (f0 + a, f1 + a * max(1, round(h / P.layout.city.storey_m)), n + 1)
+    return out
 
 
 def stats(P) -> dict:
@@ -397,6 +461,12 @@ class Ground:
         self.other = STRtree(other) if other else None
         self.parks = STRtree(P.parks) if P.parks else None
         self.taken: list[Polygon] = []
+        self.placed = None          # structures placed before (many: the industry), searchable
+
+    def fix(self, structures: list) -> None:
+        """Structures placed before this Ground: kept off from now on."""
+        from shapely.strtree import STRtree
+        self.placed = STRtree([s.foot for s in structures]) if structures else None
 
     def way_hits(self, g: Polygon, ignore=()) -> bool:
         if self.ways is None:
@@ -416,6 +486,8 @@ class Ground:
         if (float(np.max(z)) - float(np.min(z))) / max(math.sqrt(g.area), 1.0) > max_slope:
             return False
         if self.way_hits(g, ignore) or any(g.intersects(t) for t in self.taken):
+            return False
+        if self.placed is not None and len(self.placed.query(g, predicate="intersects")):
             return False
         if self.other is not None and len(self.other.query(g, predicate="intersects")):
             return False
@@ -780,6 +852,152 @@ class FarGround:
         return np.asarray(self.B.z(x, y)) > self.sea + 0.5
 
 
+# --- industry -------------------------------------------------------------------------------------
+
+def factory(f, b, r: np.random.Generator) -> Structure:
+    """A factory on a shed's footprint: a hall under a sawtooth roof, an office block at one end, one or two
+    chimneys."""
+    F = Frame(f, b.x, b.y, b.rot)
+    w, d = b.w, b.d
+    h = float(r.uniform(9, 13))
+    ow = min(0.18 * w, 18.0)
+    hw = w - ow
+    z0 = F.ground(-ow / 2, 0, hw, d)
+    top = F.add("box", "hall", -ow / 2, 0, hw, d, h + F.ground(-ow / 2, 0, hw, d, top=True) - z0, z=z0)
+    n = max(2, int(d // 11))
+    for k in range(n):                                   # sawtooth: gables in a row, ridges along the hall
+        v = -d / 2 + d / n * (k + 0.5)
+        F.add("gable", "sawtooth", -ow / 2, v, d / n, hw, 3.2, z=top, turn=90)
+    F.add("box", "office", w / 2 - ow / 2, 0, ow, d * 0.7, h - 1)
+    for k in range(int(r.integers(1, 3))):
+        F.tower("chimney", -w / 2 + 6 + 8 * k, d / 2 - 6, float(r.uniform(1.4, 2.2)), float(r.uniform(28, 42)), 0)
+    return Structure("factory", b.x, b.y, b.rot, b.district, rect(b.x, b.y, w, d, b.rot), F.parts)
+
+
+def warehouse(f, b, r: np.random.Generator) -> Structure:
+    """A warehouse on a shed's footprint: a long low hall under a shallow pitched roof, loading docks under a
+    canopy along one long side."""
+    F = Frame(f, b.x, b.y, b.rot)
+    w, d = b.w, b.d
+    h = float(r.uniform(8, 11))
+    dd = d - 8
+    F.hall("hall", 0, -4, w, dd, h, 2.6)
+    n = max(2, int(w // 14))
+    for k in range(n):
+        F.add("box", "dock-door", -w / 2 + w / n * (k + 0.5), dd / 2 - 4 + 0.3, 5, 0.6, 4.5)
+    F.add("box", "dock-canopy", 0, dd / 2 - 4 + 3, w, 6, 0.5, z=F.ground(0, dd / 2, w, 6) + 6)
+    return Structure("warehouse", b.x, b.y, b.rot, b.district, rect(b.x, b.y, w, d, b.rot), F.parts)
+
+
+def depot(f, b, r: np.random.Generator) -> Structure:
+    """A depot (bus, tram or freight): parallel barrel-vaulted sheds over a paved yard, a small office."""
+    F = Frame(f, b.x, b.y, b.rot, sink=0.2)
+    w, d = b.w, b.d
+    F.slab("yard", 0, 0, w, d, 0.3)
+    n = max(1, min(4, int(d // 22)))
+    sw = (d * 0.8) / n
+    sl = w * 0.72
+    for k in range(n):
+        v = -d * 0.4 + sw * (k + 0.5)
+        top = F.add("box", "shed", -w * 0.1, v, sl, sw - 2, 6.5)
+        F.add("vault", "shed-roof", -w * 0.1, v, sw - 2, sl, 0.3 * sw, z=top, turn=90)   # the barrel along the shed
+    F.hall("office", w / 2 - 9, -d / 2 + 8, 14, 10, 7, 2.4)
+    return Structure("depot", b.x, b.y, b.rot, b.district, rect(b.x, b.y, w, d, b.rot), F.parts)
+
+
+INDUSTRY = (("factory", factory, 0.4), ("warehouse", warehouse, 0.4), ("depot", depot, 0.2))
+WATERFRONT_M = 70.0          # a housing block this close to a river or the harbour may be a warehouse
+
+
+def industry(P, f) -> list[Structure]:
+    """The industrial zone's sheds become factories, warehouses and depots; low blocks along a river and by the
+    harbour get warehouses too (a share of them, off the downtown). Takes the boxes it replaces out of the plan."""
+    from shapely.strtree import STRtree
+    from .city import main_centre
+    c = P.layout.city
+    out, keep = [], []
+    water = [w.line.buffer(w.width / 2 + WATERFRONT_M) for w in P.ways if w.kind in ("river", "canal")]
+    water += [Point(n.center).buffer(n.radius + 450) for n in c.nodes if n.role == "harbour"]
+    wt = STRtree(water) if water else None
+    C = main_centre(c)
+    for i, b in enumerate(P.buildings):
+        r = rng(c, "industry", round(b.x, 1), round(b.y, 1))
+        if b.kind == "industrial":
+            k = r.random()
+            for name, make, p in INDUSTRY:
+                k -= p
+                if k < 0 or name == "depot":
+                    break
+            out.append(make(f, b, r))
+            continue
+        if (wt is not None and b.kind == "housing" and b.w * b.d >= 700 and b.h < 7 * c.storey_m
+                and math.dist((b.x, b.y), C) > max(c.preset.downtown_m, 400) and r.random() < 0.3
+                and len(wt.query(Point(b.x, b.y), predicate="intersects"))):
+            out.append(warehouse(f, b, r))
+            continue
+        keep.append(b)
+    P.buildings = keep
+    return out
+
+
+def refinery(f, x: float, y: float, rot: float, r: np.random.Generator, district=None) -> Structure:
+    """A refinery: rows of storage tanks, distillation columns, tall stacks with a flare, pipe racks."""
+    F = Frame(f, x, y, rot, sink=0.2)
+    F.slab("pad", 0, 0, 300, 220, 0.3)
+    for i in range(4):                                   # the tank farm
+        for j in range(3):
+            rt = float(r.uniform(11, 17))
+            top = F.add("cyl", "tank", -120 + 42 * i, -85 + 40 * j, 2 * rt, 2 * rt, float(r.uniform(12, 18)))
+            F.add("dome", "tank-roof", -120 + 42 * i, -85 + 40 * j, 2 * rt, 2 * rt, 2.0, z=top)
+    for k in range(5):
+        F.add("cyl", "column", 40 + 16 * k, 20, 6, 6, float(r.uniform(28, 42)))
+    for k in range(3):
+        F.add("cyl", "stack", 110, -40 + 30 * k, 5, 5, float(r.uniform(55, 75)))
+    F.add("cyl", "flare", 135, 90, 2.4, 2.4, 60)
+    for v in (-10, 50):
+        F.add("box", "pipe-rack", 40, v, 220, 4, 1.5, z=F.ground(40, v, 220, 4) + 7)
+    F.add("box", "control-block", -20, 85, 40, 18, 9)
+    return Structure("refinery", x, y, rot, district, rect(x, y, 304, 224, rot), F.parts)
+
+
+def refineries(P, f, G) -> list[Structure]:
+    """Coastal and river cities: one refinery by the harbour, else by the industrial zone (the first free
+    site on rings round it)."""
+    from .city import industrial_centre, nearest_node
+    c = P.layout.city
+    harbour = next((n for n in c.nodes if n.role == "harbour"), None)
+    river = any(w.kind == "river" for w in P.ways)
+    x0, y0, x1, y1 = c.bounds
+    xs, ys = np.meshgrid(np.linspace(x0, x1, 9), np.linspace(y0, y1, 9))
+    coastal = harbour is not None or not bool(np.all(f.land(xs.ravel(), ys.ravel())))
+    if not (coastal or river):
+        return []
+    centre = None                     # by the industrial zone (off the downtown), else the harbour
+    if c.preset.industrial != "none":
+        p = industrial_centre(c, f, P.ways)
+        if p is not None:
+            centre, r0 = np.array(p, float), 150.0
+    if centre is None and harbour is not None:
+        centre, r0 = np.array(harbour.center, float), harbour.radius + 260
+    if centre is None:
+        return []
+    r = rng(c, "refinery")
+    a0 = float(r.uniform(0, 360))
+    streets = {i for i, w in enumerate(P.ways) if w.kind in ("street", "lane", "stair")}
+    for ring in range(8):
+        for k in range(12):
+            a = a0 + 30 * k + 15 * ring
+            p = centre + (r0 + 120 * ring) * np.array([math.cos(math.radians(a)), math.sin(math.radians(a))])
+            rot = float(c.preset.grid_deg if c.preset.streets == "grid" else a)
+            g = rect(float(p[0]), float(p[1]), 304, 224, rot)
+            if G.free(g, max_slope=0.06, parks=True, ignore=streets):
+                st = refinery(f, float(p[0]), float(p[1]), rot, r, nearest_node(c, *p))
+                G.take(st.foot)
+                P.ways = clip_ways(P.ways, st.foot.buffer(4))       # its streets end at its fence
+                return [st]
+    return []
+
+
 # --- greybox slots and the viewer -----------------------------------------------------------------
 
 def unit(prim: str) -> dict:
@@ -817,9 +1035,11 @@ def emit(structures: list, new, hs, tile_m: float, prefix: str = "", district=No
 
 
 CATEGORY = {"castle": "building", "church": "building", "medical": "building", "airport": "structure",
-            "power": "structure"}
+            "power": "structure", "factory": "building", "warehouse": "building", "depot": "building",
+            "refinery": "structure"}
 PLAN_COLORS = {"castle": (138, 127, 106), "church": (226, 214, 180), "medical": (236, 236, 240),
-               "airport": (150, 150, 156), "power": (90, 96, 110)}
+               "airport": (150, 150, 156), "power": (90, 96, 110), "factory": (140, 96, 80),
+               "warehouse": (128, 136, 148), "depot": (112, 118, 112), "refinery": (200, 200, 196)}
 
 
 def view_rows(P, type_index, district_index, structures=None) -> list[tuple[list, str]]:

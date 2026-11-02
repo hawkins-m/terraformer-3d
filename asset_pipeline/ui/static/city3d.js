@@ -8,7 +8,8 @@
 const C3D_COLORS = {tower: 0x7d86a6, midrise: 0xb39572, rowhouse: 0xa86b55, house: 0xdcc8a2, industry: 0x7f8f99,
   landmark: 0xf0e2a8, other: 0xbdbdbd,
   // extended building types (city_extended.py)
-  castle: 0x8a7f6a, church: 0xe8dcb6, medical: 0xf4f6fa, airport: 0x8e9094, power: 0x4d5566};
+  castle: 0x8a7f6a, church: 0xe8dcb6, medical: 0xf4f6fa, airport: 0x8e9094, power: 0x4d5566,
+  factory: 0x9a6450, warehouse: 0x8590a0, depot: 0x737a73, refinery: 0xd6d6d2};
 const C3D_ROADS = {highway: 0x7b7b7b, boulevard: 0xb4afa2, avenue: 0xd2cdbf, street: 0xe2ded3};
 const C3D_WATER = 0x3d6f98, C3D_PARK = 0x6d9a4f, C3D_PAVING = 0xc9c2b2, C3D_SKY = 0xc7d5e2;
 const C3D_LANE = 0xc8bc9c, C3D_FOREST = 0x3f6236, C3D_CROP = 0xc9b45e, C3D_FALLOW = 0x9a8a55, C3D_VILLAGE = 0xc9a487;
