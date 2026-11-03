@@ -84,7 +84,7 @@ SHAPE_FIELDS = ("outline", "outline_m", "walls", "wall_shape", "moat_w", "bastio
 def get(name: str) -> LayoutPreset:
     name = ALIASES.get(name, name)
     if name not in PRESETS:
-        raise ValueError(f"unknown layout preset {name!r} (presets: {', '.join(PRESETS)})")
+        raise ValueError(f"unknown layout preset {name!r} (presets: {', '.join(ordered())})")
     return PRESETS[name].model_copy(deep=True)
 
 
@@ -106,9 +106,16 @@ def apply(layout: SiteLayout, name: str, layout_seed: int | None = None) -> Site
     return SiteLayout.model_validate(L.model_dump(mode="json"))
 
 
+def ordered() -> list[str]:
+    """The names as listed to people: classic first, then the rest alphabetically. (PRESETS keeps the
+    catalog order: random_name draws from it, so reordering it would change what a seed rolls.)"""
+    return [NEW_PROJECT] + sorted(n for n in PRESETS if n != NEW_PROJECT)
+
+
 def summary() -> list[dict]:
-    """For the UI: each preset's name, its one-line description and its fields that differ from utopia."""
+    """For the UI and `ap site preset --list`, in `ordered()`: each preset's name, its one-line description
+    and its fields that differ from utopia."""
     base = LayoutPreset().model_dump()
     return [{"name": n, "description": DESCRIPTIONS[n],
-             "changes": {k: v for k, v in p.model_dump().items() if k != "name" and v != base[k]}}
-            for n, p in PRESETS.items()]
+             "changes": {k: v for k, v in PRESETS[n].model_dump().items() if k != "name" and v != base[k]}}
+            for n in ordered()]

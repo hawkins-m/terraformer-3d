@@ -251,8 +251,8 @@ FLUX frame generation, the city planner and the first browser UI. Added during i
 
 Added from 2026-10-27, mostly in the Layout tab's roll box and `ap ue build`:
 
-- **City layout presets**: 20 overall city shapes (classic, grid, manhattan, walled-castle, star-fortress,
-  island-city, hill-town...) in the Layout picker; `ap site preset`.
+- **City layout presets**: 20 overall city shapes (classic first, then alphabetical: campus, canal-city, cliff-town,
+  concentric, garden-city...) in the Layout picker; `ap site preset`.
 - **Random preset and Keep current outline**: a roll can pick a preset per seed, or keep the current outline
   and districts while the rest rerolls.
 - **Terrain presets**: 8 generated terrains (flat plain, coastal plain, river valley, hill city, mountain bowl,

@@ -358,7 +358,24 @@ const rollKeepKey = () => `ap.rollKeep.${slug}`;
 function rollKeep() { try { return JSON.parse(localStorage.getItem(rollKeepKey()) || "[]"); } catch (_) { return []; } }
 function rollKeepSave(keep) { try { localStorage.setItem(rollKeepKey(), JSON.stringify(keep)); } catch (_) { /* private window */ } }
 
+// Every field of the box belongs to one project: on a switch (or New project) all of it is cleared and
+// reloaded from the new project, so nothing the last one had (words, spec, seeds, ticks) carries over.
+let rollShownSlug = null;
+function resetRoll() {
+  rollShownSlug = slug; rollData = null; rollKey = null; rollHold = null; terrainPick = null;
+  for (const el of document.querySelectorAll("#city-roll input, #city-roll select, #city-roll textarea")) {
+    delete el.dataset.dirty; delete el.dataset.ready;
+    if (el.type === "checkbox") el.checked = false; else el.value = "";
+  }
+  for (const id of ["#city-layout-preset", "#city-terrain-preset", "#city-size"]) $(id).replaceChildren();
+  $("#city-roll-keep").replaceChildren();
+  $("#city-terrain-spec-box").hidden = true;
+  $("#city-terrain-spec-edit").setAttribute("aria-expanded", "false");
+  for (const id of ["#city-terrain-chosen", "#city-terrain-spec-msg", "#city-terrain-desc", "#city-layout-desc", "#city-size-desc",
+                    "#city-roll-current", "#city-roll-pos"]) $(id).textContent = "";
+}
 function renderRoll() {
+  if (rollShownSlug !== slug) resetRoll();
   const box = $("#city-roll");
   const own = !!(siteData && siteData.layout) && !isCity();          // the project's own layout: no city rules to roll
   box.hidden = !slug || !siteData || own;
@@ -367,7 +384,8 @@ function renderRoll() {
   const key = JSON.stringify([slug, catalogData && catalogData.plan_mtime, busy, !!siteData.layout]);
   if (key !== rollKey) {                       // refetch only when a plan or a job changed
     rollKey = key;
-    api(`/api/projects/${slug}/site/roll`, undefined, "GET").then(d => { rollData = d; paintRoll(); }).catch(() => {});
+    const asked = slug;
+    api(`/api/projects/${asked}/site/roll`, undefined, "GET").then(d => { if (slug === asked) { rollData = d; paintRoll(); } }).catch(() => {});
   }
   paintRoll();
 }
@@ -534,13 +552,12 @@ function showDescribed(r) {
   paintTerrain();
   if (typeof paintSpecEditor === "function") paintSpecEditor();
 }
-// Edit (advanced): the spec as JSON — Describe's latest, else the terrain's own, else a starting one
-const SPEC_START = {base: "coast", side: "south", ground: "rolling", features: [{type: "hills", at: "inland", size: "medium"}], city: []};
+// Edit (advanced): the spec as JSON — Describe's latest, else the terrain's own; empty when the project has none
 function paintSpecEditor(force) {
   const box = $("#city-terrain-spec-box"), ta = $("#city-terrain-spec");
   if (box.hidden || (ta.dataset.dirty && !force)) return;
   const spec = describedSpec();
-  ta.value = JSON.stringify(spec ? spec.compose : SPEC_START, null, 2);
+  ta.value = spec ? JSON.stringify(spec.compose, null, 2) : "";
   delete ta.dataset.dirty;
   $("#city-terrain-spec-msg").textContent = "";
 }
@@ -554,6 +571,7 @@ $("#city-terrain-spec").oninput = e => { e.target.dataset.dirty = "1"; };
 $("#city-terrain-spec-check").onclick = async () => {
   const ta = $("#city-terrain-spec"), msg = $("#city-terrain-spec-msg");
   let compose;
+  if (!ta.value.trim()) { msg.textContent = "No spec yet: Describe the terrain first, or write one."; return; }
   try { compose = JSON.parse(ta.value); } catch (err) { msg.textContent = `Not valid JSON: ${err.message}`; return; }
   try {
     const r = await api(`/api/projects/${slug}/site/terrain/describe`, {compose});

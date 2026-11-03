@@ -352,7 +352,8 @@ new city: random city rules within believable ranges plus a new seed, then the u
   pan, wheel to zoom; *Top-down* for the plan view; tick Buildings / Roads / Nature / Water; colour by type or
   height; hover or click a building for its type, district and height. It redraws after every roll, Update
   city plan and Re-read .blend.
-- *Layout* picks one of 20 layout presets, the city's overall shape (its one-line description
+- *Layout* picks one of 20 layout presets, the city's overall shape (classic first, the rest in
+  alphabetical order, *Random preset* last; each one's one-line description
   shows under the picker): street pattern, outline (including an island), ring roads, walls,
   bastions and a moat, parks, canals or a river, the density falloff, height zoning with a
   downtown of towers, suburbs with cul-de-sacs, an industrial zone, and highways with

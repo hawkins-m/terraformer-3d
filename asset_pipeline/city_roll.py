@@ -188,8 +188,8 @@ def summary(store: ProjectStore) -> dict:
     h = history(store)
     from . import terrain_gen
     from . import city_size
-    seed, preset, layout_seed = None, layout_presets.DEFAULT, 0
-    size = {"size": "standard", "background": False, "detail_radius_m": None}
+    seed, preset, layout_seed = None, layout_presets.NEW_PROJECT, 0     # no city yet: what a new project starts on
+    size = {"size": "standard", "background": False, "detail_radius_m": None, "extended_types": True}
     terrain = {"name": None, "seed": None, "heightmap": None}
     try:
         lay = sw_site.load_layout(store)
