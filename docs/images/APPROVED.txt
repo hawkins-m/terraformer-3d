@@ -33,3 +33,6 @@ installer/page-07.png
 installer/page-08.png
 installer/page-09.png
 installer/all-pages.png
+# 3D viewer screenshots of generated scratch cities (classic Large; Describe-the-terrain volcano island), approved 2026-11-02
+city-large-3d.png
+city-volcano-island-3d.png

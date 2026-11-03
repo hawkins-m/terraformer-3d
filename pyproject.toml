@@ -1,6 +1,6 @@
 [project]
 name = "asset-pipeline"
-version = "0.1.0"
+version = "0.1.1"
 description = "Local-first concept image -> reviewed references -> 3D asset pipeline (see PLAN.md)"
 license = "MIT"
 license-files = ["LICENSE"]

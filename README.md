@@ -25,6 +25,21 @@ The repo is [`hawkins-m/terraformer-3d`](https://github.com/hawkins-m/terraforme
 from `asset-pipeline` on 2026-10-18; the old URL redirects). The command line is `ap`, the Python
 package is `asset_pipeline`, and the app (`ap ui`) is called Terraformer.
 
+## What's new in v0.1.1
+
+![A classic Large city in Terraformer's 3D viewer](docs/images/city-large-3d.png)
+
+- **Describe the terrain:** type a landscape and it builds it, with the local vision model or a keyword parser.
+- **3D city viewer** in the app (offline), with a top-down plan mode, and city sizes Standard, Large and Metro (experimental).
+- **Extended building types** (castle, church, airport, factory, houses, condos and more) and a reworked classic coastal metro.
+- **One click to Unreal:** a new project goes to a dressed level, which opens with the city loaded and the camera above downtown.
+- **Blender greybox edits** for every building, and a project manager (File > Manage projects…).
+- **Native Windows beta** (greybox path), with CI on Ubuntu and Windows.
+
+![An island city with a volcano in the centre and cities circling it, from Describe the terrain](docs/images/city-volcano-island-3d.png)
+
+Details: [docs/release-notes-v0.1.1.md](docs/release-notes-v0.1.1.md).
+
 ## Quick start
 
 New machine? `git clone https://github.com/hawkins-m/terraformer-3d.git && cd terraformer-3d && scripts/install.sh`
@@ -706,6 +721,12 @@ workspace for artists rather than a web-app look.
 - Simpler layout controls in the Layout tab
 - A shorter name for the Generate 3D Model & Review tab
 - Ready for Unreal: refresh the unplaced-assets preview when it goes stale
+- Per-district styles
+- Painting zones and drawing roads in the plan view
+- Reference-image layouts
+- Godot and Unity export
+- Library models for the new building types
+- More Describe vocabulary (for example "lake shore" as a lake, not a sea)
 
 ## Docs
 
@@ -714,6 +735,7 @@ workspace for artists rather than a web-app look.
 - [PLAN.md](PLAN.md): design, stages and milestones.
 - [CLAUDE.md](CLAUDE.md): working rules; [docs/notes/](docs/notes/): machine facts, measured findings and pitfalls.
 - [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md): licenses of the models, assets and tools.
+- [docs/release-notes-v0.1.1.md](docs/release-notes-v0.1.1.md): what is new since the first release.
 - [docs/release-notes-v0.1.0.md](docs/release-notes-v0.1.0.md): what is in the first release.
 
 ## Credits
