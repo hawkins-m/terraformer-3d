@@ -72,7 +72,7 @@ def render_gpu(comfy_up: bool, vram: dict[int, float]) -> tuple[int | None, str]
 # the stages the UI shows (Jobs panel), in run order, and the build step each one covers
 STAGES = ["backup", "export", "terrain", "dressing", "lighting", "import", "check"]
 STAGE_OF = {"backup": "backup", "export": "export", "terrain assets": "terrain", "landscape": "terrain", "dressing": "dressing", "lighting": "lighting",
-            "level read": "import", "import": "import", "hlods": "import", "check": "check", "render": "render"}
+            "level read": "import", "import": "import", "hlods": "import", "editor region": "import", "check": "check", "render": "render"}
 
 
 def generated_landscape(store: ProjectStore, log=print) -> dict:
@@ -253,6 +253,13 @@ def _build(store: ProjectStore, use_active: bool = False, reset_layout: bool = F
         hlod = step("hlods", lambda: ue.build_hlods(store, man["map"]))
         if not hlod["ok"]:
             warnings.append(f"HLOD build failed: {hlod.get('error') or '; '.join(hlod['log_errors'][:2])}")
+    if man.get("world_partition") and rep.get("ok") is not False:    # opens with the city loaded (ue_view): not what fails a build
+        try:
+            step("editor region", lambda: ue.load_region(store))
+            log(f"the editor loads {'the detail radius' if man.get('size') == 'metro' else 'the city'} when the level opens")
+        except Exception as e:  # noqa: BLE001
+            warnings.append(f"couldn't save the region the editor loads on open: {e}. Load it by hand: Window > World Partition > "
+                            f"World Partition Editor, select the city, right-click > Load Region from Selection")
     if rep.get("prune_refused") is not None:
         warnings.append(f"prune refused: {rep['prune_refused']} orphans, expected {expect}")
     if rep.get("lighting_kept"):

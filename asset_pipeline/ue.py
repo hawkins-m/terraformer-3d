@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
-from . import blender, config, oscompat, ue_coords
+from . import blender, config, oscompat, ue_coords, ue_view
 from . import gpu as gpu_mod
 from .project import ProjectStore, read_json, write_json
 from .stages import s7_export, sw_site
@@ -739,8 +739,37 @@ def editor_running(up: Path, proc: Path = Path("/proc")) -> bool:
     return False
 
 
+def windows_editor() -> bool:
+    """Is the editor a Windows one (native Windows, or UnrealEditor.exe from WSL)? It keeps its user settings under WindowsEditor."""
+    return oscompat.IS_WINDOWS or str(editor_cmd()).lower().endswith(".exe")
+
+
+def load_region(store: ProjectStore, keep_existing: bool = False) -> dict | None:
+    """Save the city's region as the one the editor loads with its level (ue_view): a large city's
+    bounds, a metro city's detail radius. A standard city's level is a plain one: None. The editor
+    is closed (a build refuses an open one; Open in Unreal calls this before it starts it).
+    keep_existing: a region already saved for the level stays (the user's own)."""
+    box = ue_view.region_box(sw_site.load_layout(store))
+    man = read_json(s7_export.export_dir(store) / "manifest.json", default=None) or {}
+    if box is None or not man.get("world_partition"):
+        return None
+    ini = ue_view.user_settings(project_dir(store), windows_editor())
+    ue_view.set_loaded_region(ini, city_map(store), box, keep_existing)
+    return box
+
+
+def open_script_args(store: ProjectStore, report: Path | None = None) -> Path:
+    """The job file ap_open.py reads: the level and the camera over downtown."""
+    f = work_dir(store) / "ap_open_args.json"
+    f.parent.mkdir(parents=True, exist_ok=True)
+    write_json(f, {"map": city_map(store).split(".")[0], "camera": downtown_camera(store),
+                   **({"report": str(report)} if report else {})})
+    return f
+
+
 def open_editor(store: ProjectStore) -> int:
     """Start the Unreal editor window on the project, detached (it outlives this process); returns its pid.
+    The city level opens with its region loaded and the viewport over downtown (ap_open.py).
     A Windows Unreal under WSL gets the project as a Windows path through interop."""
     from . import wsl
     up = uproject(store)
@@ -750,11 +779,33 @@ def open_editor(store: ProjectStore) -> int:
         raise RuntimeError(f"the Unreal editor already has {up.name} open")
     # the city level by name: an editor started on the bare .uproject opens the project's startup map,
     # which is the engine's Untitled Open World one in a project made before STARTUP_MAP_INI
-    level = [city_map(store).split(".")[0]] if map_file(store).is_file() else []
-    cmd, env, _, _ = wsl.windows_cmd([full_editor(editor_cmd()), up, *level])
+    level, env, extra = [], dict(os.environ), []
+    if map_file(store).is_file():
+        level = [city_map(store).split(".")[0]]
+        try:                  # a nicety: never what stops the editor from opening
+            load_region(store, keep_existing=True)
+            env["AP_UE_ARGS"] = str(open_script_args(store))
+            extra = [f"-ExecCmds=py {oscompat.short_path(SCRIPTS / 'ap_open.py')}"]
+        except Exception:  # noqa: BLE001
+            pass
+    cmd, env, _, _ = wsl.windows_cmd([full_editor(editor_cmd()), up, *level, *extra], env)
     proc = subprocess.Popen(cmd, cwd=up.parent, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                             stderr=subprocess.DEVNULL, **oscompat.detached())
     return proc.pid
+
+
+def check_open(store: ProjectStore, adapter: int = 0, timeout_s: int = 900) -> dict:
+    """Open the city level once in the full editor offscreen, as Open in Unreal does, and report what
+    loaded (ap_open.py): the camera it ended on and the actors in the level. For checks."""
+    work = work_dir(store)
+    work.mkdir(parents=True, exist_ok=True)
+    rep_file = work / "ap_open_report.json"
+    rep_file.unlink(missing_ok=True)
+    args = open_script_args(store, rep_file)
+    a = read_json(args)
+    write_json(args, {**a, "timeout_s": timeout_s})
+    load_region(store, keep_existing=True)
+    return _full_editor(store, "ap_open.py", args, rep_file, work / "ap_open.log", adapter, "open check")
 
 
 def backups(store: ProjectStore) -> list[Path]:

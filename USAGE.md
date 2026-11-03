@@ -160,7 +160,7 @@ desktop app:
   project open. Next to it, *Open in Unreal* starts the Unreal editor on the project's `.uproject` and its city level
   (the same `UnrealEditor` the build uses; under WSL the Windows `UnrealEditor.exe`), detached so closing
   `ap ui` leaves it running. It is disabled while a build runs and reads *Unreal is open* when the editor
-  already has the project; the *Unreal* menu has the same item. The last build's report stays on the tab: assets placed, stand-ins left, time,
+  already has the project; the *Unreal* menu has the same item. The last build's report stays on the tab: library assets placed · stand-ins, time,
   the placement check and warnings. Under *Advanced steps* (collapsed) are the single
   numbered steps, each enabled only when it can run and saying why not beside
   it: 1 *Create UE project*, 2 *Export*, 3 *Import…* (needs the project and an export, and the

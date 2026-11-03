@@ -415,3 +415,21 @@ def test_build_plugin_on_native_windows(monkeypatch, tmp_path):
     out = ue.build_plugin("P", log=lambda *a: None)
     assert ran[0][0].endswith("RunUAT.bat") and "-TargetPlatforms=Win64" in ran[0] and (out / ".ap_source").is_file()
     assert ue.build_plugin("P", log=lambda *a: None) == out and len(ran) == 1      # kept until the source changes
+
+
+def test_a_world_partition_build_saves_the_region_the_editor_loads_and_a_failure_only_warns(stub_build, monkeypatch):
+    from asset_pipeline.stages import s7_export
+    man = {**s7_export.load_manifest(stub_build.store), "world_partition": True, "size": "large"}
+    monkeypatch.setattr(s7_export, "load_manifest", lambda st: man)
+    seen = []
+    monkeypatch.setattr(stub_build.ue, "build_hlods", lambda st, m: {"ok": True})
+    monkeypatch.setattr(stub_build.ue, "load_region", lambda st, **kw: None)
+    r = ue_build.build(stub_build.store, log=lambda *a: None, on_step=seen.append)
+    assert seen.index("import") < seen.index("hlods") < seen.index("editor region") < seen.index("check")
+    assert not any("region" in w for w in r["warnings"])
+
+    def boom(st, **kw):
+        raise OSError("read-only")
+    monkeypatch.setattr(stub_build.ue, "load_region", boom)
+    r = ue_build.build(stub_build.store, log=lambda *a: None)
+    assert r["ok"] and any("Load Region from Selection" in w and "read-only" in w for w in r["warnings"])

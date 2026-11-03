@@ -682,6 +682,10 @@ workspace for artists rather than a web-app look.
 - The generated-terrain Landscape export (APLandscape plugin) builds for Linux engines only for now.
 - The Water plugin's ocean can't run in the headless build: the build uses the Simple sea instead; place an
   ocean by hand in the editor.
+- A large or metro city's level is a World Partition one: "Build city in Unreal" saves the region the editor loads when the level
+  opens (a large city whole, a metro city its detail radius), so Open in Unreal shows it at once. If the viewport comes up empty
+  ("No Loaded Region(s)", e.g. after you cleared the editor's World Partition settings), load it by hand: Window > World
+  Partition > World Partition Editor, select the city, right-click > Load Region from Selection. A standard city is a plain level.
 - Describe the terrain falls back to keyword matching when the local vision model isn't running.
 - The utopia layout preset keeps its old overlaps (the generator as it was before presets).
 - Editing the greybox in Blender and clicking Re-read .blend only rewrites `site/greybox.json` (it reports "N moved, N resized, N removed, N added"). Approvals, Active versions and builds are kept, and nothing rebuilds or re-plans. On the next `ap ue build` every build follows its slot's new pose, typed city buildings included; a deleted slot's builds are held, and a duplicated slot gets copies of its source's builds. Moving a single building's meshes inside a block of several doesn't move that building (move the block, or all of its meshes). A duplicated landmark or kit slot stays greybox until an entry claims it. Hand moves in Unreal are kept: a slot only moves back where a committed `greybox.blend` put it, so commit the project's greybox before you edit it.

@@ -296,7 +296,7 @@ def test_open_editor_starts_the_full_editor_detached_on_the_project(ue_project, 
         return Proc()
     monkeypatch.setattr(ue.subprocess, "Popen", popen)
     assert ue.open_editor(store) == 4242
-    assert seen["cmd"] == [str(cmd.parent / "UnrealEditor"), str(up)]
+    assert seen["cmd"] == [str(cmd.parent / "UnrealEditor"), str(up)]            # no level saved yet: nothing to look at
     assert (seen.get("start_new_session") or seen.get("creationflags")) and seen["stdout"] is ue.subprocess.DEVNULL
     monkeypatch.setattr(ue, "editor_running", lambda up: True)
     with pytest.raises(RuntimeError, match="already"):
@@ -327,3 +327,47 @@ def test_ui_open_in_unreal_refuses_a_running_job_or_an_open_editor(ue_project, m
         assert r.status_code == 409 and "job" in r.json()["detail"] and len(opened) == 1
     finally:
         gate.set()
+
+
+def _city_level(store, monkeypatch, partitioned=True):
+    """A built city level: its map file, manifest and a large layout, the site heights flat."""
+    from types import SimpleNamespace
+    c = SimpleNamespace(size="large", bounds=[-4000.0, -3000.0, 4000.0, 2000.0], detail_radius_m=None, enclosure=None, nodes=[])
+    monkeypatch.setattr(sw_site, "load_layout", lambda st: SimpleNamespace(city=c, terrain=SimpleNamespace(extent_m=8000.0)))
+    monkeypatch.setattr(sw_site, "site_heights", lambda st: None)
+    export = s7_export.export_dir(store)
+    export.mkdir(parents=True, exist_ok=True)
+    write_json(export / "manifest.json", {"map": "/Game/AP/Maps/CityLarge", **({"world_partition": True} if partitioned else {})})
+    ue.map_file(store).parent.mkdir(parents=True, exist_ok=True)
+    ue.map_file(store).write_bytes(b"")
+    monkeypatch.setattr(ue, "windows_editor", lambda: False)
+
+
+def test_load_region_saves_the_partitioned_levels_region_only(ue_project, monkeypatch):
+    store, up = ue_project
+    _city_level(store, monkeypatch)
+    assert ue.load_region(store)["min"][:2] == [-420000.0, -220000.0]
+    text = (up.parent / "Saved/Config/LinuxEditor/EditorPerProjectUserSettings.ini").read_text()
+    assert '("/Game/AP/Maps/CityLarge.CityLarge"' in text and "IsValid=True" in text
+    _city_level(store, monkeypatch, partitioned=False)                              # a standard city: a plain level
+    assert ue.load_region(store) is None
+
+
+def test_open_editor_loads_the_region_and_runs_the_camera_script(ue_project, tmp_path, monkeypatch):
+    store, up = ue_project
+    _city_level(store, monkeypatch)
+    cmd = tmp_path / "bin" / "UnrealEditor-Cmd"
+    cmd.parent.mkdir()
+    cmd.write_text("")
+    (cmd.parent / "UnrealEditor").write_text("")
+    monkeypatch.setenv("AP_UE_EDITOR_CMD", str(cmd))
+    monkeypatch.setattr(ue, "editor_running", lambda up: False)
+    seen = {}
+    monkeypatch.setattr(ue.subprocess, "Popen", lambda c, **kw: seen.update(cmd=c, **kw) or type("P", (), {"pid": 7})())
+    ue.open_editor(store)
+    assert seen["cmd"][1:3] == [str(up), "/Game/AP/Maps/CityLarge"] and seen["cmd"][3].startswith("-ExecCmds=py ")
+    assert seen["cmd"][3].endswith("ap_open.py")
+    args = json.loads(Path(seen["env"]["AP_UE_ARGS"]).read_text())
+    assert args["map"] == "/Game/AP/Maps/CityLarge" and "report" not in args
+    assert args["camera"]["location"][2] == 30000.0 and args["camera"]["rotation"][0] < 0       # 300 m up, looking down at the city
+    assert (up.parent / "Saved/Config/LinuxEditor/EditorPerProjectUserSettings.ini").is_file()

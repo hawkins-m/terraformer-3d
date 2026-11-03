@@ -20,7 +20,7 @@ function ueBuildReport(r) {
   const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
   const head = `<b>${r.ok ? "Built" : "Built with problems"}</b> ${esc(new Date(r.finished * 1000).toLocaleString())}` +
     (r.use_active ? " · Active versions (preview)" : "") + (r.unplaced ? " · unplaced assets used" : "") + (r.keep_hand_moves === false ? " · layout reset" : "");
-  const facts = [n(r.placed, "asset placed", "assets placed"), n(r.greybox_slots, "stand-in left", "stand-ins left"),
+  const facts = [n(r.placed, "library asset placed", "library assets placed"), n(r.greybox_slots, "stand-in", "stand-ins"),
     `${fmtDur(r.seconds)}`].concat(r.held ? [`${r.held} held back (not approved or not fully built)`] : [])
     .concat(r.shots != null ? [n(r.shots, "shot rendered", "shots rendered")] : []);
   const place = r.placement_lines || ["placement not checked (no library actors read back)"];
